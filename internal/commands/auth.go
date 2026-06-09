@@ -1,0 +1,38 @@
+package commands
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/spf13/cobra"
+)
+
+func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "auth",
+		Short: "Authenticate Proofboard CLI",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("auth: %w", err)
+			}
+			emailHash, err := authEmailHash(ctx)
+			if err != nil {
+				return fmt.Errorf("auth email bridge: %w", err)
+			}
+			service := pbauth.NewService(runtime.credentials, runtime.config.AppBaseURL, runtime.config.AuthCallbackPort)
+			credentials, err := service.Login(ctx, emailHash)
+			if err != nil {
+				return fmt.Errorf("auth login: %w", err)
+			}
+			name := credentials.Username
+			if name == "" {
+				name = "Proofboard user"
+			}
+			_, err = fmt.Fprintf(out, "Authenticated as %s. Run proofboard link inside a repository to get started.\n", name)
+			return err
+		},
+	}
+}

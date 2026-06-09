@@ -1,0 +1,10 @@
+name: windows-sign
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sign:
+    runs-on: windows-latest
+    steps:
+      - run: echo "Windows signing placeholder"
