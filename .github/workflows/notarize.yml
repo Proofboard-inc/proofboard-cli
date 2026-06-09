@@ -1,0 +1,10 @@
+name: notarize
+
+on:
+  workflow_dispatch:
+
+jobs:
+  notarize:
+    runs-on: macos-latest
+    steps:
+      - run: echo "macOS notarization placeholder"
