@@ -38,6 +38,8 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		newUpdateCommand(ctx, out),
 		newUpdateDictionaryCommand(ctx, out),
 		newConfigCommand(ctx, out),
+		newNotificationsCommand(ctx, out),
+		newActivityCommand(ctx, out),
 	)
 	return cmd
 }

@@ -30,7 +30,7 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetEnvPrefix("proofboard")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
-	v.SetDefault("api.base_url", "https://api.proofboard.io")
+	v.SetDefault("api.base_url", "https://api-dev.proofboard.io")
 	v.SetDefault("app.base_url", "https://app.proofboard.io")
 	v.SetDefault("release.base_url", "https://releases.proofboard.io")
 	v.SetDefault("api.link_path", "/cli/link")
