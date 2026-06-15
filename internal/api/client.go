@@ -35,20 +35,42 @@ func NewClientWithHTTP(baseURL string, linkPath string, syncPath string, httpCli
 	return client
 }
 
-func (c Client) postJSON(ctx context.Context, path string, token string, request any, response any) error {
+func (c Client) requestJSON(ctx context.Context, method string, path string, token string, query url.Values, request any, response any) error {
 	endpoint, err := c.endpoint(path)
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+	if len(query) > 0 {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return fmt.Errorf("parse endpoint: %w", err)
+		}
+		q := u.Query()
+		for k, v := range query {
+			for _, val := range v {
+				q.Add(k, val)
+			}
+		}
+		u.RawQuery = q.Encode()
+		endpoint = u.String()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+
+	var body io.Reader
+	if request != nil {
+		data, err := json.Marshal(request)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		body = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if request != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -58,8 +80,8 @@ func (c Client) postJSON(ctx context.Context, path string, token string, request
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return fmt.Errorf("API returned %s: %s", res.Status, string(body))
+		bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return fmt.Errorf("API returned %s: %s", res.Status, string(bodyBytes))
 	}
 	if response == nil || res.StatusCode == http.StatusNoContent {
 		return nil
@@ -68,6 +90,18 @@ func (c Client) postJSON(ctx context.Context, path string, token string, request
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+func (c Client) postJSON(ctx context.Context, path string, token string, request any, response any) error {
+	return c.requestJSON(ctx, http.MethodPost, path, token, nil, request, response)
+}
+
+func (c Client) getJSON(ctx context.Context, path string, token string, query url.Values, response any) error {
+	return c.requestJSON(ctx, http.MethodGet, path, token, query, nil, response)
+}
+
+func (c Client) patchJSON(ctx context.Context, path string, token string, request any, response any) error {
+	return c.requestJSON(ctx, http.MethodPatch, path, token, nil, request, response)
 }
 
 func (c Client) endpoint(route string) (string, error) {
