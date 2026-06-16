@@ -55,7 +55,5 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	if len(input.Commits) > 0 {
 		payload.AINoiseScore = totalNoise / float64(len(input.Commits))
 	}
-	payload.NotifyWebSocket = len(input.Clusters) > 0
-	payload.NotifyPush = len(input.Clusters) > 0
 	return payload
 }

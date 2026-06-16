@@ -9,6 +9,7 @@ type Cluster struct {
 	DeletionTotal      int      `json:"deletionTotal"`
 	DurationDays       int      `json:"durationDays"`
 	ReferenceSHABucket []string `json:"referenceShaBucket"`
+	OutcomeSummary     string   `json:"outcomeSummary"`
 }
 
 type ScoredResult struct {

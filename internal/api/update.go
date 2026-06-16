@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type ReleaseClient struct {
@@ -44,6 +46,34 @@ func (c ReleaseClient) Latest(ctx context.Context, route string) (LatestVersion,
 		return LatestVersion{}, fmt.Errorf("decode latest version: %w", err)
 	}
 	return latest, nil
+}
+
+func (c ReleaseClient) Download(ctx context.Context, route string, w io.Writer) error {
+	endpoint := route
+	if !strings.HasPrefix(route, "http://") && !strings.HasPrefix(route, "https://") {
+		var err error
+		endpoint, err = c.endpoint(route)
+		if err != nil {
+			return err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create download request: %w", err)
+	}
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download file: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("download returned status %s", res.Status)
+	}
+	_, err = io.Copy(w, res.Body)
+	if err != nil {
+		return fmt.Errorf("write download data: %w", err)
+	}
+	return nil
 }
 
 func (c ReleaseClient) endpoint(route string) (string, error) {

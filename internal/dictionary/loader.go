@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 )
 
 //go:embed dictionary.json
@@ -23,6 +25,17 @@ func Load(ctx context.Context, reader io.Reader) (Dictionary, error) {
 }
 
 func LoadDefault(ctx context.Context) (Dictionary, error) {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		dictPath := filepath.Join(home, ".proofboard", "dictionary.json")
+		if file, err := os.Open(dictPath); err == nil {
+			defer file.Close()
+			if dict, err := Load(ctx, file); err == nil {
+				return dict, nil
+			}
+		}
+	}
+
 	file, err := embeddedDictionary.Open("dictionary.json")
 	if err != nil {
 		return Dictionary{}, fmt.Errorf("open embedded dictionary: %w", err)

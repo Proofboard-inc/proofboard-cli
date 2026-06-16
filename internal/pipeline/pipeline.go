@@ -28,6 +28,7 @@ type RunInput struct {
 	EmailHash       string
 	HandshakeStatus string
 	ExpectedOrgHash string
+	MergeTimestamps []int64
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -36,7 +37,7 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 	}
 	classified := phase2.Classify(input.Raw, p.dictionary)
 	scored := phase3.Score(classified, p.dictionary.Version)
-	clusters := phase4.Detect(scored)
+	clusters := phase4.Detect(scored, input.MergeTimestamps)
 	safe := phase5.Shred(input.Raw, classified)
 	payload := phase7.Assemble(phase7.AssemblyInput{
 		Commits:           safe,

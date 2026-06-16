@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sort"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/model"
@@ -86,3 +87,33 @@ func parseNumstat(value string) int {
 	}
 	return number
 }
+
+// MergeTimestamps returns sorted Unix timestamps of all merge commits in the repository.
+func MergeTimestamps(ctx context.Context, repo Repo) ([]int64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", repo.Path, "log", "--merges", "--format=%at")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log merges: %w", err)
+	}
+	lines := strings.Split(string(out), "\n")
+	var timestamps []int64
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		t, err := strconv.ParseInt(line, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse merge timestamp %q: %w", line, err)
+		}
+		timestamps = append(timestamps, t)
+	}
+	sort.Slice(timestamps, func(i, j int) bool {
+		return timestamps[i] < timestamps[j]
+	})
+	return timestamps, nil
+}
+

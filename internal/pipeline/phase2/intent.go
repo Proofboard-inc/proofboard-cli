@@ -8,11 +8,26 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
+func toLowerBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			out[i] = c + ('a' - 'A')
+		} else {
+			out[i] = c
+		}
+	}
+	return out
+}
+
 func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.CommitSignal {
 	signals := make([]model.CommitSignal, 0, len(commits))
 	for i := range commits {
 		commit := &commits[i]
-		subjectLower := strings.ToLower(string(commit.Subject))
+		subjectLowerBytes := toLowerBytes(commit.Subject)
 		scores := make(map[string]int, len(dictionary.Categories))
 		primary := CategoryUnknown
 		primaryScore := 0
@@ -21,7 +36,8 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 		for category, categorySignals := range dictionary.Categories {
 			score := 0
 			for _, keyword := range categorySignals.Keywords {
-				if strings.Contains(subjectLower, strings.ToLower(keyword)) {
+				keywordBytes := []byte(strings.ToLower(keyword))
+				if bytes.Contains(subjectLowerBytes, keywordBytes) {
 					score++
 				}
 			}
@@ -46,6 +62,8 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 		noise := NoiseScore(commit.Subject, scores)
 		crypto.ZeroBytes(commit.Subject)
 		commit.Subject = nil
+		crypto.ZeroBytes(subjectLowerBytes)
+		subjectLowerBytes = nil
 
 		signals = append(signals, model.CommitSignal{
 			SHA:             commit.SHA,
@@ -68,10 +86,20 @@ func NoiseScore(subject []byte, scores map[string]int) float64 {
 	if len(trimmed) == 0 {
 		return 1
 	}
-	lower := strings.ToLower(string(trimmed))
-	trivial := []string{"wip", "update", "changes", "misc", "fix", "commit"}
+	trimmedLower := toLowerBytes(trimmed)
+	defer func() {
+		crypto.ZeroBytes(trimmedLower)
+	}()
+	trivial := [][]byte{
+		[]byte("wip"),
+		[]byte("update"),
+		[]byte("changes"),
+		[]byte("misc"),
+		[]byte("fix"),
+		[]byte("commit"),
+	}
 	for _, value := range trivial {
-		if lower == value {
+		if bytes.Equal(trimmedLower, value) {
 			return 0.95
 		}
 	}

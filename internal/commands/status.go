@@ -35,6 +35,9 @@ func newStatusCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				repo := current.LinkedRepos[repoHash]
 				fmt.Fprintf(out, "%s tier=%s lastSync=%s lastHead=%s\n", repoHash, repo.Tier, repo.LastSyncAt.Format("2006-01-02T15:04:05Z07:00"), repo.LastHeadSHA)
 			}
+			if err := triggerMonthlyCareerSummary(ctx, out, runtime); err != nil {
+				return err
+			}
 			return nil
 		},
 	}

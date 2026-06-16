@@ -1,37 +1,116 @@
 package phase4
 
-import "github.com/proofboard/proofboard/internal/model"
+import (
+	"sort"
 
-func Detect(result model.ScoredResult) []model.Cluster {
+	"github.com/proofboard/proofboard/internal/model"
+	"github.com/proofboard/proofboard/internal/pipeline/phase7a"
+)
+
+func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster {
 	if len(result.Commits) == 0 {
 		return nil
 	}
-	first := result.Commits[0].Timestamp
-	last := first
-	additions := 0
-	deletions := 0
-	impactScores := make(map[string]int)
-	for _, commit := range result.Commits {
-		if commit.Timestamp.Before(first) {
-			first = commit.Timestamp
+
+	// 1. Sort commits chronologically (ascending)
+	commits := make([]model.CommitSignal, len(result.Commits))
+	copy(commits, result.Commits)
+	sort.Slice(commits, func(i, j int) bool {
+		return commits[i].Timestamp.Before(commits[j].Timestamp)
+	})
+
+	// 2. Group commits by cluster index using mergeTimestamps as boundaries.
+	// A commit falls into the first merge timestamp M_j >= commit.Timestamp.Unix().
+	// If no such M_j exists, it falls into group index len(mergeTimestamps).
+	groups := make(map[int][]model.CommitSignal)
+	var groupKeys []int
+
+	for _, commit := range commits {
+		tUnix := commit.Timestamp.Unix()
+		clusterIdx := len(mergeTimestamps)
+		for idx, mt := range mergeTimestamps {
+			if tUnix <= mt {
+				clusterIdx = idx
+				break
+			}
 		}
-		if commit.Timestamp.After(last) {
-			last = commit.Timestamp
+		if _, ok := groups[clusterIdx]; !ok {
+			groupKeys = append(groupKeys, clusterIdx)
 		}
-		additions += commit.Additions
-		deletions += commit.Deletions
-		impactScores[commit.ImpactType]++
+		groups[clusterIdx] = append(groups[clusterIdx], commit)
 	}
-	return []model.Cluster{{
-		ClusterLabel:       result.PrimaryCategory,
-		ImpactType:         dominantImpact(impactScores),
-		Scale:              scale(len(result.Commits)),
-		CommitCount:        len(result.Commits),
-		AdditionTotal:      additions,
-		DeletionTotal:      deletions,
-		DurationDays:       int(last.Sub(first).Hours() / 24),
-		ReferenceSHABucket: representativeSHAs(result.Commits),
-	}}
+
+	// Sort group keys to output clusters in chronological order.
+	sort.Ints(groupKeys)
+
+	clusters := make([]model.Cluster, 0, len(groupKeys))
+	for _, key := range groupKeys {
+		clusterCommits := groups[key]
+		if len(clusterCommits) == 0 {
+			continue
+		}
+
+		first := clusterCommits[0].Timestamp
+		last := clusterCommits[len(clusterCommits)-1].Timestamp
+		additions := 0
+		deletions := 0
+		impactScores := make(map[string]int)
+		categorySums := make(map[string]int)
+
+		for _, commit := range clusterCommits {
+			additions += commit.Additions
+			deletions += commit.Deletions
+			impactScores[commit.ImpactType]++
+			for cat, score := range commit.CategoryScores {
+				categorySums[cat] += score
+			}
+		}
+
+		type rankedCategory struct {
+			name  string
+			score int
+		}
+		var ranked []rankedCategory
+		for cat, score := range categorySums {
+			ranked = append(ranked, rankedCategory{name: cat, score: score})
+		}
+		sort.Slice(ranked, func(i, j int) bool {
+			if ranked[i].score == ranked[j].score {
+				return ranked[i].name < ranked[j].name
+			}
+			return ranked[i].score > ranked[j].score
+		})
+
+		primary := "Unclassified"
+		if len(ranked) > 0 {
+			primary = ranked[0].name
+		}
+		secondary := ""
+		if len(ranked) > 1 {
+			secondary = ranked[1].name
+		}
+
+		durationDays := int(last.Sub(first).Hours() / 24)
+		scaleStr := scale(len(clusterCommits))
+		impType := dominantImpact(impactScores)
+		summary := phase7a.GenerateSummary(primary, secondary, impType, scaleStr, len(clusterCommits), durationDays)
+
+		c := model.Cluster{
+			ClusterLabel:       primary,
+			ImpactType:         impType,
+			Scale:              scaleStr,
+			CommitCount:        len(clusterCommits),
+			AdditionTotal:      additions,
+			DeletionTotal:      deletions,
+			DurationDays:       durationDays,
+			ReferenceSHABucket: representativeSHAs(clusterCommits),
+			OutcomeSummary:     summary,
+		}
+
+		clusters = append(clusters, c)
+	}
+
+	return clusters
 }
 
 func scale(commitCount int) string {
@@ -49,7 +128,7 @@ func dominantImpact(scores map[string]int) string {
 	best := "feature"
 	bestScore := -1
 	for impact, score := range scores {
-		if score > bestScore {
+		if score > bestScore || (score == bestScore && impact < best) {
 			best = impact
 			bestScore = score
 		}
