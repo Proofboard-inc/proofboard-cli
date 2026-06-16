@@ -7,6 +7,9 @@ type State struct {
 	WatchedBranches           []string                   `json:"watchedBranches"`
 	AutoUpdateDictionary      bool                       `json:"autoUpdateDictionary"`
 	LastDictionaryUpdateCheck time.Time                  `json:"lastDictionaryUpdateCheck,omitempty"`
+	SuppressedWorkspaces      []string                   `json:"suppressedWorkspaces"`
+	MonthlyCareerSummaryShown map[string]bool            `json:"monthlyCareerSummaryShown"`
+	DictionaryVersion         string                     `json:"dictionaryVersion,omitempty"`
 }
 
 type LinkedRepo struct {

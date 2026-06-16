@@ -58,13 +58,21 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 	if state.LinkedRepos == nil {
 		state.LinkedRepos = make(map[string]model.LinkedRepoState)
 	}
+	if state.MonthlyCareerSummaryShown == nil {
+		state.MonthlyCareerSummaryShown = make(map[string]bool)
+	}
+	if state.SuppressedWorkspaces == nil {
+		state.SuppressedWorkspaces = make([]string, 0)
+	}
 	return state, nil
 }
 
 func Default() model.State {
 	return model.State{
-		LinkedRepos:          make(map[string]model.LinkedRepoState),
-		WatchedBranches:      []string{"main", "master", "production"},
-		AutoUpdateDictionary: true,
+		LinkedRepos:               make(map[string]model.LinkedRepoState),
+		WatchedBranches:           []string{"main", "master", "develop"},
+		AutoUpdateDictionary:      true,
+		MonthlyCareerSummaryShown: make(map[string]bool),
+		SuppressedWorkspaces:      make([]string, 0),
 	}
 }

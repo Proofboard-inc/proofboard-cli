@@ -18,8 +18,6 @@ type SyncPayload struct {
 	CapturedAt        time.Time      `json:"capturedAt"`
 	CLIVersion        string         `json:"cliVersion"`
 	DictionaryVersion string         `json:"dictionaryVersion"`
-	NotifyWebSocket   bool           `json:"notifyWebSocket"`
-	NotifyPush        bool           `json:"notifyPush"`
 	OrgHashMismatch   bool           `json:"orgHashMismatch"`
 	IdentityMismatch  int            `json:"identityMismatch"`
 	LowCommitCount    bool           `json:"lowCommitCount"`
