@@ -1,7 +1,14 @@
 package commands
 
 import (
+	"bytes"
+	"context"
+	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/model"
+	"github.com/proofboard/proofboard/internal/state"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,5 +66,119 @@ func TestAbortSync(t *testing.T) {
 	}
 	if !strings.Contains(logContent, repoHash) {
 		t.Errorf("expected log content to contain repo hash %q, got: %s", repoHash, logContent)
+	}
+}
+
+func TestSyncPipelineOrdering(t *testing.T) {
+	tempHome := t.TempDir()
+	repoDir := t.TempDir()
+
+	// Initialize git repo
+	cmdInit := exec.Command("git", "init", "-b", "main")
+	cmdInit.Dir = repoDir
+	if err := cmdInit.Run(); err != nil {
+		cmdInit = exec.Command("git", "init")
+		cmdInit.Dir = repoDir
+		_ = cmdInit.Run()
+	}
+	exec.Command("git", "-C", repoDir, "config", "user.email", "test@example.com").Run()
+	exec.Command("git", "-C", repoDir, "config", "user.name", "Test User").Run()
+	exec.Command("git", "-C", repoDir, "remote", "add", "origin", "https://github.com/org/repo.git").Run()
+
+	t.Setenv("HOME", tempHome)
+
+	ctx := context.Background()
+
+	// Setup mock credentials
+	credStore := pbauth.NewCredentialStore(tempHome)
+	err := credStore.Save(ctx, model.Credentials{
+		Token:     "test-token",
+		EmailHash: "test-email-hash",
+	})
+	if err != nil {
+		t.Fatalf("failed to save credentials: %v", err)
+	}
+
+	// Setup mock state with LinkedRepos
+	stateStore := state.NewStore(tempHome)
+	st, err := stateStore.Load(ctx)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+	
+	repoHash := crypto.SHA256("github.com:org/repo")
+	st.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:    repoHash,
+		OrgHash:     crypto.SHA256("github.com:org"),
+		PathHash:    "path-hash",
+		LastHeadSHA: "some-sha",
+	}
+	if err := stateStore.Save(ctx, st); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	// Commit at least 2 files in separate commits to avoid single-commit filter
+	err = os.WriteFile(filepath.Join(repoDir, "file1.go"), []byte("package main"), 0o644)
+	if err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	exec.Command("git", "-C", repoDir, "add", "file1.go").Run()
+	exec.Command("git", "-C", repoDir, "commit", "-m", "feat: add first file").Run()
+
+	err = os.WriteFile(filepath.Join(repoDir, "file2.go"), []byte("package main"), 0o644)
+	if err != nil {
+		t.Fatalf("failed to write file2: %v", err)
+	}
+	exec.Command("git", "-C", repoDir, "add", "file2.go").Run()
+	exec.Command("git", "-C", repoDir, "commit", "-m", "feat: add second file").Run()
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	var out bytes.Buffer
+	cmd := newSyncCommand(ctx, &out)
+
+	// Execute command, ignore handshake error
+	_ = cmd.ExecuteContext(ctx)
+
+	// Read sync.log and inspect the steps sequence
+	logPath := filepath.Join(tempHome, ".proofboard", "sync.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read sync.log: %v", err)
+	}
+
+	logContent := string(data)
+	lines := strings.Split(strings.TrimSpace(logContent), "\n")
+
+	pipelineIndex := -1
+	handshakeIndex := -1
+
+	for idx, line := range lines {
+		if strings.Contains(line, "Phases 2-5: Pipeline") {
+			pipelineIndex = idx
+		}
+		if strings.Contains(line, "Phase 6: Handshake") {
+			handshakeIndex = idx
+		}
+	}
+
+	if pipelineIndex == -1 {
+		t.Errorf("Phases 2-5: Pipeline was not logged in sync.log: %s", logContent)
+	}
+	if handshakeIndex == -1 {
+		t.Errorf("Phase 6: Handshake was not logged in sync.log: %s", logContent)
+	}
+
+	if pipelineIndex != -1 && handshakeIndex != -1 && pipelineIndex > handshakeIndex {
+		t.Errorf("Pipeline run happened AFTER Handshake. Pipeline index: %d, Handshake index: %d. Logs: %s", pipelineIndex, handshakeIndex, logContent)
 	}
 }
