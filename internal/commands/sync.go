@@ -303,6 +303,24 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 
+			if verbose {
+				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
+			}
+			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
+				Raw:             raw,
+				OrgHash:         identity.OrgHash,
+				RepoHash:        identity.RepoHash,
+				EmailHash:       credentials.EmailHash,
+				HandshakeStatus: "pending",
+				ExpectedOrgHash: repoState.OrgHash,
+				MergeTimestamps: mergeTimestamps,
+			})
+			if err != nil {
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
+				return err
+			}
+			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "success", "")
+
 			handshakeStatus := "success"
 			if verbose {
 				fmt.Fprintln(out, "Phase 6: handshake")
@@ -321,23 +339,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			} else {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "success", "")
 			}
-			if verbose {
-				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
-			}
-			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
-				Raw:             raw,
-				OrgHash:         identity.OrgHash,
-				RepoHash:        identity.RepoHash,
-				EmailHash:       credentials.EmailHash,
-				HandshakeStatus: handshakeStatus,
-				ExpectedOrgHash: repoState.OrgHash,
-				MergeTimestamps: mergeTimestamps,
-			})
-			if err != nil {
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
-				return err
-			}
-			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "success", "")
+			payload.HandshakeStatus = handshakeStatus
 
 			// c. High boilerplate noise: Average aiNoiseScore (AINoiseScore) across all commits in the range > 0.85
 			if payload.AINoiseScore > 0.85 {
