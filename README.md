@@ -20,7 +20,7 @@ proofboard update-dictionary
 proofboard config set auto-update-dictionary false
 ```
 
-`proofboard stop` is not part of v1.2. The v1.2 architecture has no persistent daemon.
+`proofboard stop` is not part of v1.4. The v1.4 architecture has no persistent daemon.
 
 ## What The CLI Transmits
 
