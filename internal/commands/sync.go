@@ -63,7 +63,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			repoState, linked := current.LinkedRepos[identity.RepoHash]
-			var linkedThisTime bool
 			if !linked {
 				repoPath, err := filepath.Abs(repo.Path)
 				if err != nil {
@@ -185,7 +184,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
 						return err
 					}
-					linkedThisTime = true
 				} else if response == "n" {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link prompt", "aborted", "user chose not to link")
 					return nil
@@ -365,9 +363,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			repoState.DictionaryVersion = dict.Version
 			if handshakeStatus == "success" {
 				repoState.LastHandshake = repoState.LastSyncAt
-				repoState.Tier = "Tier2"
+				repoState.Tier = "SHA Proof"
 			} else {
-				repoState.Tier = "Tier2-skipped"
+				repoState.Tier = "SHA Proof — handshake skipped"
 			}
 			current, err = runtime.state.Load(ctx)
 			if err != nil {
@@ -383,11 +381,12 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if tier == "" {
 				tier = repoState.Tier
 			}
+			tier = mapTierName(tier)
 			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d. Tier achieved: %s.\n", len(payload.SHAs), len(payload.ImpactScores), tier)
 			if err != nil {
 				return err
 			}
-			if linkedThisTime {
+			if len(payload.SHAs) > 0 {
 				_, err = fmt.Fprintln(out, "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard")
 				if err != nil {
 					return err
@@ -424,5 +423,16 @@ func abortSync(homeDir, repoHash string) error {
 
 func abortSyncWithTrigger(homeDir, repoHash, triggerSource string) error {
 	return logging.WriteSyncLog(homeDir, repoHash, triggerSource, "pre-classification filter", "aborted", "trivial merge skipped")
+}
+
+func mapTierName(tier string) string {
+	switch tier {
+	case "Tier2":
+		return "SHA Proof"
+	case "Tier2-skipped":
+		return "SHA Proof — handshake skipped"
+	default:
+		return tier
+	}
 }
 
