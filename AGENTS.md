@@ -3,7 +3,7 @@
 Sync changes here across the following locations:
 - (project root)/AGENTS.md
 - (project root)/GEMINI.md
-- (project root)/CLAUD.md
+- (project root)/CLAUDE.md
 - (project root)/.kiro/steering/project-rules.md
 
 Spec at - (project root)/SPEC.md
