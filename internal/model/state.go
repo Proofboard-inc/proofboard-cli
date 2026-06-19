@@ -10,6 +10,7 @@ type State struct {
 	SuppressedWorkspaces      []string                   `json:"suppressedWorkspaces"`
 	MonthlyCareerSummaryShown map[string]bool            `json:"monthlyCareerSummaryShown"`
 	DictionaryVersion         string                     `json:"dictionaryVersion,omitempty"`
+	FirstRunSetupComplete     bool                       `json:"firstRunSetupComplete"`
 }
 
 type LinkedRepo struct {
