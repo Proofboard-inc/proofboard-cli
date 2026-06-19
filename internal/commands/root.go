@@ -30,6 +30,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		Short:         "Local-first developer verification",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return runStartupUpdateChecks(cmd.Context(), cmd)
 		},
