@@ -40,7 +40,9 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 		done <- result{credentials: credentials, err: err}
 	}()
 	if err := OpenBrowser(ctx, authURL); err != nil {
-		return model.Credentials{}, err
+		fmt.Printf("Warning: Failed to automatically open your browser.\n\nPlease navigate to the following URL manually to login:\n%s\n\nWaiting for authentication...\n", authURL)
+	} else {
+		fmt.Printf("Opening browser to complete authentication...\nIf it does not open automatically, navigate to:\n%s\n\nWaiting for authentication...\n", authURL)
 	}
 	authResult := <-done
 	if authResult.err != nil {
