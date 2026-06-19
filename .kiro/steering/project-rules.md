@@ -10,7 +10,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard CLI v1.4
+Proofboard CLI v1.4.2
 
 Implementation language: Go 1.21+
 
@@ -65,7 +65,7 @@ Only transmit:
 
 Required commands:
 
-* auth
+* auth (Supports headless fallback via CLI output)
 * link
 * unlink
 * sync
@@ -73,6 +73,9 @@ Required commands:
 * logs
 * update
 * config
+* install (Global system-wide installer)
+* uninstall (Global uninstaller)
+* completion (Interactive auto-completion setup)
 
 ## Pipeline
 
