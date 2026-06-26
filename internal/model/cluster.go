@@ -1,15 +1,16 @@
 package model
 
 type Cluster struct {
-	ClusterLabel       string   `json:"clusterLabel"`
-	ImpactType         string   `json:"impactType"`
-	Scale              string   `json:"scale"`
-	CommitCount        int      `json:"commitCount"`
-	AdditionTotal      int      `json:"additionTotal"`
-	DeletionTotal      int      `json:"deletionTotal"`
-	DurationDays       int      `json:"durationDays"`
-	ReferenceSHABucket []string `json:"referenceShaBucket"`
-	OutcomeSummary     string   `json:"outcomeSummary"`
+	Category          string `json:"category"`
+	ImpactType        string `json:"impactType"`
+	ImpactScale       string `json:"impactScale"`
+	CommitCount       int    `json:"commitCount"`
+	TotalAdditions    int    `json:"totalAdditions"`
+	TotalDeletions    int    `json:"totalDeletions"`
+	StartTimestamp    int64  `json:"startTimestamp"`
+	EndTimestamp      int64  `json:"endTimestamp"`
+	TotalFilesChanged int    `json:"totalFilesChanged"`
+	ClusterIndex      int    `json:"clusterIndex"`
 }
 
 type ScoredResult struct {

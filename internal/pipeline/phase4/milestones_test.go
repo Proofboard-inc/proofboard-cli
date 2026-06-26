@@ -64,36 +64,30 @@ func TestDetectClustering(t *testing.T) {
 		c := clusters[0]
 		// Auth (2+8=10) vs Payments (5+2=7) vs Database (4+10=14)
 		// Highest sum of scores is Database (14), followed by Auth (10).
-		if c.ClusterLabel != "Database" {
-			t.Errorf("expected ClusterLabel 'Database', got %q", c.ClusterLabel)
+		if c.Category != "Database" {
+			t.Errorf("expected Category 'Database', got %q", c.Category)
 		}
 		// bugfix (2) vs feature (1) vs refactor (1)
 		if c.ImpactType != "bugfix" {
 			t.Errorf("expected ImpactType 'bugfix', got %q", c.ImpactType)
 		}
-		if c.Scale != "small" {
-			t.Errorf("expected Scale 'small', got %q", c.Scale)
+		if c.ImpactScale != "small" {
+			t.Errorf("expected ImpactScale 'small', got %q", c.ImpactScale)
 		}
 		if c.CommitCount != 4 {
 			t.Errorf("expected CommitCount 4, got %d", c.CommitCount)
 		}
-		if c.AdditionTotal != 50 {
-			t.Errorf("expected AdditionTotal 50, got %d", c.AdditionTotal)
+		if c.TotalAdditions != 50 {
+			t.Errorf("expected TotalAdditions 50, got %d", c.TotalAdditions)
 		}
-		if c.DeletionTotal != 20 {
-			t.Errorf("expected DeletionTotal 20, got %d", c.DeletionTotal)
+		if c.TotalDeletions != 20 {
+			t.Errorf("expected TotalDeletions 20, got %d", c.TotalDeletions)
 		}
-		if c.DurationDays != 2 { // diff between sha4 and sha1 is 48 hours = 2 days
-			t.Errorf("expected DurationDays 2, got %d", c.DurationDays)
+		if c.StartTimestamp != baseTime.Unix() {
+			t.Errorf("expected StartTimestamp %d, got %d", baseTime.Unix(), c.StartTimestamp)
 		}
-		if len(c.ReferenceSHABucket) != 3 {
-			t.Errorf("expected 3 reference SHAs, got %d", len(c.ReferenceSHABucket))
-		}
-		expectedSHAs := []string{"sha1", "sha2", "sha3"}
-		for i, sha := range expectedSHAs {
-			if c.ReferenceSHABucket[i] != sha {
-				t.Errorf("expected ReferenceSHA[%d] = %q, got %q", i, sha, c.ReferenceSHABucket[i])
-			}
+		if c.EndTimestamp != baseTime.Add(48*time.Hour).Unix() {
+			t.Errorf("expected EndTimestamp %d, got %d", baseTime.Add(48*time.Hour).Unix(), c.EndTimestamp)
 		}
 	})
 
@@ -108,9 +102,9 @@ func TestDetectClustering(t *testing.T) {
 
 		// First cluster: sha1, sha2
 		c1 := clusters[0]
-		// Payments: 5+2=7, Auth: 2+8=10 -> ClusterLabel: Auth
-		if c1.ClusterLabel != "Auth" {
-			t.Errorf("cluster 1: expected ClusterLabel 'Auth', got %q", c1.ClusterLabel)
+		// Payments: 5+2=7, Auth: 2+8=10 -> Category: Auth
+		if c1.Category != "Auth" {
+			t.Errorf("cluster 1: expected Category 'Auth', got %q", c1.Category)
 		}
 		// feature vs refactor (tie, alphabetically 'feature' < 'refactor')
 		if c1.ImpactType != "feature" {
@@ -119,20 +113,23 @@ func TestDetectClustering(t *testing.T) {
 		if c1.CommitCount != 2 {
 			t.Errorf("cluster 1: expected CommitCount 2, got %d", c1.CommitCount)
 		}
-		if c1.AdditionTotal != 30 {
-			t.Errorf("cluster 1: expected AdditionTotal 30, got %d", c1.AdditionTotal)
+		if c1.TotalAdditions != 30 {
+			t.Errorf("cluster 1: expected TotalAdditions 30, got %d", c1.TotalAdditions)
 		}
-		if c1.DeletionTotal != 15 {
-			t.Errorf("cluster 1: expected DeletionTotal 15, got %d", c1.DeletionTotal)
+		if c1.TotalDeletions != 15 {
+			t.Errorf("cluster 1: expected TotalDeletions 15, got %d", c1.TotalDeletions)
 		}
-		if c1.DurationDays != 0 { // diff is 2 hours = 0 days
-			t.Errorf("cluster 1: expected DurationDays 0, got %d", c1.DurationDays)
+		if c1.StartTimestamp != baseTime.Unix() {
+			t.Errorf("cluster 1: expected StartTimestamp %d, got %d", baseTime.Unix(), c1.StartTimestamp)
+		}
+		if c1.EndTimestamp != baseTime.Add(2*time.Hour).Unix() {
+			t.Errorf("cluster 1: expected EndTimestamp %d, got %d", baseTime.Add(2*time.Hour).Unix(), c1.EndTimestamp)
 		}
 
 		// Second cluster: sha3, sha4
 		c2 := clusters[1]
-		if c2.ClusterLabel != "Database" {
-			t.Errorf("cluster 2: expected ClusterLabel 'Database', got %q", c2.ClusterLabel)
+		if c2.Category != "Database" {
+			t.Errorf("cluster 2: expected Category 'Database', got %q", c2.Category)
 		}
 		if c2.ImpactType != "bugfix" {
 			t.Errorf("cluster 2: expected ImpactType 'bugfix', got %q", c2.ImpactType)
@@ -140,14 +137,17 @@ func TestDetectClustering(t *testing.T) {
 		if c2.CommitCount != 2 {
 			t.Errorf("cluster 2: expected CommitCount 2, got %d", c2.CommitCount)
 		}
-		if c2.AdditionTotal != 20 {
-			t.Errorf("cluster 2: expected AdditionTotal 20, got %d", c2.AdditionTotal)
+		if c2.TotalAdditions != 20 {
+			t.Errorf("cluster 2: expected TotalAdditions 20, got %d", c2.TotalAdditions)
 		}
-		if c2.DeletionTotal != 5 {
-			t.Errorf("cluster 2: expected DeletionTotal 5, got %d", c2.DeletionTotal)
+		if c2.TotalDeletions != 5 {
+			t.Errorf("cluster 2: expected TotalDeletions 5, got %d", c2.TotalDeletions)
 		}
-		if c2.DurationDays != 1 { // diff between sha3 and sha4 is 24 hours = 1 day
-			t.Errorf("cluster 2: expected DurationDays 1, got %d", c2.DurationDays)
+		if c2.StartTimestamp != baseTime.Add(24*time.Hour).Unix() {
+			t.Errorf("cluster 2: expected StartTimestamp %d, got %d", baseTime.Add(24*time.Hour).Unix(), c2.StartTimestamp)
+		}
+		if c2.EndTimestamp != baseTime.Add(48*time.Hour).Unix() {
+			t.Errorf("cluster 2: expected EndTimestamp %d, got %d", baseTime.Add(48*time.Hour).Unix(), c2.EndTimestamp)
 		}
 	})
 }

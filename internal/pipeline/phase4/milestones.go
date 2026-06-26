@@ -4,7 +4,6 @@ import (
 	"sort"
 
 	"github.com/proofboard/proofboard/internal/model"
-	"github.com/proofboard/proofboard/internal/pipeline/phase7a"
 )
 
 func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster {
@@ -54,12 +53,14 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 		last := clusterCommits[len(clusterCommits)-1].Timestamp
 		additions := 0
 		deletions := 0
+		filesChanged := 0
 		impactScores := make(map[string]int)
 		categorySums := make(map[string]int)
 
 		for _, commit := range clusterCommits {
 			additions += commit.Additions
 			deletions += commit.Deletions
+			filesChanged += commit.FilesChanged
 			impactScores[commit.ImpactType]++
 			for cat, score := range commit.CategoryScores {
 				categorySums[cat] += score
@@ -85,26 +86,21 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 		if len(ranked) > 0 {
 			primary = ranked[0].name
 		}
-		secondary := ""
-		if len(ranked) > 1 {
-			secondary = ranked[1].name
-		}
 
-		durationDays := int(last.Sub(first).Hours() / 24)
 		scaleStr := scale(len(clusterCommits))
 		impType := dominantImpact(impactScores)
-		summary := phase7a.GenerateSummary(primary, secondary, impType, scaleStr, len(clusterCommits), durationDays)
 
 		c := model.Cluster{
-			ClusterLabel:       primary,
-			ImpactType:         impType,
-			Scale:              scaleStr,
-			CommitCount:        len(clusterCommits),
-			AdditionTotal:      additions,
-			DeletionTotal:      deletions,
-			DurationDays:       durationDays,
-			ReferenceSHABucket: representativeSHAs(clusterCommits),
-			OutcomeSummary:     summary,
+			Category:          primary,
+			ImpactType:        impType,
+			ImpactScale:       scaleStr,
+			CommitCount:       len(clusterCommits),
+			TotalAdditions:    additions,
+			TotalDeletions:    deletions,
+			TotalFilesChanged: filesChanged,
+			StartTimestamp:    first.Unix(),
+			EndTimestamp:      last.Unix(),
+			ClusterIndex:      key,
 		}
 
 		clusters = append(clusters, c)

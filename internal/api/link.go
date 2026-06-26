@@ -2,27 +2,32 @@ package api
 
 import (
 	"context"
-
-	"github.com/proofboard/proofboard/internal/model"
 )
 
 type LinkRequest struct {
-	OrgHash   string `json:"orgHash"`
-	RepoHash  string `json:"repoHash"`
-	EmailHash string `json:"emailHash"`
+	OrgHash           string `json:"orgHash"`
+	RepoHash          string `json:"repoHash"`
+	Provider          string `json:"provider"`
+	ExistingProjectID string `json:"existingProjectId,omitempty"`
+	CreateNew         bool   `json:"createNew,omitempty"`
+}
+
+type ExistingProjectOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
 }
 
 type LinkResponse struct {
-	DisplayOrg string `json:"displayOrg"`
-	Tier       string `json:"tier"`
+	IsNewProject           bool                    `json:"isNewProject"`
+	ProjectID              string                  `json:"projectId"`
+	ExistingProjectOptions []ExistingProjectOption `json:"existingProjectOptions"`
+	DictionaryVersion      string                  `json:"dictionaryVersion"`
+	PublicKey              string                  `json:"publicKey"`
 }
 
-func (c Client) Link(ctx context.Context, token string, identity model.RemoteIdentity, emailHash string) (LinkResponse, error) {
+func (c Client) Link(ctx context.Context, token string, req LinkRequest) (LinkResponse, error) {
 	var response LinkResponse
-	err := c.postJSON(ctx, c.linkPath, token, LinkRequest{
-		OrgHash:   identity.OrgHash,
-		RepoHash:  identity.RepoHash,
-		EmailHash: emailHash,
-	}, &response)
+	err := c.postJSON(ctx, c.linkPath, token, req, &response)
 	return response, err
 }

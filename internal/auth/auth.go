@@ -2,74 +2,82 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"net/url"
-	"strconv"
+	"strings"
+	"time"
 
+	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/model"
 )
 
 type Service struct {
-	store      CredentialStore
-	appBaseURL string
-	port       int
+	store  CredentialStore
+	client api.Client
 }
 
-func NewService(store CredentialStore, appBaseURL string, port int) Service {
-	return Service{store: store, appBaseURL: appBaseURL, port: port}
+func NewService(store CredentialStore, client api.Client) Service {
+	return Service{store: store, client: client}
+}
+
+func generateDeviceCode() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	hexStr := strings.ToUpper(hex.EncodeToString(b))
+	return hexStr[:4] + "-" + hexStr[4:]
 }
 
 func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials, error) {
 	if err := ctx.Err(); err != nil {
 		return model.Credentials{}, fmt.Errorf("login: %w", err)
 	}
-	callback := CallbackServer{Port: s.port}
-	authURL, err := s.authURL(emailHash)
-	if err != nil {
-		return model.Credentials{}, err
-	}
-	waitCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	type result struct {
-		credentials model.Credentials
-		err         error
-	}
-	done := make(chan result, 1)
-	go func() {
-		credentials, err := callback.Wait(waitCtx)
-		done <- result{credentials: credentials, err: err}
-	}()
-	if err := OpenBrowser(ctx, authURL); err != nil {
-		fmt.Printf("Warning: Failed to automatically open your browser.\n\nPlease navigate to the following URL manually to login:\n%s\n\nWaiting for authentication...\n", authURL)
-	} else {
-		fmt.Printf("Opening browser to complete authentication...\nIf it does not open automatically, navigate to:\n%s\n\nWaiting for authentication...\n", authURL)
-	}
-	authResult := <-done
-	if authResult.err != nil {
-		return model.Credentials{}, authResult.err
-	}
-	if authResult.credentials.EmailHash == "" {
-		authResult.credentials.EmailHash = emailHash
-	}
-	if err := s.store.Save(ctx, authResult.credentials); err != nil {
-		return model.Credentials{}, err
-	}
-	return authResult.credentials, nil
-}
 
-func (s Service) authURL(emailHash string) (string, error) {
-	base, err := url.Parse(s.appBaseURL)
+	code := generateDeviceCode()
+	resp, err := s.client.CreateDeviceCode(ctx, code)
 	if err != nil {
-		return "", fmt.Errorf("parse app base URL: %w", err)
+		return model.Credentials{}, err
 	}
-	path, err := url.Parse("/cli-auth")
-	if err != nil {
-		return "", fmt.Errorf("parse auth path: %w", err)
+
+	fmt.Printf("Please authenticate your CLI session.\n\n")
+	fmt.Printf("Your device code is: %s\n\n", resp.DeviceCode)
+
+	if err := OpenBrowser(ctx, resp.VerificationURL); err != nil {
+		fmt.Printf("Navigate to the following URL manually to login:\n%s\n\n", resp.VerificationURL)
+	} else {
+		fmt.Printf("Opening browser to complete authentication...\nIf it does not open automatically, navigate to:\n%s\n\n", resp.VerificationURL)
 	}
-	authURL := base.ResolveReference(path)
-	query := authURL.Query()
-	query.Set("port", strconv.Itoa(s.port))
-	query.Set("emailHash", emailHash)
-	authURL.RawQuery = query.Encode()
-	return authURL.String(), nil
+	fmt.Printf("Waiting for authentication...\n")
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return model.Credentials{}, ctx.Err()
+		case <-ticker.C:
+			pollResp, err := s.client.PollDeviceCode(ctx, resp.DeviceCode)
+			if err != nil {
+				continue // ignore temporary network errors during poll
+			}
+			if pollResp.Status == "approved" {
+				creds := model.Credentials{
+					Token:        pollResp.Token,
+					RefreshToken: pollResp.RefreshToken,
+					Username:     pollResp.Username,
+					EmailHash:    emailHash,
+				}
+				if creds.Username == "" {
+					creds.Username = "Proofboard user"
+				}
+				if err := s.store.Save(ctx, creds); err != nil {
+					return model.Credentials{}, fmt.Errorf("save credentials: %w", err)
+				}
+				return creds, nil
+			} else if pollResp.Status == "expired" || pollResp.Status == "denied" {
+				return model.Credentials{}, fmt.Errorf("authentication %s", pollResp.Status)
+			}
+		}
+	}
 }

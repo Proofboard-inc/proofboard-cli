@@ -21,23 +21,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestMapTierName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"Tier2", "SHA Proof"},
-		{"Tier2-skipped", "SHA Proof — handshake skipped"},
-		{"Tier1", "Tier1"},
-		{"SHA Proof", "SHA Proof"},
-	}
-	for _, tc := range tests {
-		got := mapTierName(tc.input)
-		if got != tc.expected {
-			t.Errorf("mapTierName(%q) = %q, want %q", tc.input, got, tc.expected)
-		}
-	}
-}
+
 
 func TestStatusPendingCheck(t *testing.T) {
 	tempHome := t.TempDir()
@@ -94,7 +78,7 @@ func TestStatusPendingCheck(t *testing.T) {
 		PathHash:          "path-hash",
 		LastHeadSHA:       initialHead,
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
-		Tier:              "Tier2",
+		ProjectID:         "proj-123",
 		DictionaryVersion: "1.0.0",
 	}
 	err = stateStore.Save(ctx, st)
@@ -123,7 +107,7 @@ func TestStatusPendingCheck(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expected := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=no\n", repoHash, initialHead)
+		expected := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=no\n", repoHash, initialHead)
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected output to contain %q, got: %q", expected, output)
 		}
@@ -145,7 +129,7 @@ func TestStatusPendingCheck(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expectedPrefix := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=yes\n", repoHash, initialHead)
+		expectedPrefix := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=yes\n", repoHash, initialHead)
 		if !strings.Contains(output, expectedPrefix) {
 			t.Errorf("expected output to contain %q, got: %q", expectedPrefix, output)
 		}
@@ -164,7 +148,7 @@ func TestStatusPendingCheck(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expectedPrefix := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=unknown\n", repoHash, initialHead)
+		expectedPrefix := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=unknown\n", repoHash, initialHead)
 		if !strings.Contains(output, expectedPrefix) {
 			t.Errorf("expected output to contain %q, got: %q", expectedPrefix, output)
 		}
@@ -239,7 +223,8 @@ func TestStartupUpdateChecks(t *testing.T) {
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", srv.URL)
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	// Set state with AutoUpdateDictionary=true
 	stateStore := state.NewStore(tempHome)
@@ -340,7 +325,8 @@ func TestStartupUpdateChecks_SlowNetwork(t *testing.T) {
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", srv.URL)
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	// Set state with AutoUpdateDictionary=true
 	stateStore := state.NewStore(tempHome)
@@ -392,7 +378,8 @@ func TestStartupUpdateChecks_OfflineNetwork(t *testing.T) {
 	// Use an invalid local address to simulate offline state/network failure
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", "http://127.0.0.1:9999")
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", "http://127.0.0.1:9999")
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	// Set state with AutoUpdateDictionary=true
 	stateStore := state.NewStore(tempHome)
@@ -485,7 +472,8 @@ func TestStartupUpdateChecks_InvalidDictionarySchema(t *testing.T) {
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", srv.URL)
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	// Set state with AutoUpdateDictionary=true
 	stateStore := state.NewStore(tempHome)

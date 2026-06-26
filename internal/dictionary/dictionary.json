@@ -1,42 +1,42 @@
 {
   "version": "1.2.0",
   "categories": {
-    "Authentication and Security": {
+    "Authentication & Security": {
       "keywords": ["auth", "login", "jwt", "mfa", "rbac", "token", "encrypt", "session"],
       "paths": ["auth/", "middleware/", "guards/", "security/"],
       "impact": "feature"
     },
-    "Frontend and UI": {
+    "Frontend & UI": {
       "keywords": ["component", "render", "hook", "state", "redux", "tailwind", "layout"],
       "paths": ["components/", "pages/", ".tsx", ".jsx", ".vue"],
       "impact": "feature"
     },
-    "API and Backend Services": {
+    "API & Backend Services": {
       "keywords": ["api", "endpoint", "route", "controller", "graphql", "rpc", "handler"],
       "paths": ["api/", "services/", "controllers/", "routes/"],
       "impact": "feature"
     },
-    "Database and Data": {
+    "Database & Data": {
       "keywords": ["migration", "schema", "query", "prisma", "mongoose", "redis", "index"],
       "paths": ["migrations/", "models/", "db/", "repositories/"],
       "impact": "feature"
     },
-    "Infrastructure and DevOps": {
+    "Infrastructure & DevOps": {
       "keywords": ["deploy", "docker", "k8s", "ci", "lambda", "terraform", "pipeline"],
       "paths": ["infra/", ".github/", "Dockerfile", ".yml"],
       "impact": "ship"
     },
-    "Performance and Optimisation": {
+    "Performance & Optimisation": {
       "keywords": ["cache", "lazy", "memo", "bundle", "lighthouse", "throttle", "perf"],
       "paths": ["next.config", "vite.config", "webpack/"],
       "impact": "refactor"
     },
-    "Payments and Billing": {
+    "Payments & Billing": {
       "keywords": ["payment", "stripe", "billing", "subscription", "invoice", "webhook"],
       "paths": ["payments/", "billing/", "subscriptions/"],
       "impact": "feature"
     },
-    "Testing and Quality": {
+    "Testing & Quality": {
       "keywords": ["test", "spec", "mock", "jest", "cypress", "coverage", "fixture"],
       "paths": ["__tests__/", ".test.", ".spec.", "e2e/"],
       "impact": "bugfix"

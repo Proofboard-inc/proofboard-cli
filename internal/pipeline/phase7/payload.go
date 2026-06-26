@@ -12,6 +12,7 @@ type AssemblyInput struct {
 	OrgHash           string
 	RepoHash          string
 	EmailHash         string
+	Provider          string
 	HandshakeStatus   string
 	CLIVersion        string
 	DictionaryVersion string
@@ -26,19 +27,27 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		Deletions:         make([]int, 0, len(input.Commits)),
 		FilesChanged:      make([]int, 0, len(input.Commits)),
 		Categories:        make([]string, 0, len(input.Commits)),
-		ImpactScores:      make(map[string]int),
+		ImpactScores:      make(map[string]float64),
 		MilestoneClusters: input.Clusters,
 		OrgHash:           input.OrgHash,
 		RepoHash:          input.RepoHash,
 		EmailHash:         input.EmailHash,
+		Provider:          input.Provider,
 		HandshakeStatus:   input.HandshakeStatus,
-		CapturedAt:        time.Now().UTC(),
+		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
 		CLIVersion:        input.CLIVersion,
 		DictionaryVersion: input.DictionaryVersion,
-		LowCommitCount:    len(input.Commits) < 5,
-		OrgHashMismatch:   input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,
+		AntiFraudSignals: model.AntiFraudSignals{
+			LowCommitCount:      len(input.Commits) < 5,
+			OrgHashMismatch:     input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,
+			SingleCommitRepoCap: false,
+		},
 	}
+	
+	impactCounts := make(map[string]int)
 	totalNoise := 0.0
+	identityMismatch := 0
+
 	for _, commit := range input.Commits {
 		payload.SHAs = append(payload.SHAs, commit.SHA)
 		payload.Timestamps = append(payload.Timestamps, commit.TimestampUnix)
@@ -46,14 +55,25 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		payload.Deletions = append(payload.Deletions, commit.Deletions)
 		payload.FilesChanged = append(payload.FilesChanged, commit.FilesChanged)
 		payload.Categories = append(payload.Categories, commit.Category)
-		payload.ImpactScores[commit.ImpactType]++
+		impactCounts[commit.ImpactType]++
 		totalNoise += commit.NoiseScore
 		if input.EmailHash != "" && commit.AuthorEmailHash != "" && commit.AuthorEmailHash != input.EmailHash {
-			payload.IdentityMismatch++
+			identityMismatch++
 		}
 	}
+
+	payload.AntiFraudSignals.IdentityMismatch = identityMismatch
 	if len(input.Commits) > 0 {
-		payload.AINoiseScore = totalNoise / float64(len(input.Commits))
+		payload.AntiFraudSignals.AINoiseScore = totalNoise / float64(len(input.Commits))
+		total := float64(len(input.Commits))
+		for _, typ := range []string{"feature", "bugfix", "refactor", "ship", "maintenance"} {
+			payload.ImpactScores[typ] = float64(impactCounts[typ]) / total
+		}
+	} else {
+		for _, typ := range []string{"feature", "bugfix", "refactor", "ship", "maintenance"} {
+			payload.ImpactScores[typ] = 0.0
+		}
 	}
+
 	return payload
 }

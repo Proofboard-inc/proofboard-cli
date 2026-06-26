@@ -26,7 +26,8 @@ func newUpdateDictionaryCommand(ctx context.Context, out io.Writer) *cobra.Comma
 				return err
 			}
 			releases := api.NewReleaseClient(runtime.config.ReleaseBaseURL)
-			latest, err := releases.Latest(ctx, runtime.config.LatestDictionaryPath)
+			url := fmt.Sprintf("%s%s", runtime.config.APIBaseURL, runtime.config.DictionaryPath)
+			latest, err := releases.Latest(ctx, url)
 			if err != nil {
 				return err
 			}
