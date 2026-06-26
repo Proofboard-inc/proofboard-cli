@@ -66,10 +66,9 @@ func newStatusCommand(ctx context.Context, out io.Writer) *cobra.Command {
 						pending = "no"
 					}
 				}
-				tier := mapTierName(repoState.Tier)
-				fmt.Fprintf(out, "%s tier=%s lastSync=%s lastHead=%s pending=%s\n",
+				fmt.Fprintf(out, "%s projectID=%s lastSync=%s lastHead=%s pending=%s\n",
 					repoHash,
-					tier,
+					repoState.ProjectID,
 					repoState.LastSyncAt.Format("2006-01-02T15:04:05Z07:00"),
 					repoState.LastHeadSHA,
 					pending,

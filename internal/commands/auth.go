@@ -22,7 +22,7 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("auth email bridge: %w", err)
 			}
-			service := pbauth.NewService(runtime.credentials, runtime.config.AppBaseURL, runtime.config.AuthCallbackPort)
+			service := pbauth.NewService(runtime.credentials, runtime.api)
 			credentials, err := service.Login(ctx, emailHash)
 			if err != nil {
 				return fmt.Errorf("auth login: %w", err)

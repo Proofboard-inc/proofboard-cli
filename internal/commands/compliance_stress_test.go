@@ -54,7 +54,8 @@ func TestStartupChecksTimeout(t *testing.T) {
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", srv.URL)
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	// Set state with AutoUpdateDictionary=true
 	stateStore := state.NewStore(tempHome)
@@ -114,7 +115,8 @@ func TestStartupChecksNetworkFailure(t *testing.T) {
 	// Use an invalid host URL to guarantee network connection failure
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", "https://invalid-host-for-testing-12345.io")
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
-	t.Setenv("PROOFBOARD_RELEASE_LATEST_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", "https://invalid-host-for-testing-12345.io")
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	stateStore := state.NewStore(tempHome)
 	st := state.Default()
@@ -195,7 +197,7 @@ func TestStatusPendingStates(t *testing.T) {
 		PathHash:          "path-hash",
 		LastHeadSHA:       initialHead,
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
-		Tier:              "Tier2",
+		ProjectID:         "proj-123",
 		DictionaryVersion: "1.0.0",
 	}
 	st.LinkedRepos["some-other-repo"] = model.LinkedRepoState{
@@ -204,7 +206,7 @@ func TestStatusPendingStates(t *testing.T) {
 		PathHash:          "path-hash-2",
 		LastHeadSHA:       "some-sha",
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
-		Tier:              "Tier2-skipped",
+		ProjectID:         "proj-456",
 		DictionaryVersion: "1.0.0",
 	}
 	err = stateStore.Save(ctx, st)
@@ -233,13 +235,13 @@ func TestStatusPendingStates(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expected := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=no\n", repoHash, initialHead)
+		expected := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=no\n", repoHash, initialHead)
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected output to contain matching head: %q, got: %q", expected, output)
 		}
 
 		// Also check that the other repository (not in working directory) outputs pending=unknown and tier maps correctly to "SHA Proof — handshake skipped"
-		expectedOther := "some-other-repo tier=SHA Proof — handshake skipped lastSync=2026-06-17T12:00:00Z lastHead=some-sha pending=unknown\n"
+		expectedOther := "some-other-repo projectID=proj-456 lastSync=2026-06-17T12:00:00Z lastHead=some-sha pending=unknown\n"
 		if !strings.Contains(output, expectedOther) {
 			t.Errorf("expected other repo output: %q, got: %q", expectedOther, output)
 		}
@@ -261,7 +263,7 @@ func TestStatusPendingStates(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expectedPrefix := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=yes\n", repoHash, initialHead)
+		expectedPrefix := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=yes\n", repoHash, initialHead)
 		if !strings.Contains(output, expectedPrefix) {
 			t.Errorf("expected output to indicate pending=yes: %q, got: %q", expectedPrefix, output)
 		}
@@ -280,7 +282,7 @@ func TestStatusPendingStates(t *testing.T) {
 			t.Fatalf("status command failed: %v", err)
 		}
 		output := out.String()
-		expectedPrefix := fmt.Sprintf("%s tier=SHA Proof lastSync=2026-06-17T12:00:00Z lastHead=%s pending=unknown\n", repoHash, initialHead)
+		expectedPrefix := fmt.Sprintf("%s projectID=proj-123 lastSync=2026-06-17T12:00:00Z lastHead=%s pending=unknown\n", repoHash, initialHead)
 		if !strings.Contains(output, expectedPrefix) {
 			t.Errorf("expected output to indicate pending=unknown: %q, got: %q", expectedPrefix, output)
 		}

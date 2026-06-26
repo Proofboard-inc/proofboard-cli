@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
@@ -129,6 +130,11 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					topCategories = append(topCategories, ranked[i].name)
 				}
 
+				if fromHook {
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "unlinked repo in hook")
+					return nil
+				}
+				
 				fmt.Fprintln(cmd.OutOrStdout(), "Proofboard — unlinked repository detected.")
 				fmt.Fprintln(cmd.OutOrStdout())
 				fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", filepath.Base(repo.Path))
@@ -149,7 +155,12 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response == "y" {
-					linkRes, err := runtime.api.Link(ctx, credentials.Token, identity, credentials.EmailHash)
+					linkRes, err := runtime.api.Link(ctx, credentials.Token, api.LinkRequest{
+						OrgHash:  identity.OrgHash,
+						RepoHash: identity.RepoHash,
+						Provider: identity.Provider,
+						CreateNew: true, // or existing
+					})
 					if err != nil {
 						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link API", "failure", err.Error())
 						return fmt.Errorf("register linked repository: %w", err)
@@ -168,8 +179,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 						Provider:           identity.Provider,
 						LastHeadSHA:        head,
 						LastSyncAt:         time.Time{},
-						Tier:               linkRes.Tier,
-						DictionaryVersion:  "1.2.0",
+						ProjectID:          linkRes.ProjectID,
+						PublicKey:          linkRes.PublicKey,
+						DictionaryVersion:  linkRes.DictionaryVersion,
 						ProductionBranches: runtime.config.DefaultProductionBranches,
 					}
 					if current.LinkedRepos == nil {
@@ -250,44 +262,46 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// Pre-Classification Trivial Commit Filter checks (before they are classified / subjects zeroed)
 			shouldAbort := false
 
-			// a. Single commit: Range has exactly 1 commit.
-			if len(raw) == 1 {
-				shouldAbort = true
-			}
+			if fromHook {
+				// a. Single commit: Range has exactly 1 commit.
+				if len(raw) == 1 {
+					shouldAbort = true
+				}
 
-			// b. Documentation only: All files changed are docs (.md, .txt, README, CHANGELOG, LICENSE, .rst)
-			if !shouldAbort {
-				hasFiles := false
-				isDocOnly := true
-				for _, commit := range raw {
-					for _, fp := range commit.FilePaths {
-						hasFiles = true
-						if !isDocFile(fp) {
-							isDocOnly = false
+				// b. Documentation only: All files changed are docs (.md, .txt, README, CHANGELOG, LICENSE, .rst)
+				if !shouldAbort {
+					hasFiles := false
+					isDocOnly := true
+					for _, commit := range raw {
+						for _, fp := range commit.FilePaths {
+							hasFiles = true
+							if !isDocFile(fp) {
+								isDocOnly = false
+								break
+							}
+						}
+						if !isDocOnly {
 							break
 						}
 					}
-					if !isDocOnly {
-						break
+					if hasFiles && isDocOnly {
+						shouldAbort = true
 					}
 				}
-				if hasFiles && isDocOnly {
-					shouldAbort = true
-				}
-			}
 
-			// d. Revert-only range: All commits are reverts (e.g. subject starts with "revert:" case-insensitive).
-			if !shouldAbort {
-				isRevertOnly := true
-				for _, commit := range raw {
-					sub := strings.ToLower(strings.TrimSpace(string(commit.Subject)))
-					if !strings.HasPrefix(sub, "revert:") {
-						isRevertOnly = false
-						break
+				// d. Revert-only range: All commits are reverts (e.g. subject starts with "revert:" case-insensitive).
+				if !shouldAbort {
+					isRevertOnly := true
+					for _, commit := range raw {
+						sub := strings.ToLower(strings.TrimSpace(string(commit.Subject)))
+						if !strings.HasPrefix(sub, "revert:") {
+							isRevertOnly = false
+							break
+						}
 					}
-				}
-				if isRevertOnly {
-					shouldAbort = true
+					if isRevertOnly {
+						shouldAbort = true
+					}
 				}
 			}
 
@@ -309,6 +323,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				OrgHash:         identity.OrgHash,
 				RepoHash:        identity.RepoHash,
 				EmailHash:       credentials.EmailHash,
+				Provider:        identity.Provider,
 				HandshakeStatus: "pending",
 				ExpectedOrgHash: repoState.OrgHash,
 				MergeTimestamps: mergeTimestamps,
@@ -318,6 +333,11 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "success", "")
+
+			// c. High boilerplate noise: Average aiNoiseScore (AINoiseScore) across all commits in the range > 0.85
+			if fromHook && payload.AntiFraudSignals.AINoiseScore > 0.85 {
+				return abortSyncWithTrigger(runtime.homeDir, identity.RepoHash, triggerSource)
+			}
 
 			handshakeStatus := "success"
 			if verbose {
@@ -338,16 +358,10 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "success", "")
 			}
 			payload.HandshakeStatus = handshakeStatus
-
-			// c. High boilerplate noise: Average aiNoiseScore (AINoiseScore) across all commits in the range > 0.85
-			if payload.AINoiseScore > 0.85 {
-				return abortSyncWithTrigger(runtime.homeDir, identity.RepoHash, triggerSource)
-			}
-
 			if verbose {
 				fmt.Fprintln(out, "Phase 8: transmit")
 			}
-			receipt, err := runtime.api.Sync(ctx, credentials.Token, payload)
+			_, err = runtime.api.Sync(ctx, credentials.Token, payload)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", err.Error())
 				return fmt.Errorf("transmit sync payload: %w", err)
@@ -363,9 +377,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			repoState.DictionaryVersion = dict.Version
 			if handshakeStatus == "success" {
 				repoState.LastHandshake = repoState.LastSyncAt
-				repoState.Tier = "SHA Proof"
-			} else {
-				repoState.Tier = "SHA Proof — handshake skipped"
 			}
 			current, err = runtime.state.Load(ctx)
 			if err != nil {
@@ -377,12 +388,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
 				return err
 			}
-			tier := receipt.Tier
-			if tier == "" {
-				tier = repoState.Tier
-			}
-			tier = mapTierName(tier)
-			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d. Tier achieved: %s.\n", len(payload.SHAs), len(payload.ImpactScores), tier)
+			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), len(payload.ImpactScores))
 			if err != nil {
 				return err
 			}
@@ -425,14 +431,5 @@ func abortSyncWithTrigger(homeDir, repoHash, triggerSource string) error {
 	return logging.WriteSyncLog(homeDir, repoHash, triggerSource, "pre-classification filter", "aborted", "trivial merge skipped")
 }
 
-func mapTierName(tier string) string {
-	switch tier {
-	case "Tier2":
-		return "SHA Proof"
-	case "Tier2-skipped":
-		return "SHA Proof — handshake skipped"
-	default:
-		return tier
-	}
-}
+
 

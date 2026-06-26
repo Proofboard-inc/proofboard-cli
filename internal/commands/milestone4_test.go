@@ -50,6 +50,8 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 	defer ts.Close()
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", ts.URL)
+	t.Setenv("PROOFBOARD_API_BASE_URL", ts.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	var out bytes.Buffer
 	cmd := newUpdateDictionaryCommand(ctx, &out)
@@ -118,6 +120,8 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 	defer ts.Close()
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", ts.URL)
+	t.Setenv("PROOFBOARD_API_BASE_URL", ts.URL)
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
 
 	var out bytes.Buffer
 	cmd := newUpdateDictionaryCommand(ctx, &out)

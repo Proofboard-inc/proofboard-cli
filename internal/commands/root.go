@@ -89,7 +89,8 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if err == nil && stateData.AutoUpdateDictionary {
 		localDict, err := dictionary.LoadDefault(checkCtx)
 		if err == nil {
-			latestDict, err := releases.Latest(checkCtx, runCtx.config.LatestDictionaryPath)
+			url := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
+			latestDict, err := releases.Latest(checkCtx, url)
 			if err == nil && latestDict.Version != "" && latestDict.Version != localDict.Version {
 				dir := filepath.Join(runCtx.homeDir, ".proofboard")
 				if err := os.MkdirAll(dir, 0700); err == nil {

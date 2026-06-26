@@ -26,7 +26,8 @@ type LinkedRepoState struct {
 	LastHeadSHA        string    `json:"lastHeadSha"`
 	LastSyncAt         time.Time `json:"lastSyncAt,omitempty"`
 	LastHandshake      time.Time `json:"lastHandshake,omitempty"`
-	Tier               string    `json:"tier"`
+	ProjectID          string    `json:"projectId"`
+	PublicKey          string    `json:"publicKey"`
 	DictionaryVersion  string    `json:"dictionaryVersion"`
 	ProductionBranches []string  `json:"productionBranches"`
 }

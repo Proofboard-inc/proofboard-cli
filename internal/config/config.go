@@ -14,11 +14,9 @@ type Config struct {
 	ReleaseBaseURL            string
 	LinkPath                  string
 	SyncPath                  string
+	DictionaryPath            string
 	LatestVersionPath         string
-	LatestDictionaryPath      string
-	DictionaryDownloadPath    string
 	LogLevel                  string
-	AuthCallbackPort          int
 	DefaultProductionBranches []string
 }
 
@@ -33,13 +31,11 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("api.base_url", "https://api-dev.proofboard.io")
 	v.SetDefault("app.base_url", "https://app.proofboard.io")
 	v.SetDefault("release.base_url", "https://releases.proofboard.io")
-	v.SetDefault("api.link_path", "/cli/link")
-	v.SetDefault("api.sync_path", "/cli/sync")
+	v.SetDefault("api.link_path", "/api/v1/cli/repos/link")
+	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
+	v.SetDefault("api.dictionary_path", "/api/v1/cli/dictionary")
 	v.SetDefault("release.latest_version_path", "/latest.json")
-	v.SetDefault("release.latest_dictionary_path", "/dictionary/latest.json")
-	v.SetDefault("release.dictionary_download_path", "/dictionary/%s/dictionary.json")
 	v.SetDefault("log.level", "info")
-	v.SetDefault("auth.callback_port", 9876)
 	v.SetDefault("git.production_branches", []string{"main", "master", "production"})
 	return Config{
 		APIBaseURL:                v.GetString("api.base_url"),
@@ -47,11 +43,9 @@ func Load(ctx context.Context) (Config, error) {
 		ReleaseBaseURL:            v.GetString("release.base_url"),
 		LinkPath:                  v.GetString("api.link_path"),
 		SyncPath:                  v.GetString("api.sync_path"),
+		DictionaryPath:            v.GetString("api.dictionary_path"),
 		LatestVersionPath:         v.GetString("release.latest_version_path"),
-		LatestDictionaryPath:      v.GetString("release.latest_dictionary_path"),
-		DictionaryDownloadPath:    v.GetString("release.dictionary_download_path"),
 		LogLevel:                  v.GetString("log.level"),
-		AuthCallbackPort:          v.GetInt("auth.callback_port"),
 		DefaultProductionBranches: v.GetStringSlice("git.production_branches"),
 	}, nil
 }
