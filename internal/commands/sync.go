@@ -9,13 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proofboard/proofboard/internal/api"
-	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
 	"github.com/proofboard/proofboard/internal/logging"
-	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/pipeline"
 	"github.com/proofboard/proofboard/internal/pipeline/phase1"
 	"github.com/proofboard/proofboard/internal/pipeline/phase2"
@@ -138,79 +135,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "Proofboard — unlinked repository detected.")
 				fmt.Fprintln(cmd.OutOrStdout())
 				fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", filepath.Base(repo.Path))
-				fmt.Fprintln(cmd.OutOrStdout(), "Detected:")
-				for _, cat := range topCategories {
-					fmt.Fprintf(cmd.OutOrStdout(), "✓ %s\n", cat)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "Add this project to your proofboard?")
-				fmt.Fprintln(cmd.OutOrStdout())
-				fmt.Fprintln(cmd.OutOrStdout(), "  y   Sync this project")
-				fmt.Fprintln(cmd.OutOrStdout(), "  n   Not this project")
-				fmt.Fprintln(cmd.OutOrStdout(), "  x   Never ask for this workspace")
-
-				var response string
-				if _, err := fmt.Fscanf(cmd.InOrStdin(), "%s", &response); err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link prompt", "failure", err.Error())
-					return err
-				}
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response == "y" {
-					linkRes, err := runtime.api.Link(ctx, credentials.Token, api.LinkRequest{
-						OrgHash:  identity.OrgHash,
-						RepoHash: identity.RepoHash,
-						Provider: identity.Provider,
-						CreateNew: true, // or existing
-					})
-					if err != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link API", "failure", err.Error())
-						return fmt.Errorf("register linked repository: %w", err)
-					}
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link API", "success", "")
-					current, err = runtime.state.Load(ctx)
-					if err != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "load state", "failure", err.Error())
-						return err
-					}
-					head, _ := pbgit.Head(ctx, repo)
-					repoState = model.LinkedRepoState{
-						RepoHash:           identity.RepoHash,
-						OrgHash:            identity.OrgHash,
-						PathHash:           crypto.SHA256(repo.Path),
-						Provider:           identity.Provider,
-						LastHeadSHA:        head,
-						LastSyncAt:         time.Time{},
-						ProjectID:          linkRes.ProjectID,
-						PublicKey:          linkRes.PublicKey,
-						DictionaryVersion:  linkRes.DictionaryVersion,
-						ProductionBranches: runtime.config.DefaultProductionBranches,
-					}
-					if current.LinkedRepos == nil {
-						current.LinkedRepos = make(map[string]model.LinkedRepoState)
-					}
-					current.LinkedRepos[identity.RepoHash] = repoState
-					if err := hooks.Install(ctx, repo); err != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "hooks install", "failure", err.Error())
-						return err
-					}
-					if err := runtime.state.Save(ctx, current); err != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
-						return err
-					}
-				} else if response == "n" {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link prompt", "aborted", "user chose not to link")
-					return nil
-				} else if response == "x" {
-					current.SuppressedWorkspaces = append(current.SuppressedWorkspaces, repoPath)
-					if err := runtime.state.Save(ctx, current); err != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
-						return err
-					}
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link prompt", "aborted", "user suppressed workspace")
-					return nil
-				} else {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link prompt", "aborted", "invalid response")
-					return nil
-				}
+				fmt.Fprintln(cmd.OutOrStdout(), "This repository is not linked to Proofboard.")
+				fmt.Fprintln(cmd.OutOrStdout(), "Please run `proofboard link` to link it to an existing project or create a new one.")
+				return nil
 			}
 			if fromHook {
 				branch, err := pbgit.CurrentBranch(ctx, repo)
