@@ -5,6 +5,9 @@ Sync changes here across the following locations:
 - (project root)/GEMINI.md
 - (project root)/CLAUDE.md
 - (project root)/.kiro/steering/project-rules.md
+- (project root)/.cursorrules
+- (project root)/.windsurfrules
+- (project root)/.github/copilot-instructions.md
 
 Spec at - (project root)/SPEC.md
 
