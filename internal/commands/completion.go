@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -20,8 +21,12 @@ If no shell is specified, it will attempt to auto-detect your shell and offer to
 			if len(args) == 0 {
 				shellPath := os.Getenv("SHELL")
 				if shellPath == "" {
-					fmt.Fprintln(cmd.OutOrStdout(), "Could not auto-detect shell (SHELL env var is empty). Please specify: bash, zsh, fish, or powershell.")
-					return nil
+					if runtime.GOOS == "windows" {
+						shellPath = "powershell"
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "Could not auto-detect shell (SHELL env var is empty). Please specify: bash, zsh, fish, or powershell.")
+						return nil
+					}
 				}
 				shell := filepath.Base(shellPath)
 				fmt.Fprintf(cmd.OutOrStdout(), "Auto-detected shell: %s\n", shell)
