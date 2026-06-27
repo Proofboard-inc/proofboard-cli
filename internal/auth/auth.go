@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -42,7 +43,9 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	fmt.Printf("Please authenticate your CLI session.\n\n")
 	fmt.Printf("Your device code is: %s\n\n", resp.DeviceCode)
 
-	if err := OpenBrowser(ctx, resp.VerificationURL); err != nil {
+	if os.Getenv("NO_BROWSER") == "1" {
+		fmt.Printf("Headless environment detected (NO_BROWSER=1).\nNavigate to the following URL manually to login:\n%s\n\n", resp.VerificationURL)
+	} else if err := OpenBrowser(ctx, resp.VerificationURL); err != nil {
 		fmt.Printf("Navigate to the following URL manually to login:\n%s\n\n", resp.VerificationURL)
 	} else {
 		fmt.Printf("Opening browser to complete authentication...\nIf it does not open automatically, navigate to:\n%s\n\n", resp.VerificationURL)
