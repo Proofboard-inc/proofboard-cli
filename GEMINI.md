@@ -152,4 +152,7 @@ macOS arm64
 Windows amd64
 
 Static binaries only.
-\n## Backend Repository\nhttps://github.com/Proofboard-inc/proofboard-backend\n
+
+## Backend Repository
+https://github.com/Proofboard-inc/proofboard-backend
+
