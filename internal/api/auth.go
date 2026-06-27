@@ -40,14 +40,11 @@ func (c Client) CreateDeviceCode(ctx context.Context, deviceCode string) (Device
 		return DeviceCodeResponse{}, fmt.Errorf("server returned %s", resp.Status)
 	}
 
-	var parsed struct {
-		Success bool               `json:"success"`
-		Data    DeviceCodeResponse `json:"data"`
-	}
+	var parsed DeviceCodeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return DeviceCodeResponse{}, fmt.Errorf("decode response: %w", err)
 	}
-	return parsed.Data, nil
+	return parsed, nil
 }
 
 func (c Client) PollDeviceCode(ctx context.Context, deviceCode string) (PollDeviceCodeResponse, error) {
@@ -67,12 +64,9 @@ func (c Client) PollDeviceCode(ctx context.Context, deviceCode string) (PollDevi
 		return PollDeviceCodeResponse{}, fmt.Errorf("poll returned %s", resp.Status)
 	}
 
-	var parsed struct {
-		Success bool                   `json:"success"`
-		Data    PollDeviceCodeResponse `json:"data"`
-	}
+	var parsed PollDeviceCodeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return PollDeviceCodeResponse{}, fmt.Errorf("decode response: %w", err)
 	}
-	return parsed.Data, nil
+	return parsed, nil
 }
