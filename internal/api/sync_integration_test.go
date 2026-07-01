@@ -57,7 +57,7 @@ func TestIntegrationPayloadContract(t *testing.T) {
 		Provider:          "github",
 		HandshakeStatus:   "success",
 		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
-		CLIVersion:        "1.4.5",
+		CLIVersion:        "1.4.6",
 		DictionaryVersion: "2.0.0",
 		AntiFraudSignals: model.AntiFraudSignals{
 			AINoiseScore:        0.1,
