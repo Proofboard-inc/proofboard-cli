@@ -32,6 +32,17 @@ func ParseRemote(raw string) (model.RemoteIdentity, error) {
 		return model.RemoteIdentity{}, err
 	}
 	repo = strings.TrimSuffix(repo, ".git")
+	if strings.Contains(provider, "github") {
+		provider = "github"
+	} else if strings.Contains(provider, "gitlab") {
+		provider = "gitlab"
+	} else if strings.Contains(provider, "bitbucket") {
+		provider = "bitbucket"
+	} else {
+		// Fallback to removing common TLDs if unknown
+		provider = strings.Split(provider, ".")[0]
+	}
+
 	identity := model.RemoteIdentity{
 		Provider: provider,
 		Org:      org,
