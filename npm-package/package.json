@@ -1,0 +1,19 @@
+{
+  "name": "proofboard-cli",
+  "version": "1.4.6",
+  "description": "Proofboard CLI fallback installer via npm",
+  "bin": {
+    "proofboard": "./bin/proofboard.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["proofboard", "cli"],
+  "author": "Proofboard-inc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Proofboard-inc/proofboard-cli"
+  },
+  "dependencies": {}
+}

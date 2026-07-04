@@ -110,6 +110,8 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			
+			fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
+			
 			// Call 1
 			req := api.LinkRequest{
 				OrgHash:  identity.OrgHash,
