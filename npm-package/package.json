@@ -1,6 +1,6 @@
 {
   "name": "proofboard-cli",
-  "version": "1.4.7",
+  "version": "1.8.0",
   "description": "Proofboard CLI fallback installer via npm",
   "bin": {
     "proofboard": "./bin/proofboard.js"
