@@ -8,11 +8,12 @@ type RawCommit struct {
 	Additions    int
 	Deletions    int
 	FilesChanged int
-	Subject      []byte
-	FilePaths    []string
-	AuthorEmail  string
-	Repository   string
-	Organization string
+	Subject        []byte
+	FilePaths      []string
+	AuthorEmail    string
+	Repository     string
+	Organization   string
+	SignatureValid bool
 }
 
 type CommitSignal struct {
@@ -26,6 +27,7 @@ type CommitSignal struct {
 	PrimaryCategory string
 	ImpactType      string
 	NoiseScore      float64
+	SignatureValid  bool
 }
 
 type SafeCommit struct {
@@ -38,4 +40,5 @@ type SafeCommit struct {
 	ImpactType      string
 	NoiseScore      float64
 	AuthorEmailHash string
+	SignatureValid  bool
 }

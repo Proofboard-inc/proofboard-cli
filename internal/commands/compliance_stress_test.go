@@ -186,14 +186,14 @@ func TestStatusPendingStates(t *testing.T) {
 		t.Fatalf("save credentials: %v", err)
 	}
 
-	repoHash := crypto.SHA256("github.com:org/repo-pending")
+	repoHash := crypto.SHA256("github:org/repo-pending")
 
 	// Set up state
 	stateStore := state.NewStore(tempHome)
 	st := state.Default()
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
 		RepoHash:          repoHash,
-		OrgHash:           crypto.SHA256("github.com:org"),
+		OrgHash:           crypto.SHA256("github:org"),
 		PathHash:          "path-hash",
 		LastHeadSHA:       initialHead,
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),

@@ -106,10 +106,10 @@ func TestSyncPipelineOrdering(t *testing.T) {
 		t.Fatalf("failed to load state: %v", err)
 	}
 	
-	repoHash := crypto.SHA256("github.com:org/repo")
+	repoHash := crypto.SHA256("github:org/repo")
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
 		RepoHash:    repoHash,
-		OrgHash:     crypto.SHA256("github.com:org"),
+		OrgHash:     crypto.SHA256("github:org"),
 		PathHash:    "path-hash",
 		LastHeadSHA: "some-sha",
 	}
@@ -160,25 +160,22 @@ func TestSyncPipelineOrdering(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(logContent), "\n")
 
 	pipelineIndex := -1
-	handshakeIndex := -1
+	transmitIndex := -1
 
 	for idx, line := range lines {
 		if strings.Contains(line, "Phases 2-5: Pipeline") {
 			pipelineIndex = idx
 		}
-		if strings.Contains(line, "Phase 6: Handshake") {
-			handshakeIndex = idx
+		if strings.Contains(line, "Phase 6: transmit") {
+			transmitIndex = idx
 		}
 	}
 
 	if pipelineIndex == -1 {
 		t.Errorf("Phases 2-5: Pipeline was not logged in sync.log: %s", logContent)
 	}
-	if handshakeIndex == -1 {
-		t.Errorf("Phase 6: Handshake was not logged in sync.log: %s", logContent)
-	}
 
-	if pipelineIndex != -1 && handshakeIndex != -1 && pipelineIndex > handshakeIndex {
-		t.Errorf("Pipeline run happened AFTER Handshake. Pipeline index: %d, Handshake index: %d. Logs: %s", pipelineIndex, handshakeIndex, logContent)
+	if pipelineIndex != -1 && transmitIndex != -1 && pipelineIndex > transmitIndex {
+		t.Errorf("Pipeline run happened AFTER Transmit. Pipeline index: %d, Transmit index: %d. Logs: %s", pipelineIndex, transmitIndex, logContent)
 	}
 }

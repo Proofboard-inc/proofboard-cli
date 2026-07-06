@@ -24,7 +24,7 @@ func Log(ctx context.Context, repo Repo, lastSHA string) ([]model.RawCommit, err
 	if lastSHA != "" {
 		args = append(args, lastSHA+"..HEAD")
 	}
-	args = append(args, "--format=%x1e%H%x1f%ae%x1f%at%x1f%s", "--numstat", "--no-merges", "--author="+email)
+	args = append(args, "--format=%x1e%H%x1f%ae%x1f%at%x1f%G?%x1f%s", "--numstat", "--no-merges", "--author="+email)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -42,8 +42,8 @@ func ParseLog(out []byte) ([]model.RawCommit, error) {
 			continue
 		}
 		lines := strings.Split(record, "\n")
-		header := strings.SplitN(lines[0], "\x1f", 4)
-		if len(header) != 4 {
+		header := strings.SplitN(lines[0], "\x1f", 5)
+		if len(header) != 5 {
 			return nil, fmt.Errorf("invalid git log header")
 		}
 		unixSeconds, err := strconv.ParseInt(header[2], 10, 64)
@@ -51,10 +51,11 @@ func ParseLog(out []byte) ([]model.RawCommit, error) {
 			return nil, fmt.Errorf("parse commit timestamp: %w", err)
 		}
 		commit := model.RawCommit{
-			SHA:         header[0],
-			AuthorEmail: header[1],
-			Timestamp:   time.Unix(unixSeconds, 0).UTC(),
-			Subject:     []byte(header[3]),
+			SHA:            header[0],
+			AuthorEmail:    header[1],
+			Timestamp:      time.Unix(unixSeconds, 0).UTC(),
+			SignatureValid: header[3] == "G" || header[3] == "U",
+			Subject:        []byte(header[4]),
 		}
 		for _, line := range lines[1:] {
 			line = strings.TrimSpace(line)

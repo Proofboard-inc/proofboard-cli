@@ -76,6 +76,7 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 			PrimaryCategory: primary,
 			ImpactType:      impact,
 			NoiseScore:      noise,
+			SignatureValid:  commit.SignatureValid,
 		})
 	}
 	return signals

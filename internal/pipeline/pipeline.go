@@ -27,7 +27,6 @@ type RunInput struct {
 	RepoHash        string
 	EmailHash       string
 	Provider        string
-	HandshakeStatus string
 	ExpectedOrgHash string
 	MergeTimestamps []int64
 }
@@ -47,7 +46,6 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 		RepoHash:          input.RepoHash,
 		EmailHash:         input.EmailHash,
 		Provider:          input.Provider,
-		HandshakeStatus:   input.HandshakeStatus,
 		CLIVersion:        version.Version,
 		DictionaryVersion: p.dictionary.Version,
 		ExpectedOrgHash:   input.ExpectedOrgHash,

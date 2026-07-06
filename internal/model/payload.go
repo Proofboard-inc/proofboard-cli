@@ -6,6 +6,11 @@ type AntiFraudSignals struct {
 	IdentityMismatch    int     `json:"identityMismatch"`
 	LowCommitCount      bool    `json:"lowCommitCount"`
 	SingleCommitRepoCap bool    `json:"singleCommitRepoCap"`
+	CommitSignatureVerified bool    `json:"commitSignatureVerified"`
+	SignedCommitRatio       float64 `json:"signedCommitRatio"`
+	CommitIntervalVariance  float64 `json:"commitIntervalVariance"`
+	TimeOfDayDistribution   float64 `json:"timeOfDayDistribution"`
+	BurstPatternScore       float64 `json:"burstPatternScore"`
 }
 
 type SyncPayload struct {
@@ -21,12 +26,11 @@ type SyncPayload struct {
 	RepoHash          string           `json:"repoHash"`
 	EmailHash         string           `json:"emailHash"`
 	Provider          string           `json:"provider"`
-	HandshakeStatus   string           `json:"handshakeStatus"`
+	AccessStatus      string           `json:"accessStatus"`
 	CapturedAt        string           `json:"capturedAt"`
 	CLIVersion        string           `json:"cliVersion"`
 	DictionaryVersion string           `json:"dictionaryVersion"`
 	AntiFraudSignals  AntiFraudSignals `json:"antiFraudSignals"`
-	NotifyPush        bool             `json:"notifyPush"`
 }
 
 type SyncReceipt struct {

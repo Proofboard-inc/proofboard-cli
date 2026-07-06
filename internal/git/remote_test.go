@@ -13,7 +13,7 @@ func TestParseRemoteSupportsSSHAndHTTPS(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseRemote(%q) returned error: %v", raw, err)
 		}
-		if identity.Provider != "github.com" || identity.Org != "Proofboard-inc" || identity.Repo != "proofboard-cli" {
+		if identity.Provider != "github" || identity.Org != "Proofboard-inc" || identity.Repo != "proofboard-cli" {
 			t.Fatalf("unexpected identity for %q: %#v", raw, identity)
 		}
 		if identity.OrgHash == "" || identity.RepoHash == "" || identity.OrgHash == identity.RepoHash {
