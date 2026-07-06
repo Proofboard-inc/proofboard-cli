@@ -15,15 +15,15 @@ async function getLatestRelease() {
                 if (res.statusCode === 200) {
                     try {
                         const parsed = JSON.parse(data);
-                        return resolve(parsed.version || 'v1.4.7');
+                        return resolve(parsed.version || 'v1.8.0');
                     } catch (e) {
                         // ignore
                     }
                 }
-                resolve('v1.4.7');
+                resolve('v1.8.0');
             });
         });
-        req.on('error', () => resolve('v1.4.7'));
+        req.on('error', () => resolve('v1.8.0'));
         req.end();
     });
 }
