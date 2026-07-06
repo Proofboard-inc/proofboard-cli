@@ -27,6 +27,7 @@ func Shred(commits []model.RawCommit, signals []model.CommitSignal) []model.Safe
 			ImpactType:      signal.ImpactType,
 			NoiseScore:      signal.NoiseScore,
 			AuthorEmailHash: signal.AuthorEmailHash,
+			SignatureValid:  signal.SignatureValid,
 		})
 	}
 	return safe

@@ -21,7 +21,6 @@ import (
 
 func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var incremental bool
-	var skipHandshake bool
 	var fromHook bool
 	var verbose bool
 	cmd := &cobra.Command{
@@ -251,7 +250,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				RepoHash:        identity.RepoHash,
 				EmailHash:       credentials.EmailHash,
 				Provider:        identity.Provider,
-				HandshakeStatus: "pending",
 				ExpectedOrgHash: repoState.OrgHash,
 				MergeTimestamps: mergeTimestamps,
 			})
@@ -266,27 +264,8 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return abortSyncWithTrigger(runtime.homeDir, identity.RepoHash, triggerSource)
 			}
 
-			handshakeStatus := "success"
 			if verbose {
-				fmt.Fprintln(out, "Phase 6: handshake")
-			}
-			if err := pbgit.LSRemoteHandshake(ctx, repo, 10*time.Second); err != nil {
-				if !skipHandshake {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "failure", err.Error())
-					return fmt.Errorf("Remote handshake timed out. If you are on a corporate network with VPN or SSH proxy restrictions, retry with: proofboard sync --skip-handshake")
-				}
-				if repoState.LastHandshake.IsZero() {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "failure", "no prior handshake recorded")
-					return fmt.Errorf("No prior handshake recorded for this repository. A successful handshake must occur at least once during active employment to qualify for SHA Proof. Connect to your organisation network and retry without --skip-handshake")
-				}
-				handshakeStatus = "skipped"
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "skipped", "")
-			} else {
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 6: Handshake", "success", "")
-			}
-			payload.HandshakeStatus = handshakeStatus
-			if verbose {
-				fmt.Fprintln(out, "Phase 8: transmit")
+				fmt.Fprintln(out, "Phase 6: transmit")
 			}
 			_, err = runtime.api.Sync(ctx, credentials.Token, payload)
 			if err != nil {
@@ -302,9 +281,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			repoState.LastHeadSHA = head
 			repoState.LastSyncAt = time.Now().UTC()
 			repoState.DictionaryVersion = dict.Version
-			if handshakeStatus == "success" {
-				repoState.LastHandshake = repoState.LastSyncAt
-			}
 			current, err = runtime.state.Load(ctx)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "load state", "failure", err.Error())
@@ -319,12 +295,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(payload.SHAs) > 0 {
-				_, err = fmt.Fprintln(out, "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard")
-				if err != nil {
-					return err
-				}
-			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "complete", "success", "")
 			if err := triggerMonthlyCareerSummary(ctx, out, runtime); err != nil {
 				return err
@@ -333,7 +303,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&incremental, "incremental", false, "sync only commits since the last recorded HEAD")
-	cmd.Flags().BoolVar(&skipHandshake, "skip-handshake", false, "continue only if this repo has a prior successful handshake")
 	cmd.Flags().BoolVar(&fromHook, "from-hook", false, "run silent hook gating before syncing")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "print pipeline steps")
 	return cmd

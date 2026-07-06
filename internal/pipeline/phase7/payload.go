@@ -13,7 +13,6 @@ type AssemblyInput struct {
 	RepoHash          string
 	EmailHash         string
 	Provider          string
-	HandshakeStatus   string
 	CLIVersion        string
 	DictionaryVersion string
 	ExpectedOrgHash   string
@@ -33,7 +32,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		RepoHash:          input.RepoHash,
 		EmailHash:         input.EmailHash,
 		Provider:          input.Provider,
-		HandshakeStatus:   input.HandshakeStatus,
+		AccessStatus:      "unknown",
 		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
 		CLIVersion:        input.CLIVersion,
 		DictionaryVersion: input.DictionaryVersion,
@@ -63,6 +62,68 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	}
 
 	payload.AntiFraudSignals.IdentityMismatch = identityMismatch
+	
+	signedCount := 0
+	var lastTime int64
+	var intervals []float64
+	var hours []float64
+	burstCount := 0
+
+	for i, commit := range input.Commits {
+		if commit.SignatureValid {
+			payload.AntiFraudSignals.CommitSignatureVerified = true
+			signedCount++
+		}
+		
+		t := time.Unix(commit.TimestampUnix, 0).UTC()
+		hours = append(hours, float64(t.Hour()))
+		
+		if i > 0 {
+			diff := commit.TimestampUnix - lastTime
+			if diff < 0 {
+				diff = -diff
+			}
+			intervals = append(intervals, float64(diff))
+			if diff < 300 {
+				burstCount++
+			}
+		}
+		lastTime = commit.TimestampUnix
+	}
+	
+	if len(input.Commits) > 0 {
+		payload.AntiFraudSignals.SignedCommitRatio = float64(signedCount) / float64(len(input.Commits))
+		if len(input.Commits) > 1 {
+			payload.AntiFraudSignals.BurstPatternScore = float64(burstCount) / float64(len(input.Commits)-1)
+			
+			// interval variance
+			var sumInterval float64
+			for _, v := range intervals {
+				sumInterval += v
+			}
+			meanInterval := sumInterval / float64(len(intervals))
+			var varInterval float64
+			for _, v := range intervals {
+				diff := v - meanInterval
+				varInterval += diff * diff
+			}
+			payload.AntiFraudSignals.CommitIntervalVariance = varInterval / float64(len(intervals))
+		}
+		
+		// time of day dist (stddev of hours)
+		var sumHour float64
+		for _, v := range hours {
+			sumHour += v
+		}
+		meanHour := sumHour / float64(len(hours))
+		var varHour float64
+		for _, v := range hours {
+			diff := v - meanHour
+			varHour += diff * diff
+		}
+		// instead of stddev, we can just put variance or scaled stddev. Let's do variance.
+		payload.AntiFraudSignals.TimeOfDayDistribution = varHour / float64(len(hours))
+	}
 	if len(input.Commits) > 0 {
 		payload.AntiFraudSignals.AINoiseScore = totalNoise / float64(len(input.Commits))
 		total := float64(len(input.Commits))

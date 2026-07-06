@@ -34,7 +34,6 @@ func TestPipelinePayloadContainsNoProprietaryText(t *testing.T) {
 		OrgHash:         "org-hash",
 		RepoHash:        "repo-hash",
 		EmailHash:       "email-hash",
-		HandshakeStatus: "success",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
