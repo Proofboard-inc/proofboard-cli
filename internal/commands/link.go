@@ -101,6 +101,17 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Check if already linked
+			current, err := runtime.state.Load(ctx)
+			if err == nil {
+				pathHash := crypto.SHA256(repo.Path)
+				if _, ok := current.LinkedRepos[pathHash]; ok {
+					fmt.Fprintln(out, "Repository is already linked to Proofboard.")
+					return nil
+				}
+			}
+
 			remoteURL, err := pbgit.OriginURL(ctx, repo)
 			if err != nil {
 				return err
@@ -139,7 +150,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 			}
 
-			current, err := runtime.state.Load(ctx)
+			current, err = runtime.state.Load(ctx)
 			if err != nil {
 				return err
 			}

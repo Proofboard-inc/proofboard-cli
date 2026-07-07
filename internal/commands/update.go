@@ -77,6 +77,11 @@ func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return fmt.Errorf("replace executable binary: %w", err)
 			}
 
+			// Ensure it's in PATH
+			if err := performInstall(out); err != nil {
+				fmt.Fprintf(out, "Warning: Failed to perform system PATH installation: %v\n", err)
+			}
+
 			_, err = fmt.Fprintf(out, "Proofboard CLI updated successfully to version %s.\n", latest.Version)
 			return err
 		},
