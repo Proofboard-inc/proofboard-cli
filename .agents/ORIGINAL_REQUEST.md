@@ -64,4 +64,16 @@ You will need network access to GitHub via the `gh` CLI. Ensure you are authoriz
 
 ### Release
 - [ ] A GitHub Release is created containing statically compiled binaries for `proofboard-linux-amd64`, `proofboard-darwin-amd64`, `proofboard-darwin-arm64`, and `proofboard-windows-amd64.exe`.
+ 
+## Follow-up — 2026-07-06T22:01:59Z
+
+The Proofboard CLI project has been fully updated to comply with the v1.8 specification (Handshake removed, local fraud detection fields added, tests updated, building succeeds). 
+
+Static binaries have been compiled to the `build` directory:
+- `build/proofboard-linux-amd64`
+- `build/proofboard-darwin-amd64`
+- `build/proofboard-darwin-arm64`
+- `build/proofboard-windows-amd64.exe`
+
+Your task: Use your permissioned `gh` CLI tool to automatically publish a polished `v1.8.0` final release package to GitHub on the `Proofboard-inc/proofboard-cli` repository (or whatever remote is configured). Include the binaries from the `build` directory in the release. The release title should be "Proofboard CLI v1.8.0" and it should mention the removal of Phase 6 Handshake and the addition of local fraud detection.
 </USER_REQUEST>

@@ -1,13 +1,13 @@
-# BRIEFING — 2026-06-19T18:55:40Z
+# BRIEFING — 2026-07-06T22:02:15Z
 
 ## Mission
-Ensure Proofboard CLI complies with the updated specifications, review endpoints, manage PRs if needed, and publish final release package to GitHub.
+Publish Proofboard CLI v1.8.0 release package to GitHub including build binaries, mentioning Phase 6 Handshake removal and local fraud detection addition.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /workspaces/proofboard-cli/.agents/sentinel
-- Orchestrator: 066f5421-8262-4d3c-a457-bf22bdc942ea
-- Victory Auditor: c613d025-033c-4009-86fe-d3bd9e22d906
+- Orchestrator: c5d035df-b602-43f1-b6c3-b016767145fa
+- Victory Auditor: TBD
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -15,16 +15,16 @@ Ensure Proofboard CLI complies with the updated specifications, review endpoints
 - Strict adherence to avoiding copyright/legal issues (integrity mode: development)
 
 ## User Context
-- **Last user request**: Ensure the Proofboard CLI project fully complies with all specifications in SPEC.md (recently updated), README.md, and GEMINI.md. Review endpoints/open PRs if necessary, and publish a final release package.
+- **Last user request**: Use gh CLI to automatically publish a polished v1.8.0 final release package to GitHub with build binaries, title "Proofboard CLI v1.8.0" noting Handshake removal and local fraud detection addition.
 - **Pending clarifications**: none
 - **Delivered results**: none
 
 ## Project Status
-- **Phase**: complete
+- **Phase**: in progress
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index

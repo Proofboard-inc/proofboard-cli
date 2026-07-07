@@ -1,12 +1,10 @@
-# Progress Update
+# Progress
 
-Last visited: 2026-06-16T17:59:55Z
+Last visited: 2026-07-06T22:06:19Z
 
-- [x] Initialized agent briefing and recorded request.
-- [x] Refactored intent classification in `internal/pipeline/phase2/intent.go` to use mutable/zeroable byte slices for lowercasing, keyword comparison, and noise scoring.
-- [x] Zeroed and nil'd all temporary subject-based byte slices in Phase 2 `Classify`.
-- [x] Verified Phase 5 `Shred` defensive shredding of subject bytes and nil handles.
-- [x] Added unit tests in `internal/pipeline/phase2/intent_test.go` checking classification, noise scores, and byte array zeroing.
-- [x] Added unit tests in `internal/pipeline/phase5/shredder_test.go` verifying Shred behavior under nil subjects.
-- [x] Ran build, `go test ./...` and `go vet ./...` successfully.
-- [x] Documented modifications in `changes.md`.
+- [x] Run git status and git diff.
+- [x] Run unit tests using `go test ./...`.
+- [x] Compile static binaries (linux-amd64, darwin-amd64, darwin-arm64, windows-amd64.exe).
+- [x] Verify build/proofboard-linux-amd64 version and static linking.
+- [x] Update version strings from 1.4.7 to 1.8.0.
+- [x] Write handoff.md and notify parent.
