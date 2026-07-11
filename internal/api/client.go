@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 )
 
@@ -57,15 +58,8 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 
 	var body io.Reader
 	if request != nil {
-		data, err := json.MarshalIndent(request, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal request: %w", err)
-		}
-		fmt.Printf("\n--- HTTP %s %s ---\nREQUEST:\n%s\n", method, endpoint, string(data))
 		tightData, _ := json.Marshal(request)
 		body = bytes.NewReader(tightData)
-	} else {
-		fmt.Printf("\n--- HTTP %s %s ---\nREQUEST: (none)\n", method, endpoint)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
@@ -85,7 +79,35 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 	defer res.Body.Close()
 	
 	bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
-	fmt.Printf("RESPONSE (%s):\n%s\n--------------------\n\n", res.Status, string(bodyBytes))
+	
+	// Write debug log to sync.log
+	homeDir, _ := os.UserHomeDir()
+	if homeDir != "" {
+		logPath := homeDir + "/.proofboard/sync.log"
+		if file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
+			reqStr := "(none)"
+			if request != nil {
+				// We can marshal it to a map to redact hashes
+				var m map[string]any
+				if tight, err := json.Marshal(request); err == nil {
+					if json.Unmarshal(tight, &m) == nil {
+						if _, ok := m["orgHash"]; ok { m["orgHash"] = "[REDACTED]" }
+						if _, ok := m["repoHash"]; ok { m["repoHash"] = "[REDACTED]" }
+						if _, ok := m["emailHash"]; ok { m["emailHash"] = "[REDACTED]" }
+						redacted, _ := json.MarshalIndent(m, "", "  ")
+						reqStr = string(redacted)
+					} else {
+						reqStr = string(tight)
+					}
+				}
+			}
+			redactedEndpoint := "[REDACTED]"
+			timestamp := time.Now().UTC().Format(time.RFC3339)
+			logText := fmt.Sprintf("%s — HTTP %s %s\nREQUEST:\n%s\nRESPONSE (%s):\n%s\n--------------------\n", timestamp, method, redactedEndpoint, reqStr, res.Status, string(bodyBytes))
+			file.Write([]byte(logText))
+			file.Close()
+		}
+	}
 	
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return fmt.Errorf("API returned %s: %s", res.Status, string(bodyBytes))
