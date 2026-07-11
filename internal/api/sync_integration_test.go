@@ -21,7 +21,7 @@ func TestIntegrationPayloadContract(t *testing.T) {
 		baseURL = "https://api-dev.proofboard.io"
 	}
 
-	client := api.NewClient(baseURL, "/api/v1/cli/repos/link", "/api/v1/cli/sync")
+	client := api.NewClient(baseURL, "/api/v1/cli/repos/link", "/api/v1/cli/repos/check", "/api/v1/cli/sync")
 
 	payload := model.SyncPayload{
 		SHAs:              []string{"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"},

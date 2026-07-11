@@ -16,22 +16,24 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	linkPath   string
+	checkPath  string
 	syncPath   string
 }
 
-func NewClient(baseURL string, linkPath string, syncPath string) Client {
+func NewClient(baseURL string, linkPath string, checkPath string, syncPath string) Client {
 	return Client{
-		baseURL:  baseURL,
-		linkPath: linkPath,
-		syncPath: syncPath,
+		baseURL:   baseURL,
+		linkPath:  linkPath,
+		checkPath: checkPath,
+		syncPath:  syncPath,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
 	}
 }
 
-func NewClientWithHTTP(baseURL string, linkPath string, syncPath string, httpClient *http.Client) Client {
-	client := NewClient(baseURL, linkPath, syncPath)
+func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client) Client {
+	client := NewClient(baseURL, linkPath, checkPath, syncPath)
 	client.httpClient = httpClient
 	return client
 }

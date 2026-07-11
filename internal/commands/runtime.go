@@ -45,7 +45,7 @@ func loadRuntime(ctx context.Context) (runtimeContext, error) {
 		workingDir:  wd,
 		credentials: pbauth.NewCredentialStore(home),
 		state:       state.NewStore(home),
-		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.SyncPath),
+		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.CheckPath, cfg.SyncPath),
 	}, nil
 }
 

@@ -36,3 +36,18 @@ func (c Client) Link(ctx context.Context, token string, req LinkRequest) (LinkRe
 	err := c.postJSON(ctx, c.linkPath, token, req, &response)
 	return response, err
 }
+
+type CheckResponse struct {
+	IsLinked  bool   `json:"isLinked"`
+	ProjectID string `json:"projectId,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+func (c Client) Check(ctx context.Context, token string, orgHash string) (CheckResponse, error) {
+	var response CheckResponse
+	query := map[string][]string{
+		"orgHash": {orgHash},
+	}
+	err := c.getJSON(ctx, c.checkPath, token, query, &response)
+	return response, err
+}
