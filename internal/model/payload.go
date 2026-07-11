@@ -25,6 +25,7 @@ type SyncPayload struct {
 	CLIVersion        string           `json:"cliVersion"`
 	DictionaryVersion string           `json:"dictionaryVersion"`
 	AntiFraudSignals  AntiFraudSignals `json:"antiFraudSignals"`
+	NotifyPush        bool             `json:"notifyPush"`
 }
 
 type SyncReceipt struct {
