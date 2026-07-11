@@ -156,6 +156,8 @@ Windows amd64
 
 Static binaries only.
 
+Always update the local binary (`./proofboard`) and the GitHub release artifacts when compiling new changes.
+
 ## Backend Repository
 https://github.com/Proofboard-inc/proofboard-backend
 
