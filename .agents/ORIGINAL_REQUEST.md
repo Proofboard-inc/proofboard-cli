@@ -105,3 +105,15 @@ The release title must be "Proofboard CLI v1.8.0" and it must mention the remova
 
 Please coordinate this work, update your progress.md and plan.md in your working directory, and report back when all acceptance criteria are met.
 </USER_REQUEST>
+
+## Follow-up — 2026-07-07T08:57:26Z
+
+<USER_REQUEST>
+We need to create the final GitHub release for Proofboard CLI v1.8.0.
+
+The `v1.8.0` tag has been pushed to the main branch. The binaries are already compiled and located in `dist/`.
+
+Your task: Use your permissioned `gh` CLI tool to automatically publish a polished `v1.8.0` final release package to GitHub on the repository. Include the compiled binaries in `dist/` in the release. The release title should be "Proofboard CLI v1.8.0" and the notes should mention the removal of Phase 6 Handshake and the addition of local fraud detection.
+
+Please execute this immediately and report back when the GitHub release is successfully live.
+</USER_REQUEST>

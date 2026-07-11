@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -172,6 +173,11 @@ func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 		case "/1.3.0/" + binaryName:
 			w.Header().Set("Content-Type", "application/octet-stream")
 			_, _ = w.Write([]byte("mock binary content payload"))
+		case "/1.3.0/" + binaryName + ".sig":
+			w.Header().Set("Content-Type", "application/octet-stream")
+			// Signature for "mock binary content payload" using proofboard_private.pem
+			sigBytes, _ := hex.DecodeString("3045022100cb978a826f9edb1f110438413354edcfa054fdba1fee628b1861442c31d86d1c0220009e5eebf0397421c09999e59d632826cc3234168154f9f8cd2b35f7765a2cd2")
+			_, _ = w.Write(sigBytes)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -211,8 +217,8 @@ func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 	}
 
 	expectedMsg := "Proofboard CLI updated successfully to version 1.3.0.\n"
-	if out.String() != expectedMsg {
-		t.Errorf("expected message %q, got %q", expectedMsg, out.String())
+	if !strings.Contains(out.String(), expectedMsg) {
+		t.Errorf("expected message to contain %q, got %q", expectedMsg, out.String())
 	}
 
 	// Verify that the executable file content was replaced with our mock binary content
