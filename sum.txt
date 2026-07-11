@@ -1,7 +1,0 @@
-ce323ea002cdd0b41f9ee683b85ecf86  AGENTS.md
-ce323ea002cdd0b41f9ee683b85ecf86  GEMINI.md
-ce323ea002cdd0b41f9ee683b85ecf86  CLAUDE.md
-ce323ea002cdd0b41f9ee683b85ecf86  .kiro/steering/project-rules.md
-ce323ea002cdd0b41f9ee683b85ecf86  .cursorrules
-ce323ea002cdd0b41f9ee683b85ecf86  .windsurfrules
-ce323ea002cdd0b41f9ee683b85ecf86  .github/copilot-instructions.md

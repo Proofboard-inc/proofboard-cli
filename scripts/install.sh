@@ -32,8 +32,8 @@ LATEST_JSON=$(curl -sSL https://releases.proofboard.io/latest.json || echo "")
 LATEST_VERSION=$(echo "$LATEST_JSON" | grep -o '"version": *"[^"]*"' | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "$LATEST_VERSION" ]; then
-    echo "Fallback: Using hardcoded latest version v1.8.1"
-    LATEST_VERSION="v1.8.1"
+    echo "Fallback: Using hardcoded latest version v1.8.3"
+    LATEST_VERSION="v1.8.3"
 fi
 
 DOWNLOAD_URL="https://releases.proofboard.io/${LATEST_VERSION}/${BINARY_NAME}"

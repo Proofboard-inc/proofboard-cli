@@ -144,7 +144,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("register linked repository selection: %w", err)
 				}
-			} else if response.IsNewProject {
+			} else if response.IsNewProject && response.ProjectID == "" {
 				req.CreateNew = true
 				response, err = runtime.api.Link(ctx, credentials.Token, req)
 				if err != nil {
