@@ -52,7 +52,7 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	}
 	fmt.Printf("Waiting for authentication...\n")
 
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -62,6 +62,10 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 		case <-ticker.C:
 			pollResp, err := s.client.PollDeviceCode(ctx, resp.DeviceCode)
 			if err != nil {
+				// if it's a 429, we should just wait longer
+				if strings.Contains(err.Error(), "429") {
+					continue
+				}
 				continue // ignore temporary network errors during poll
 			}
 			if pollResp.Status == "approved" {

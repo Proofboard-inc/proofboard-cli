@@ -16,7 +16,7 @@
       "paths": ["api/", "services/", "controllers/", "routes/"],
       "impact": "feature"
     },
-    "Database & Data": {
+    "Database & Data Layer": {
       "keywords": ["migration", "schema", "query", "prisma", "mongoose", "redis", "index"],
       "paths": ["migrations/", "models/", "db/", "repositories/"],
       "impact": "feature"
@@ -36,7 +36,7 @@
       "paths": ["payments/", "billing/", "subscriptions/"],
       "impact": "feature"
     },
-    "Testing & Quality": {
+    "Testing & QA": {
       "keywords": ["test", "spec", "mock", "jest", "cypress", "coverage", "fixture"],
       "paths": ["__tests__/", ".test.", ".spec.", "e2e/"],
       "impact": "bugfix"
