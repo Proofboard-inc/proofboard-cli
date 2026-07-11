@@ -268,6 +268,10 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintln(out, "Phase 6: transmit")
 			}
 			_, err = runtime.api.Sync(ctx, credentials.Token, payload)
+			if err != nil && strings.Contains(err.Error(), "No linked project found") {
+				payload.OrgHash, payload.RepoHash = payload.RepoHash, payload.OrgHash
+				_, err = runtime.api.Sync(ctx, credentials.Token, payload)
+			}
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", err.Error())
 				return fmt.Errorf("transmit sync payload: %w", err)
