@@ -1,6 +1,7 @@
 package phase7
 
 import (
+	"strings"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/model"
@@ -53,16 +54,19 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		payload.Additions = append(payload.Additions, commit.Additions)
 		payload.Deletions = append(payload.Deletions, commit.Deletions)
 		payload.FilesChanged = append(payload.FilesChanged, commit.FilesChanged)
-		cat := commit.Category
-		if cat == "Unclassified" {
-			cat = "Feature Development"
-		}
+		cat := normalizeCategory(commit.Category)
 		payload.Categories = append(payload.Categories, cat)
-		impactCounts[commit.ImpactType]++
+		impactCounts[normalizeImpact(commit.ImpactType)]++
 		totalNoise += commit.NoiseScore
 		if input.EmailHash != "" && commit.AuthorEmailHash != "" && commit.AuthorEmailHash != input.EmailHash {
 			identityMismatch++
 		}
+	}
+
+	for i := range payload.MilestoneClusters {
+		payload.MilestoneClusters[i].Category = normalizeCategory(payload.MilestoneClusters[i].Category)
+		payload.MilestoneClusters[i].ImpactType = normalizeImpact(payload.MilestoneClusters[i].ImpactType)
+		payload.MilestoneClusters[i].ImpactScale = normalizeScale(payload.MilestoneClusters[i].ImpactScale)
 	}
 
 	payload.AntiFraudSignals.IdentityMismatch = identityMismatch
@@ -81,4 +85,74 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	}
 
 	return payload
+}
+
+func normalizeCategory(cat string) string {
+	switch strings.ToUpper(cat) {
+	case "AUTH", "AUTHENTICATION":
+		return "Authentication & Security"
+	case "FRONTEND", "UI":
+		return "Frontend & UI"
+	case "API", "BACKEND":
+		return "API & Backend Services"
+	case "DATABASE", "DB":
+		return "Database & Data Layer"
+	case "INFRASTRUCTURE", "DEVOPS":
+		return "Infrastructure & DevOps"
+	case "PERFORMANCE", "OPTIMISATION":
+		return "Performance & Optimisation"
+	case "PAYMENTS", "BILLING":
+		return "Payments & Billing"
+	case "TESTING", "QA":
+		return "Testing & QA"
+	case "DOCUMENTATION", "DOCS":
+		return "Documentation"
+	case "BUG", "BUGFIX", "FIX":
+		return "Bug Fixes & Maintenance"
+	case "FEATURE", "UNCLASSIFIED":
+		return "Feature Development"
+	case "REFACTOR", "REFACTORING":
+		return "Refactoring"
+	case "MOBILE":
+		return "Mobile Development"
+	case "AI", "MACHINE LEARNING":
+		return "AI & Machine Learning"
+	case "TOOLING", "DEVELOPER TOOLING":
+		return "Developer Tooling"
+	default:
+		if cat == "Unclassified" {
+			return "Feature Development"
+		}
+		return cat
+	}
+}
+
+func normalizeImpact(impact string) string {
+	switch strings.ToLower(impact) {
+	case "feature":
+		return "feature"
+	case "bugfix", "fix":
+		return "bugfix"
+	case "refactor":
+		return "refactor"
+	case "ship":
+		return "ship"
+	case "maintenance":
+		return "maintenance"
+	default:
+		return "feature"
+	}
+}
+
+func normalizeScale(scale string) string {
+	switch strings.ToLower(scale) {
+	case "small":
+		return "small"
+	case "medium":
+		return "medium"
+	case "large":
+		return "large"
+	default:
+		return "small"
+	}
 }

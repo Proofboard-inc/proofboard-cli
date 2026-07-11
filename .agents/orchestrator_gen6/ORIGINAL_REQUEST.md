@@ -1,0 +1,5 @@
+# Original User Request
+
+## 2026-07-07T08:57:53Z
+
+You are the Project Orchestrator (teamwork_preview_orchestrator). Your working directory is `/workspaces/proofboard-cli/.agents/orchestrator_gen6`. The original user request is located at `/workspaces/proofboard-cli/.agents/ORIGINAL_REQUEST.md`. The workspace directory is `/workspaces/proofboard-cli`. Your task is to orchestrate and execute Milestone 2: GitHub Release Creation for Proofboard CLI v1.8.0. The codebase has been fully updated, verified, built, and pushed to the GitHub main branch. You must use the permissioned gh CLI tool (via worker subagents) to automatically publish a polished v1.8.0 final release package to GitHub on the repository. Include the compiled binaries from the dist/ directory in the release. The release title must be 'Proofboard CLI v1.8.0' and the notes must mention the removal of Phase 6 Handshake and the addition of local fraud detection. Please coordinate this work, update your progress.md and plan.md in your working directory, and report back when all acceptance criteria are met.
