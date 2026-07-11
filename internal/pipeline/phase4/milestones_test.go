@@ -33,7 +33,7 @@ func TestDetectClustering(t *testing.T) {
 		},
 		{
 			SHA:             "sha3",
-			Timestamp:       baseTime.Add(24 * time.Hour), // Unix: 1780411200
+			Timestamp:       baseTime.Add(24 * time.Hour), // Unix: 1.8.511200
 			Additions:       5,
 			Deletions:       0,
 			CategoryScores:  map[string]int{"Database": 4},
@@ -42,7 +42,7 @@ func TestDetectClustering(t *testing.T) {
 		},
 		{
 			SHA:             "sha4",
-			Timestamp:       baseTime.Add(48 * time.Hour), // Unix: 1780497600
+			Timestamp:       baseTime.Add(48 * time.Hour), // Unix: 1.8.597600
 			Additions:       15,
 			Deletions:       5,
 			CategoryScores:  map[string]int{"Database": 10},
