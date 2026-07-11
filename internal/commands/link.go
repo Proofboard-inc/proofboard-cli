@@ -102,16 +102,6 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 
-			// Check if already linked
-			current, err := runtime.state.Load(ctx)
-			if err == nil {
-				pathHash := crypto.SHA256(repo.Path)
-				if _, ok := current.LinkedRepos[pathHash]; ok {
-					fmt.Fprintln(out, "Repository is already linked to Proofboard.")
-					return nil
-				}
-			}
-
 			remoteURL, err := pbgit.OriginURL(ctx, repo)
 			if err != nil {
 				return err
@@ -119,6 +109,15 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			identity, err := pbgit.ParseRemote(remoteURL)
 			if err != nil {
 				return err
+			}
+
+			// Check if already linked
+			current, err := runtime.state.Load(ctx)
+			if err == nil {
+				if _, ok := current.LinkedRepos[identity.RepoHash]; ok {
+					fmt.Fprintln(out, "Repository is already linked to Proofboard.")
+					return nil
+				}
 			}
 			
 			fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
@@ -128,6 +127,9 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				OrgHash:  identity.OrgHash,
 				RepoHash: identity.RepoHash,
 				Provider: identity.Provider,
+				Handshake: &api.LinkHandshake{
+					SSHTest: true,
+				},
 			}
 			response, err := runtime.api.Link(ctx, credentials.Token, req)
 			if err != nil {

@@ -4,12 +4,17 @@ import (
 	"context"
 )
 
+type LinkHandshake struct {
+	SSHTest bool `json:"sshTest"`
+}
+
 type LinkRequest struct {
-	OrgHash           string `json:"orgHash"`
-	RepoHash          string `json:"repoHash"`
-	Provider          string `json:"provider"`
-	ExistingProjectID string `json:"existingProjectId,omitempty"`
-	CreateNew         bool   `json:"createNew,omitempty"`
+	OrgHash           string         `json:"orgHash"`
+	RepoHash          string         `json:"repoHash"`
+	Provider          string         `json:"provider"`
+	ExistingProjectID string         `json:"existingProjectId,omitempty"`
+	CreateNew         bool           `json:"createNew,omitempty"`
+	Handshake         *LinkHandshake `json:"handshake,omitempty"`
 }
 
 type ExistingProjectOption struct {
