@@ -82,9 +82,12 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 			return ranked[i].score > ranked[j].score
 		})
 
-		primary := "Unclassified"
+		primary := "Feature Development"
 		if len(ranked) > 0 {
 			primary = ranked[0].name
+		}
+		if primary == "Unclassified" {
+			primary = "Feature Development"
 		}
 
 		scaleStr := scale(len(clusterCommits))

@@ -6,11 +6,6 @@ type AntiFraudSignals struct {
 	IdentityMismatch    int     `json:"identityMismatch"`
 	LowCommitCount      bool    `json:"lowCommitCount"`
 	SingleCommitRepoCap bool    `json:"singleCommitRepoCap"`
-	CommitSignatureVerified bool    `json:"commitSignatureVerified"`
-	SignedCommitRatio       float64 `json:"signedCommitRatio"`
-	CommitIntervalVariance  float64 `json:"commitIntervalVariance"`
-	TimeOfDayDistribution   float64 `json:"timeOfDayDistribution"`
-	BurstPatternScore       float64 `json:"burstPatternScore"`
 }
 
 type SyncPayload struct {
@@ -22,12 +17,11 @@ type SyncPayload struct {
 	Categories        []string         `json:"categories"`
 	ImpactScores      map[string]float64 `json:"impactScores"`
 	MilestoneClusters []Cluster        `json:"milestoneClusters"`
-	OrgHash           string           `json:"orgHash"`
-	RepoHash          string           `json:"repoHash"`
-	EmailHash         string           `json:"emailHash"`
-	Provider          string           `json:"provider"`
-	AccessStatus      string           `json:"accessStatus"`
-	CapturedAt        string           `json:"capturedAt"`
+	OrgHash           string             `json:"orgHash"`
+	RepoHash          string             `json:"repoHash"`
+	EmailHash         string             `json:"emailHash"`
+	Provider          string             `json:"provider"`
+	CapturedAt        string             `json:"capturedAt"`
 	CLIVersion        string           `json:"cliVersion"`
 	DictionaryVersion string           `json:"dictionaryVersion"`
 	AntiFraudSignals  AntiFraudSignals `json:"antiFraudSignals"`
