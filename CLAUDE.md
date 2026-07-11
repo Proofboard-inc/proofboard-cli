@@ -13,7 +13,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard CLI v1.8.6
+Proofboard CLI v1.8.7
 
 Implementation language: Go 1.21+
 
