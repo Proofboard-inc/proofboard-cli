@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/proofboard/proofboard/internal/api"
+	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,41 @@ func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = os.Remove(tempPath)
 				return fmt.Errorf("download new binary: %w", err)
 			}
+
+			// Download signature
+			sigFile, err := os.CreateTemp(execDir, "proofboard-sig-*.tmp")
+			if err != nil {
+				_ = os.Remove(tempPath)
+				return fmt.Errorf("create temp sig file: %w", err)
+			}
+			sigPath := sigFile.Name()
+			err = releases.Download(ctx, downloadURL+".sig", sigFile)
+			sigFile.Close()
+			if err != nil {
+				_ = os.Remove(tempPath)
+				_ = os.Remove(sigPath)
+				return fmt.Errorf("download binary signature: %w", err)
+			}
+
+			// Verify signature
+			binData, err := os.ReadFile(tempPath)
+			if err != nil {
+				_ = os.Remove(tempPath)
+				_ = os.Remove(sigPath)
+				return fmt.Errorf("read downloaded binary: %w", err)
+			}
+			sigData, err := os.ReadFile(sigPath)
+			if err != nil {
+				_ = os.Remove(tempPath)
+				_ = os.Remove(sigPath)
+				return fmt.Errorf("read downloaded signature: %w", err)
+			}
+			if err := crypto.VerifyReleaseSignature(binData, sigData); err != nil {
+				_ = os.Remove(tempPath)
+				_ = os.Remove(sigPath)
+				return fmt.Errorf("verify binary signature: %w", err)
+			}
+			_ = os.Remove(sigPath)
 
 			// Set executable permissions
 			if err := os.Chmod(tempPath, 0755); err != nil {
