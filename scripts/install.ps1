@@ -21,7 +21,7 @@ try {
     $LatestVersion = $ReleaseData.version
 } catch {
     Write-Warning "Failed to fetch from releases.proofboard.io, using fallback version."
-    $LatestVersion = "v1.8.3"
+    $LatestVersion = "v1.8.4"
 }
 
 $DownloadUrl = "https://releases.proofboard.io/$LatestVersion/$BinaryName"

@@ -246,7 +246,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
 				Raw:             raw,
-				OrgHash:         identity.OrgHash,
+				OrgHash:         identity.RepoHash, // Workaround: Backend saves RepoHash as OrgHash, so we must send RepoHash to be found
 				RepoHash:        identity.RepoHash,
 				EmailHash:       credentials.EmailHash,
 				Provider:        identity.Provider,

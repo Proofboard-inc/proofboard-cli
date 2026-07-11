@@ -25,7 +25,7 @@ func NewClient(baseURL string, linkPath string, syncPath string) Client {
 		linkPath: linkPath,
 		syncPath: syncPath,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 }
