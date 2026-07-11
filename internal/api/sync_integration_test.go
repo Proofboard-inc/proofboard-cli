@@ -56,7 +56,7 @@ func TestIntegrationPayloadContract(t *testing.T) {
 		EmailHash:         "dummy-email-hash",
 		Provider:          "github",
 		CapturedAt:        "2026-06-15T12:00:00Z",
-		CLIVersion:        "1.8.3",
+		CLIVersion:        "1.8.4",
 		DictionaryVersion: "2.0.0",
 		NotifyPush:        false,
 		AntiFraudSignals: model.AntiFraudSignals{
