@@ -161,3 +161,6 @@ Always update the local binary (`./proofboard`) and the GitHub release artifacts
 ## Backend Repository
 https://github.com/Proofboard-inc/proofboard-backend
 
+Local Clone Path: `/tmp/proofboard-backend`
+*(Note: If missing, reclone the repository to this path to perform backend changes.)*
+
