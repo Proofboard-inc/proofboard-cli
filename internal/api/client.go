@@ -57,11 +57,15 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 
 	var body io.Reader
 	if request != nil {
-		data, err := json.Marshal(request)
+		data, err := json.MarshalIndent(request, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal request: %w", err)
 		}
-		body = bytes.NewReader(data)
+		fmt.Printf("\n--- HTTP %s %s ---\nREQUEST:\n%s\n", method, endpoint, string(data))
+		tightData, _ := json.Marshal(request)
+		body = bytes.NewReader(tightData)
+	} else {
+		fmt.Printf("\n--- HTTP %s %s ---\nREQUEST: (none)\n", method, endpoint)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
@@ -79,14 +83,17 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 		return fmt.Errorf("send request: %w", err)
 	}
 	defer res.Body.Close()
+	
+	bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
+	fmt.Printf("RESPONSE (%s):\n%s\n--------------------\n\n", res.Status, string(bodyBytes))
+	
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
 		return fmt.Errorf("API returned %s: %s", res.Status, string(bodyBytes))
 	}
 	if response == nil || res.StatusCode == http.StatusNoContent {
 		return nil
 	}
-	if err := json.NewDecoder(res.Body).Decode(response); err != nil {
+	if err := json.Unmarshal(bodyBytes, response); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
