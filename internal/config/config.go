@@ -13,6 +13,7 @@ type Config struct {
 	AppBaseURL                string
 	ReleaseBaseURL            string
 	LinkPath                  string
+	CheckPath                 string
 	SyncPath                  string
 	DictionaryPath            string
 	LatestVersionPath         string
@@ -32,6 +33,7 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("app.base_url", "https://app.proofboard.io")
 	v.SetDefault("release.base_url", "https://releases.proofboard.io")
 	v.SetDefault("api.link_path", "/api/v1/cli/repos/link")
+	v.SetDefault("api.check_path", "/api/v1/cli/repos/check")
 	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
 	v.SetDefault("api.dictionary_path", "/api/v1/cli/dictionary")
 	v.SetDefault("release.latest_version_path", "/latest.json")
@@ -42,6 +44,7 @@ func Load(ctx context.Context) (Config, error) {
 		AppBaseURL:                v.GetString("app.base_url"),
 		ReleaseBaseURL:            v.GetString("release.base_url"),
 		LinkPath:                  v.GetString("api.link_path"),
+		CheckPath:                 v.GetString("api.check_path"),
 		SyncPath:                  v.GetString("api.sync_path"),
 		DictionaryPath:            v.GetString("api.dictionary_path"),
 		LatestVersionPath:         v.GetString("release.latest_version_path"),

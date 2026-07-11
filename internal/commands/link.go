@@ -111,12 +111,17 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 
-			// Check if already linked
+			// Check if already linked locally and on backend
 			current, err := runtime.state.Load(ctx)
 			if err == nil {
 				if _, ok := current.LinkedRepos[identity.RepoHash]; ok {
-					fmt.Fprintln(out, "Repository is already linked to Proofboard.")
-					return nil
+					// Verify with backend
+					checkRes, checkErr := runtime.api.Check(ctx, credentials.Token, identity.OrgHash)
+					if checkErr == nil && checkRes.IsLinked {
+						fmt.Fprintln(out, "Repository is already linked to Proofboard.")
+						return nil
+					}
+					// If backend check failed or returned not linked, proceed with link
 				}
 			}
 			
