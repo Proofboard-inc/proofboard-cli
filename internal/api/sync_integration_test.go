@@ -58,6 +58,7 @@ func TestIntegrationPayloadContract(t *testing.T) {
 		CapturedAt:        "2026-06-15T12:00:00Z",
 		CLIVersion:        "1.8.1",
 		DictionaryVersion: "2.0.0",
+		NotifyPush:        false,
 		AntiFraudSignals: model.AntiFraudSignals{
 			AINoiseScore:        0.1,
 			LowCommitCount:      false,

@@ -35,6 +35,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
 		CLIVersion:        input.CLIVersion,
 		DictionaryVersion: input.DictionaryVersion,
+		NotifyPush:        false,
 		AntiFraudSignals: model.AntiFraudSignals{
 			LowCommitCount:      len(input.Commits) < 5,
 			OrgHashMismatch:     input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,
