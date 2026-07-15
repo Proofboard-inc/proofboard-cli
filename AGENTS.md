@@ -146,17 +146,17 @@ Logs:
 
 ## Release Requirements
 
-Linux amd64
+Linux amd64 (proofboard-linux-amd64)
 
-macOS amd64
+macOS amd64 (proofboard-darwin-amd64)
 
-macOS arm64
+macOS arm64 (proofboard-darwin-arm64)
 
-Windows amd64
+Windows amd64 (proofboard-windows-amd64.exe)
 
 Static binaries only.
 
-Always update the local binary (`./proofboard`) and the GitHub release artifacts when compiling new changes.
+CRITICAL DIRECTIVE: When cutting a new release, you MUST strictly build the full cross-compilation matrix (GOOS/GOARCH) for all 4 targets listed above and upload all 4 explicit binaries to the GitHub release. Do not merely upload the local environment's binary.
 
 ## Backend Repository
 https://github.com/Proofboard-inc/proofboard-backend
