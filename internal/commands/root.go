@@ -125,6 +125,9 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		}
 	}
 
+	notifyAuthExpiry(checkCtx, cmd.OutOrStdout(), runCtx)
+	surfaceUnreadNotifications(checkCtx, cmd.OutOrStdout(), runCtx)
+
 	return nil
 }
 
@@ -202,4 +205,3 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 
 	return nil
 }
-
