@@ -13,7 +13,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard CLI v1.8.5
+Proofboard CLI v1.8.8
 
 Implementation language: Go 1.21+
 
@@ -79,6 +79,18 @@ Required commands:
 * install (Global system-wide installer)
 * uninstall (Global uninstaller)
 * completion (Interactive auto-completion setup)
+
+## Desktop Detection
+
+When an engineer opens a Git workspace in an IDE, the CLI must detect the workspace even if the engineer never runs `link` or `sync` manually. The watcher must treat both unlinked repositories and linked-but-unsynced repositories as actionable.
+
+Use the same three-option surface as the terminal prompt:
+
+* `y` links or re-syncs the repo and continues.
+* `n` dismisses for the current session.
+* `x` suppresses the workspace permanently.
+
+The watcher must compare the active workspace against Proofboard state, ignore already-suppressed workspaces, and surface the prompt as soon as the IDE opens the project.
 
 ## Pipeline
 
@@ -163,4 +175,3 @@ https://github.com/Proofboard-inc/proofboard-backend
 
 Local Clone Path: `/tmp/proofboard-backend`
 *(Note: If missing, reclone the repository to this path to perform backend changes.)*
-
