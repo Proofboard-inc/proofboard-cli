@@ -2,8 +2,12 @@
   "name": "proofboard-cli",
   "version": "1.8.0",
   "description": "Proofboard CLI fallback installer via npm",
+  "main": "./index.js",
   "bin": {
     "proofboard": "./bin/proofboard.js"
+  },
+  "exports": {
+    ".": "./index.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
