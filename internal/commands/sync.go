@@ -1,11 +1,12 @@
 package commands
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,9 +14,9 @@ import (
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
 	"github.com/proofboard/proofboard/internal/logging"
+	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/pipeline"
 	"github.com/proofboard/proofboard/internal/pipeline/phase1"
-	"github.com/proofboard/proofboard/internal/pipeline/phase2"
 	"github.com/spf13/cobra"
 )
 
@@ -77,66 +78,36 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "workspace suppressed")
 					return nil
 				}
-
-				dict, err := dictionary.LoadDefault(ctx)
-				if err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "load dictionary", "failure", err.Error())
-					return err
-				}
-				if err := dictionary.Validate(dict); err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "validate dictionary", "failure", err.Error())
-					return err
-				}
-
-				raw, err := phase1.Ingest(ctx, repo, "")
-				if err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "failure", err.Error())
-					return err
-				}
-
-				classified := phase2.Classify(raw, dict)
-				totals := make(map[string]int)
-				for _, commit := range classified {
-					for category, score := range commit.CategoryScores {
-						totals[category] += score
-					}
-				}
-				type rankedCategory struct {
-					name  string
-					score int
-				}
-				var ranked []rankedCategory
-				for category, score := range totals {
-					if score > 0 {
-						ranked = append(ranked, rankedCategory{name: category, score: score})
-					}
-				}
-				sort.Slice(ranked, func(i, j int) bool {
-					if ranked[i].score == ranked[j].score {
-						return ranked[i].name < ranked[j].name
-					}
-					return ranked[i].score > ranked[j].score
-				})
-				limit := 3
-				if len(ranked) < limit {
-					limit = len(ranked)
-				}
-				var topCategories []string
-				for i := 0; i < limit; i++ {
-					topCategories = append(topCategories, ranked[i].name)
-				}
-
 				if fromHook {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "unlinked repo in hook")
 					return nil
 				}
-				
-				fmt.Fprintln(cmd.OutOrStdout(), "Proofboard — unlinked repository detected.")
-				fmt.Fprintln(cmd.OutOrStdout())
-				fmt.Fprintf(cmd.OutOrStdout(), "Project: %s\n", filepath.Base(repo.Path))
-				fmt.Fprintln(cmd.OutOrStdout(), "This repository is not linked to Proofboard.")
-				fmt.Fprintln(cmd.OutOrStdout(), "Please run `proofboard link` to link it to an existing project or create a new one.")
-				return nil
+				notifications.Dispatch(nil, notifications.NewProjectDetected(identity.Repo))
+
+				switch promptForNewProjectDetection(os.Stdin, out) {
+				case "y":
+					linkCmd := newLinkCommand(ctx, out)
+					linkCmd.SetArgs([]string{})
+					if err := linkCmd.ExecuteContext(ctx); err != nil {
+						return err
+					}
+					current, err = runtime.state.Load(ctx)
+					if err != nil {
+						return err
+					}
+					repoState, linked = current.LinkedRepos[identity.RepoHash]
+					if !linked {
+						return fmt.Errorf("link current repository before syncing")
+					}
+				case "x":
+					current.SuppressedWorkspaces = append(current.SuppressedWorkspaces, repoPath)
+					if err := runtime.state.Save(ctx, current); err != nil {
+						return fmt.Errorf("save suppressed workspace: %w", err)
+					}
+					return nil
+				default:
+					return nil
+				}
 			}
 			if fromHook {
 				branch, err := pbgit.CurrentBranch(ctx, repo)
@@ -295,6 +266,13 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
 				return err
 			}
+			if len(payload.SHAs) > 0 {
+				notifications.Dispatch(nil, notifications.ProofOfShipCaptured(len(payload.MilestoneClusters)))
+				_, err = fmt.Fprintln(out, "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard")
+				if err != nil {
+					return err
+				}
+			}
 			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), len(payload.ImpactScores))
 			if err != nil {
 				return err
@@ -331,5 +309,24 @@ func abortSyncWithTrigger(homeDir, repoHash, triggerSource string) error {
 	return logging.WriteSyncLog(homeDir, repoHash, triggerSource, "pre-classification filter", "aborted", "trivial merge skipped")
 }
 
+func promptForNewProjectDetection(in io.Reader, out io.Writer) string {
+	reader := bufio.NewReader(in)
+	for {
+		fmt.Fprintln(out, "Add this project to your proofboard?")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "  y   Sync this project")
+		fmt.Fprintln(out, "  n   Not this project")
+		fmt.Fprintln(out, "  x   Never ask for this workspace")
+		fmt.Fprint(out, "Choose [y/n/x]: ")
 
-
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "n"
+		}
+		choice := strings.ToLower(strings.TrimSpace(line))
+		switch choice {
+		case "y", "n", "x":
+			return choice
+		}
+	}
+}

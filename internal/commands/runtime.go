@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/config"
 	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/state"
 )
 
@@ -84,12 +86,52 @@ func triggerMonthlyCareerSummaryWithTime(ctx context.Context, out io.Writer, run
 		if err != nil {
 			return err
 		}
+		notifications.Dispatch(nil, notifications.MonthlyCareerSummary(monthName))
 		current.MonthlyCareerSummaryShown[key] = true
 		if err := runtime.state.Save(ctx, current); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func notifyAuthExpiry(ctx context.Context, out io.Writer, runtime runtimeContext) {
+	credentials, err := runtime.credentials.Load(ctx)
+	if err != nil || credentials.Token == "" {
+		return
+	}
+	expiry, err := crypto.JWTExpiry(credentials.Token)
+	if err != nil {
+		return
+	}
+	until := time.Until(expiry)
+	if until <= 0 || until > 5*24*time.Hour {
+		return
+	}
+	days := int((until + 24*time.Hour - 1) / (24 * time.Hour))
+	if days < 1 {
+		days = 1
+	}
+	notifications.Dispatch(out, notifications.AuthExpiringSoon(days))
+}
+
+func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runtimeContext) {
+	credentials, err := runtime.credentials.Load(ctx)
+	if err != nil || credentials.Token == "" {
+		return
+	}
+	query := url.Values{}
+	query.Set("page", "1")
+	query.Set("limit", "20")
+	query.Set("isRead", "false")
+	res, err := runtime.api.GetNotifications(ctx, credentials.Token, query)
+	if err != nil {
+		return
+	}
+	for _, n := range res.Data {
+		notifications.Dispatch(out, notifications.RemoteNotification(n))
+		_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+	}
 }
 
 func getReadyCareerSummaryMonth(now time.Time) (string, string) {

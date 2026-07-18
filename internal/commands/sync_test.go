@@ -7,11 +7,15 @@ import (
 	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/state"
+	"github.com/proofboard/proofboard/internal/version"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIsDocFile(t *testing.T) {
@@ -105,7 +109,7 @@ func TestSyncPipelineOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	
+
 	repoHash := crypto.SHA256("github:org/repo")
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
 		RepoHash:    repoHash,
@@ -177,5 +181,109 @@ func TestSyncPipelineOrdering(t *testing.T) {
 
 	if pipelineIndex != -1 && transmitIndex != -1 && pipelineIndex > transmitIndex {
 		t.Errorf("Pipeline run happened AFTER Transmit. Pipeline index: %d, Transmit index: %d. Logs: %s", pipelineIndex, transmitIndex, logContent)
+	}
+}
+
+func TestPromptForNewProjectDetection(t *testing.T) {
+	t.Parallel()
+	choice := promptForNewProjectDetection(strings.NewReader("x\n"), &bytes.Buffer{})
+	if choice != "x" {
+		t.Fatalf("expected x choice, got %q", choice)
+	}
+}
+
+func TestSyncPrintsProofOfShipEcho(t *testing.T) {
+	tempHome := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", tempHome)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest.json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":"` + version.Version + `"}`))
+		case "/api/v1/cli/sync":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST /api/v1/cli/sync, got %s %s", r.Method, r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"sync-1","tier":"sha","status":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", apiServer.URL)
+	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", apiServer.URL)
+
+	ctx := context.Background()
+
+	credStore := pbauth.NewCredentialStore(tempHome)
+	if err := credStore.Save(ctx, model.Credentials{
+		Token:     "test-token",
+		EmailHash: "test-email-hash",
+	}); err != nil {
+		t.Fatalf("failed to save credentials: %v", err)
+	}
+
+	stateStore := state.NewStore(tempHome)
+	st, err := stateStore.Load(ctx)
+	if err != nil {
+		t.Fatalf("failed to load state: %v", err)
+	}
+	key, _ := getReadyCareerSummaryMonth(time.Now())
+	st.MonthlyCareerSummaryShown[key] = true
+	repoPathAbs, err := filepath.Abs(repoDir)
+	if err != nil {
+		t.Fatalf("failed to get absolute path: %v", err)
+	}
+	repoHash := crypto.SHA256("github:org/repo")
+	st.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:          repoHash,
+		OrgHash:           crypto.SHA256("github:org"),
+		PathHash:          crypto.SHA256(repoPathAbs),
+		Provider:          "github",
+		LastHeadSHA:       "",
+		ProjectID:         "proj-1",
+		PublicKey:         "pub-1",
+		DictionaryVersion: version.Version,
+	}
+	st.AutoUpdateDictionary = false
+	st.FirstRunSetupComplete = true
+	if err := stateStore.Save(ctx, st); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	err = os.WriteFile(filepath.Join(repoDir, "file1.go"), []byte("package main"), 0o644)
+	if err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	exec.Command("git", "-C", repoDir, "add", "file1.go").Run()
+	exec.Command("git", "-C", repoDir, "commit", "-m", "feat: add first file").Run()
+
+	err = os.WriteFile(filepath.Join(repoDir, "file2.go"), []byte("package main"), 0o644)
+	if err != nil {
+		t.Fatalf("failed to write file2: %v", err)
+	}
+	exec.Command("git", "-C", repoDir, "add", "file2.go").Run()
+	exec.Command("git", "-C", repoDir, "commit", "-m", "feat: add second file").Run()
+
+	var out bytes.Buffer
+	cmd := newSyncCommand(ctx, &out)
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("sync execution failed: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard") {
+		t.Fatalf("expected proof-of-ship echo, got %q", out.String())
 	}
 }
