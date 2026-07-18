@@ -40,7 +40,7 @@ func TestGetActivityLogReal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "/cli/link", "/cli/sync")
+	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	query := url.Values{}
 	query.Set("type", "vcs_synced")
 	res, err := client.GetActivityLog(context.Background(), "mock-token", query)
