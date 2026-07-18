@@ -18,9 +18,25 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 		return commits[i].Timestamp.Before(commits[j].Timestamp)
 	})
 
-	// 2. Group commits by cluster index using mergeTimestamps as boundaries.
-	// A commit falls into the first merge timestamp M_j >= commit.Timestamp.Unix().
-	// If no such M_j exists, it falls into group index len(mergeTimestamps).
+	clusterGroups := groupCommits(commits, mergeTimestamps)
+	if len(clusterGroups) == 1 && len(commits) >= 5 {
+		clusterGroups = splitCommits(commits, 4)
+	} else if len(clusterGroups) > 4 {
+		clusterGroups = splitCommits(commits, 4)
+	}
+
+	clusters := make([]model.Cluster, 0, len(clusterGroups))
+	for idx, clusterCommits := range clusterGroups {
+		if len(clusterCommits) == 0 {
+			continue
+		}
+		clusters = append(clusters, buildCluster(clusterCommits, idx))
+	}
+
+	return clusters
+}
+
+func groupCommits(commits []model.CommitSignal, mergeTimestamps []int64) [][]model.CommitSignal {
 	groups := make(map[int][]model.CommitSignal)
 	var groupKeys []int
 
@@ -39,77 +55,92 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 		groups[clusterIdx] = append(groups[clusterIdx], commit)
 	}
 
-	// Sort group keys to output clusters in chronological order.
 	sort.Ints(groupKeys)
-
-	clusters := make([]model.Cluster, 0, len(groupKeys))
+	ordered := make([][]model.CommitSignal, 0, len(groupKeys))
 	for _, key := range groupKeys {
-		clusterCommits := groups[key]
-		if len(clusterCommits) == 0 {
-			continue
-		}
+		ordered = append(ordered, groups[key])
+	}
+	return ordered
+}
 
-		first := clusterCommits[0].Timestamp
-		last := clusterCommits[len(clusterCommits)-1].Timestamp
-		additions := 0
-		deletions := 0
-		filesChanged := 0
-		impactScores := make(map[string]int)
-		categorySums := make(map[string]int)
-
-		for _, commit := range clusterCommits {
-			additions += commit.Additions
-			deletions += commit.Deletions
-			filesChanged += commit.FilesChanged
-			impactScores[commit.ImpactType]++
-			for cat, score := range commit.CategoryScores {
-				categorySums[cat] += score
-			}
+func splitCommits(commits []model.CommitSignal, maxClusters int) [][]model.CommitSignal {
+	if len(commits) == 0 {
+		return nil
+	}
+	parts := len(commits)
+	if parts > maxClusters {
+		parts = maxClusters
+	}
+	base := len(commits) / parts
+	extra := len(commits) % parts
+	groups := make([][]model.CommitSignal, 0, parts)
+	offset := 0
+	for i := 0; i < parts; i++ {
+		size := base
+		if i < extra {
+			size++
 		}
+		next := offset + size
+		groups = append(groups, commits[offset:next])
+		offset = next
+	}
+	return groups
+}
 
-		type rankedCategory struct {
-			name  string
-			score int
-		}
-		var ranked []rankedCategory
-		for cat, score := range categorySums {
-			ranked = append(ranked, rankedCategory{name: cat, score: score})
-		}
-		sort.Slice(ranked, func(i, j int) bool {
-			if ranked[i].score == ranked[j].score {
-				return ranked[i].name < ranked[j].name
-			}
-			return ranked[i].score > ranked[j].score
-		})
+func buildCluster(clusterCommits []model.CommitSignal, clusterIndex int) model.Cluster {
+	first := clusterCommits[0].Timestamp
+	last := clusterCommits[len(clusterCommits)-1].Timestamp
+	additions := 0
+	deletions := 0
+	filesChanged := 0
+	impactScores := make(map[string]int)
+	categorySums := make(map[string]int)
 
-		primary := "Feature Development"
-		if len(ranked) > 0 {
-			primary = ranked[0].name
+	for _, commit := range clusterCommits {
+		additions += commit.Additions
+		deletions += commit.Deletions
+		filesChanged += commit.FilesChanged
+		impactScores[commit.ImpactType]++
+		for cat, score := range commit.CategoryScores {
+			categorySums[cat] += score
 		}
-		if primary == "Unclassified" {
-			primary = "Feature Development"
-		}
-
-		scaleStr := scale(len(clusterCommits))
-		impType := dominantImpact(impactScores)
-
-		c := model.Cluster{
-			Category:          primary,
-			ImpactType:        impType,
-			ImpactScale:       scaleStr,
-			CommitCount:       len(clusterCommits),
-			TotalAdditions:    additions,
-			TotalDeletions:    deletions,
-			TotalFilesChanged: filesChanged,
-			StartTimestamp:    first.Unix(),
-			EndTimestamp:      last.Unix(),
-			ClusterIndex:      key,
-		}
-
-		clusters = append(clusters, c)
 	}
 
-	return clusters
+	type rankedCategory struct {
+		name  string
+		score int
+	}
+	var ranked []rankedCategory
+	for cat, score := range categorySums {
+		ranked = append(ranked, rankedCategory{name: cat, score: score})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].score == ranked[j].score {
+			return ranked[i].name < ranked[j].name
+		}
+		return ranked[i].score > ranked[j].score
+	})
+
+	primary := "Feature Development"
+	if len(ranked) > 0 {
+		primary = ranked[0].name
+	}
+	if primary == "Unclassified" {
+		primary = "Feature Development"
+	}
+
+	return model.Cluster{
+		Category:          primary,
+		ImpactType:        dominantImpact(impactScores),
+		ImpactScale:       scale(len(clusterCommits)),
+		CommitCount:       len(clusterCommits),
+		TotalAdditions:    additions,
+		TotalDeletions:    deletions,
+		TotalFilesChanged: filesChanged,
+		StartTimestamp:    first.Unix(),
+		EndTimestamp:      last.Unix(),
+		ClusterIndex:      clusterIndex,
+	}
 }
 
 func scale(commitCount int) string {

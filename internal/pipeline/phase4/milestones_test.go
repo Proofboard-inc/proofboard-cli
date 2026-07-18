@@ -151,3 +151,31 @@ func TestDetectClustering(t *testing.T) {
 		}
 	})
 }
+
+func TestDetectSplitsLargeUnmergedHistoryIntoFourClusters(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	commits := make([]model.CommitSignal, 0, 5)
+	for i := 0; i < 5; i++ {
+		commits = append(commits, model.CommitSignal{
+			SHA:             string(rune('a' + i)),
+			Timestamp:       baseTime.Add(time.Duration(i) * time.Hour),
+			Additions:       10 + i,
+			Deletions:       i,
+			CategoryScores:  map[string]int{"Feature Development": 10 + i},
+			PrimaryCategory: "Feature Development",
+			ImpactType:      "feature",
+		})
+	}
+
+	clusters := Detect(model.ScoredResult{Commits: commits}, nil)
+	if len(clusters) != 4 {
+		t.Fatalf("expected 4 clusters, got %d", len(clusters))
+	}
+	if clusters[0].CommitCount != 2 {
+		t.Fatalf("expected first cluster to contain 2 commits, got %d", clusters[0].CommitCount)
+	}
+	if clusters[3].CommitCount != 1 {
+		t.Fatalf("expected last cluster to contain 1 commit, got %d", clusters[3].CommitCount)
+	}
+}

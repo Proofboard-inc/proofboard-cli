@@ -12,8 +12,6 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-
-
 func TestGetNotificationsReal(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/notifications" {
@@ -47,7 +45,7 @@ func TestGetNotificationsReal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "/cli/link", "/cli/sync")
+	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	query := url.Values{}
 	query.Set("page", "1")
 	res, err := client.GetNotifications(context.Background(), "mock-token", query)
@@ -70,7 +68,7 @@ func TestGetUnreadNotificationCount(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "/cli/link", "/cli/sync")
+	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	res, err := client.GetUnreadNotificationCount(context.Background(), "mock-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -92,7 +90,7 @@ func TestMarkNotificationRead(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "/cli/link", "/cli/sync")
+	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	err := client.MarkNotificationRead(context.Background(), "mock-token", "notif-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -111,7 +109,7 @@ func TestMarkAllNotificationsRead(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "/cli/link", "/cli/sync")
+	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	err := client.MarkAllNotificationsRead(context.Background(), "mock-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
