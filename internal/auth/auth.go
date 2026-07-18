@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
+	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/model"
 )
 
@@ -74,6 +75,9 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 					RefreshToken: pollResp.RefreshToken,
 					Username:     pollResp.Username,
 					EmailHash:    emailHash,
+				}
+				if expiry, err := crypto.JWTExpiry(pollResp.Token); err == nil {
+					creds.ExpiresAt = expiry
 				}
 				if creds.Username == "" {
 					creds.Username = "Proofboard user"
