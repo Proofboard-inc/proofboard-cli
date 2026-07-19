@@ -112,6 +112,15 @@ func NewProjectDetected(projectName string) Event {
 	}
 }
 
+func ProjectSyncNeeded(projectName string) Event {
+	return Event{
+		Title:           "Project needs sync",
+		Body:            fmt.Sprintf("%s\nRun proofboard sync to capture the latest work.", projectName),
+		PrimaryAction:   "proofboard sync",
+		SecondaryAction: "Later",
+	}
+}
+
 func InboundOpportunity(role, org string, reasons []string) Event {
 	return Event{
 		Title:           "New opportunity match",

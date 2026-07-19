@@ -1,0 +1,17 @@
+{
+  "name": "proofboard-vscode",
+  "displayName": "Proofboard Workspace Detection",
+  "description": "Announces opened workspaces to the Proofboard CLI.",
+  "version": "0.1.0",
+  "publisher": "proofboard",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {},
+  "devDependencies": {},
+  "dependencies": {}
+}

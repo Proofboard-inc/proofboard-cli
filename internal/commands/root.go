@@ -50,6 +50,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		newLinkCommand(ctx, out),
 		newUnlinkCommand(ctx, out),
 		newSyncCommand(ctx, out),
+		newDetectCommand(ctx, out),
 		newStatusCommand(ctx, out),
 		newLogsCommand(ctx, out),
 		newUpdateCommand(ctx, out),
