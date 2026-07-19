@@ -109,6 +109,9 @@ func performInstall(out io.Writer) error {
 		} else {
 			fmt.Fprintln(out, "Added to System PATH.")
 		}
+		if err := registerProtocolHandler(destFile); err != nil {
+			fmt.Fprintf(out, "Warning: Failed to register notification callback handler: %v\n", err)
+		}
 		fmt.Fprintln(out, "✓ Global installation successful.")
 		return nil
 	}
@@ -149,6 +152,7 @@ func performUninstall(out io.Writer) error {
 				return err
 			}
 		}
+		_ = unregisterProtocolHandler()
 		fmt.Fprintln(out, "✓ Executable removed. You may need to manually remove the Proofboard directory from your System PATH environment variable.")
 		return nil
 	}

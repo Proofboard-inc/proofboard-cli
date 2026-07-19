@@ -3,7 +3,10 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/proofboard/proofboard/internal/detection"
@@ -42,6 +45,9 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				reason = string(result.Action)
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", string(result.Action), reason, "")
+			if result.Action != detection.ActionNone && result.Action != detection.ActionSuppressed {
+				_ = launchWorkspaceNotification(ctx, runtime, result)
+			}
 
 			if jsonOutput {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
@@ -67,4 +73,17 @@ func isNotGitRepoError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "not a git repository") || strings.Contains(msg, "rev-parse --show-toplevel")
+}
+
+func launchWorkspaceNotification(ctx context.Context, runtime runtimeContext, result detection.Result) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, execPath, "notify",
+		"--kind", string(result.Action),
+		"--workspace", result.WorkspacePath,
+		"--repo-name", result.RepoName,
+	)
+	return cmd.Start()
 }
