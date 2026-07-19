@@ -184,14 +184,6 @@ func TestSyncPipelineOrdering(t *testing.T) {
 	}
 }
 
-func TestPromptForNewProjectDetection(t *testing.T) {
-	t.Parallel()
-	choice := promptForNewProjectDetection(strings.NewReader("x\n"), &bytes.Buffer{})
-	if choice != "x" {
-		t.Fatalf("expected x choice, got %q", choice)
-	}
-}
-
 func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)

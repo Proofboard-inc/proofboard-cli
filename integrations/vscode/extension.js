@@ -6,63 +6,19 @@ function cliPath() {
 }
 
 function announceWorkspace(workspacePath, editorName) {
-    return new Promise((resolve) => {
-        const args = ['detect', '--workspace', workspacePath, '--editor', editorName, '--json'];
-        const child = cp.spawn(cliPath(), args, {
-            env: process.env,
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        let stdout = '';
-        let stderr = '';
-        child.stdout.on('data', (chunk) => {
-            stdout += chunk.toString();
-        });
-        child.stderr.on('data', (chunk) => {
-            stderr += chunk.toString();
-        });
-        child.on('close', () => {
-            if (stdout.trim()) {
-                try {
-                    resolve(JSON.parse(stdout.trim()));
-                    return;
-                } catch (err) {
-                    resolve({ error: `invalid response: ${stdout.trim()}`, stderr });
-                    return;
-                }
-            }
-            if (stderr.trim()) {
-                resolve({ error: stderr.trim() });
-                return;
-            }
-            resolve({ action: 'none' });
-        });
+    const args = ['detect', '--workspace', workspacePath, '--editor', editorName];
+    const child = cp.spawn(cliPath(), args, {
+        env: process.env,
+        stdio: 'ignore',
+        detached: true,
     });
-}
-
-async function promptUser(result) {
-    if (!result || result.action === 'none' || result.action === 'suppressed') {
-        return;
-    }
-    const title = result.action === 'sync' ? 'Proofboard project needs sync' : 'Proofboard new project detected';
-    const primary = result.action === 'sync' ? 'Sync' : 'Link';
-    const secondary = 'Dismiss';
-    const choice = await vscode.window.showInformationMessage(
-        result.reason || title,
-        primary,
-        secondary
-    );
-    if (choice === primary) {
-        const terminal = vscode.window.createTerminal('Proofboard');
-        terminal.show(true);
-        terminal.sendText(result.suggestedCommand || (result.action === 'sync' ? 'proofboard sync' : 'proofboard link'));
-    }
+    child.unref();
 }
 
 async function announceOpenWorkspaces() {
     const folders = vscode.workspace.workspaceFolders || [];
     for (const folder of folders) {
-        const result = await announceWorkspace(folder.uri.fsPath, 'vscode');
-        await promptUser(result);
+        announceWorkspace(folder.uri.fsPath, 'vscode');
     }
 }
 
