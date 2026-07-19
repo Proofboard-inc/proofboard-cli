@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/proofboard/proofboard/internal/model"
 )
 
 func isAuthFailure(err error) bool {
@@ -22,6 +24,24 @@ func runAuthFlow(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("proofboard auth: %w", err)
 	}
 	return nil
+}
+
+func loadOrAuthCredentials(ctx context.Context, out io.Writer, runtime runtimeContext) (model.Credentials, error) {
+	credentials, err := runtime.credentials.Load(ctx)
+	if err == nil && credentials.Token != "" {
+		return credentials, nil
+	}
+	if authErr := runAuthFlow(ctx, out); authErr != nil {
+		return model.Credentials{}, authErr
+	}
+	credentials, err = runtime.credentials.Load(ctx)
+	if err != nil {
+		return model.Credentials{}, fmt.Errorf("reload credentials: %w", err)
+	}
+	if credentials.Token == "" {
+		return model.Credentials{}, fmt.Errorf("proofboard auth did not produce credentials")
+	}
+	return credentials, nil
 }
 
 func retryAfterAuth(ctx context.Context, out io.Writer, opName string, op func() error) error {
