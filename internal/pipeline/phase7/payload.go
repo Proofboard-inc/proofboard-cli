@@ -17,6 +17,7 @@ type AssemblyInput struct {
 	CLIVersion        string
 	DictionaryVersion string
 	ExpectedOrgHash   string
+	PreviousHead      string
 }
 
 func Assemble(input AssemblyInput) model.SyncPayload {
@@ -27,7 +28,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		Deletions:         make([]int, 0, len(input.Commits)),
 		FilesChanged:      make([]int, 0, len(input.Commits)),
 		Categories:        make([]string, 0, len(input.Commits)),
-		ImpactScores:      make(map[string]float64),
+		ImpactScores:      model.ImpactScores{},
 		MilestoneClusters: input.Clusters,
 		OrgHash:           input.OrgHash,
 		RepoHash:          input.RepoHash,
@@ -36,6 +37,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		CapturedAt:        time.Now().UTC().Format(time.RFC3339),
 		CLIVersion:        input.CLIVersion,
 		DictionaryVersion: input.DictionaryVersion,
+		PreviousHead:      input.PreviousHead,
 		NotifyPush:        false,
 		AntiFraudSignals: model.AntiFraudSignals{
 			LowCommitCount:      len(input.Commits) < 5,
@@ -43,10 +45,11 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 			SingleCommitRepoCap: false,
 		},
 	}
-	
+
 	impactCounts := make(map[string]int)
 	totalNoise := 0.0
 	identityMismatch := 0
+	signedCount := 0
 
 	for _, commit := range input.Commits {
 		payload.SHAs = append(payload.SHAs, commit.SHA)
@@ -58,6 +61,9 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		payload.Categories = append(payload.Categories, cat)
 		impactCounts[normalizeImpact(commit.ImpactType)]++
 		totalNoise += commit.NoiseScore
+		if commit.SignatureValid {
+			signedCount++
+		}
 		if input.EmailHash != "" && commit.AuthorEmailHash != "" && commit.AuthorEmailHash != input.EmailHash {
 			identityMismatch++
 		}
@@ -70,18 +76,20 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	}
 
 	payload.AntiFraudSignals.IdentityMismatch = identityMismatch
-	
+	if len(input.Commits) > 0 {
+		payload.AntiFraudSignals.SignedCommitRatio = float64(signedCount) / float64(len(input.Commits))
+	}
 
 	if len(input.Commits) > 0 {
 		payload.AntiFraudSignals.AINoiseScore = totalNoise / float64(len(input.Commits))
 		total := float64(len(input.Commits))
-		for _, typ := range []string{"feature", "bugfix", "refactor", "ship", "maintenance"} {
-			payload.ImpactScores[typ] = float64(impactCounts[typ]) / total
-		}
+		payload.ImpactScores.Feature = float64(impactCounts["feature"]) / total
+		payload.ImpactScores.Bugfix = float64(impactCounts["bugfix"]) / total
+		payload.ImpactScores.Refactor = float64(impactCounts["refactor"]) / total
+		payload.ImpactScores.Ship = float64(impactCounts["ship"]) / total
+		payload.ImpactScores.Maintenance = float64(impactCounts["maintenance"]) / total
 	} else {
-		for _, typ := range []string{"feature", "bugfix", "refactor", "ship", "maintenance"} {
-			payload.ImpactScores[typ] = 0.0
-		}
+		payload.ImpactScores = model.ImpactScores{}
 	}
 
 	return payload

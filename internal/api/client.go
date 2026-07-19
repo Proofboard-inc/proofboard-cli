@@ -14,27 +14,33 @@ import (
 )
 
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	linkPath   string
-	checkPath  string
-	syncPath   string
+	baseURL                   string
+	httpClient                *http.Client
+	linkPath                  string
+	checkPath                 string
+	syncPath                  string
+	deviceKeyRegistrationPath string
 }
 
-func NewClient(baseURL string, linkPath string, checkPath string, syncPath string) Client {
+func NewClient(baseURL string, linkPath string, checkPath string, syncPath string, deviceKeyRegistrationPath ...string) Client {
+	path := ""
+	if len(deviceKeyRegistrationPath) > 0 {
+		path = deviceKeyRegistrationPath[0]
+	}
 	return Client{
-		baseURL:   baseURL,
-		linkPath:  linkPath,
-		checkPath: checkPath,
-		syncPath:  syncPath,
+		baseURL:                   baseURL,
+		linkPath:                  linkPath,
+		checkPath:                 checkPath,
+		syncPath:                  syncPath,
+		deviceKeyRegistrationPath: path,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
 	}
 }
 
-func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client) Client {
-	client := NewClient(baseURL, linkPath, checkPath, syncPath)
+func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client, deviceKeyRegistrationPath ...string) Client {
+	client := NewClient(baseURL, linkPath, checkPath, syncPath, deviceKeyRegistrationPath...)
 	client.httpClient = httpClient
 	return client
 }
@@ -102,6 +108,9 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 						}
 						if _, ok := m["emailHash"]; ok {
 							m["emailHash"] = "[REDACTED]"
+						}
+						if _, ok := m["deviceSignature"]; ok {
+							m["deviceSignature"] = "[REDACTED]"
 						}
 						redacted, _ := json.Marshal(m)
 						reqStr = string(redacted)

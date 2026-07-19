@@ -24,18 +24,18 @@ func TestIntegrationPayloadContract(t *testing.T) {
 	client := api.NewClient(baseURL, "/api/v1/cli/repos/link", "/api/v1/cli/repos/check", "/api/v1/cli/sync")
 
 	payload := model.SyncPayload{
-		SHAs:              []string{"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"},
-		Timestamps:        []int64{time.Now().Unix()},
-		Additions:         []int{10},
-		Deletions:         []int{5},
-		FilesChanged:      []int{2},
-		Categories:        []string{"Feature Development"},
-		ImpactScores: map[string]float64{
-			"feature":     1.0,
-			"bugfix":      0.0,
-			"refactor":    0.0,
-			"ship":        0.0,
-			"maintenance": 0.0,
+		SHAs:         []string{"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"},
+		Timestamps:   []int64{time.Now().Unix()},
+		Additions:    []int{10},
+		Deletions:    []int{5},
+		FilesChanged: []int{2},
+		Categories:   []string{"Feature Development"},
+		ImpactScores: model.ImpactScores{
+			Feature:     1.0,
+			Bugfix:      0.0,
+			Refactor:    0.0,
+			Ship:        0.0,
+			Maintenance: 0.0,
 		},
 		MilestoneClusters: []model.Cluster{
 			{

@@ -7,5 +7,6 @@ type Credentials struct {
 	Username     string    `json:"username"`
 	RefreshToken string    `json:"refreshToken"`
 	EmailHash    string    `json:"emailHash"`
+	DeviceKeyID  string    `json:"deviceKeyId,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt,omitempty"`
 }

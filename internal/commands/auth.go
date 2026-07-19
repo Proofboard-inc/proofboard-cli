@@ -10,7 +10,8 @@ import (
 )
 
 func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
-	return &cobra.Command{
+	var rotateKey bool
+	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate Proofboard CLI",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -27,6 +28,15 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("auth login: %w", err)
 			}
+			keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
+			deviceKey, err := keyStore.Ensure(ctx, runtime.api, credentials.Token, rotateKey)
+			if err != nil {
+				return fmt.Errorf("ensure device key: %w", err)
+			}
+			credentials.DeviceKeyID = deviceKey.DeviceKeyID
+			if err := runtime.credentials.Save(ctx, credentials); err != nil {
+				return fmt.Errorf("persist device key id: %w", err)
+			}
 			name := credentials.Username
 			if name == "" {
 				name = "Proofboard user"
@@ -35,4 +45,6 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&rotateKey, "rotate-key", false, "generate a new device signing key")
+	return cmd
 }
