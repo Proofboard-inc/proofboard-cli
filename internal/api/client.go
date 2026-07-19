@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -79,9 +80,9 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 		return fmt.Errorf("send request: %w", err)
 	}
 	defer res.Body.Close()
-	
+
 	bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
-	
+
 	// Write debug log to sync.log
 	homeDir, _ := os.UserHomeDir()
 	if homeDir != "" {
@@ -93,10 +94,16 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 				var m map[string]any
 				if tight, err := json.Marshal(request); err == nil {
 					if json.Unmarshal(tight, &m) == nil {
-						if _, ok := m["orgHash"]; ok { m["orgHash"] = "[REDACTED]" }
-						if _, ok := m["repoHash"]; ok { m["repoHash"] = "[REDACTED]" }
-						if _, ok := m["emailHash"]; ok { m["emailHash"] = "[REDACTED]" }
-						redacted, _ := json.MarshalIndent(m, "", "  ")
+						if _, ok := m["orgHash"]; ok {
+							m["orgHash"] = "[REDACTED]"
+						}
+						if _, ok := m["repoHash"]; ok {
+							m["repoHash"] = "[REDACTED]"
+						}
+						if _, ok := m["emailHash"]; ok {
+							m["emailHash"] = "[REDACTED]"
+						}
+						redacted, _ := json.Marshal(m)
 						reqStr = string(redacted)
 					} else {
 						reqStr = string(tight)
@@ -105,12 +112,14 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 			}
 			redactedEndpoint := "[REDACTED]"
 			timestamp := time.Now().UTC().Format(time.RFC3339)
-			logText := fmt.Sprintf("%s — HTTP %s %s\nREQUEST:\n%s\nRESPONSE (%s):\n%s\n--------------------\n", timestamp, method, redactedEndpoint, reqStr, res.Status, string(bodyBytes))
+			respStr := strings.TrimSpace(string(bodyBytes))
+			respStr = strings.ReplaceAll(respStr, "\n", " ")
+			logText := fmt.Sprintf("%s — HTTP %s — %s — REQUEST %s — RESPONSE (%s) %s\n", timestamp, method, redactedEndpoint, reqStr, res.Status, respStr)
 			file.Write([]byte(logText))
 			file.Close()
 		}
 	}
-	
+
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return fmt.Errorf("API returned %s: %s", res.Status, string(bodyBytes))
 	}
