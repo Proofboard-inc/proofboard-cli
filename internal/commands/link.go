@@ -93,7 +93,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
 			}
-			credentials, err := loadOrAuthCredentials(ctx, out, runtime)
+			_, err = loadOrAuthCredentials(ctx, out, runtime)
 			if err != nil {
 				return fmt.Errorf("authenticate: %w", err)
 			}
@@ -118,9 +118,16 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					// Verify with backend
 					var checkRes api.CheckResponse
 					checkErr := retryAfterAuth(ctx, out, "proofboard link", func() error {
-						var err error
-						checkRes, err = runtime.api.Check(ctx, credentials.Token, identity.OrgHash)
-						return err
+						freshCredentials, loadErr := runtime.credentials.Load(ctx)
+						if loadErr != nil {
+							return fmt.Errorf("reload credentials: %w", loadErr)
+						}
+						if freshCredentials.Token == "" {
+							return fmt.Errorf("missing authentication token")
+						}
+						var checkErr error
+						checkRes, checkErr = runtime.api.Check(ctx, freshCredentials.Token, identity.OrgHash)
+						return checkErr
 					})
 					if checkErr == nil && checkRes.IsLinked {
 						fmt.Fprintln(out, "Repository is already linked to Proofboard.")
@@ -143,8 +150,15 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			var response api.LinkResponse
 			err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+				freshCredentials, err := runtime.credentials.Load(ctx)
+				if err != nil {
+					return fmt.Errorf("reload credentials: %w", err)
+				}
+				if freshCredentials.Token == "" {
+					return fmt.Errorf("missing authentication token")
+				}
 				var linkErr error
-				response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+				response, linkErr = runtime.api.Link(ctx, freshCredentials.Token, req)
 				return linkErr
 			})
 			if err != nil {
@@ -156,8 +170,15 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				req.ExistingProjectID = existingID
 				req.CreateNew = createNew
 				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+					freshCredentials, err := runtime.credentials.Load(ctx)
+					if err != nil {
+						return fmt.Errorf("reload credentials: %w", err)
+					}
+					if freshCredentials.Token == "" {
+						return fmt.Errorf("missing authentication token")
+					}
 					var linkErr error
-					response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+					response, linkErr = runtime.api.Link(ctx, freshCredentials.Token, req)
 					return linkErr
 				})
 				if err != nil {
@@ -166,8 +187,15 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			} else if response.IsNewProject && response.ProjectID == "" {
 				req.CreateNew = true
 				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+					freshCredentials, err := runtime.credentials.Load(ctx)
+					if err != nil {
+						return fmt.Errorf("reload credentials: %w", err)
+					}
+					if freshCredentials.Token == "" {
+						return fmt.Errorf("missing authentication token")
+					}
 					var linkErr error
-					response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+					response, linkErr = runtime.api.Link(ctx, freshCredentials.Token, req)
 					return linkErr
 				})
 				if err != nil {

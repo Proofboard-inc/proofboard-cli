@@ -29,6 +29,7 @@ type RunInput struct {
 	Provider        string
 	ExpectedOrgHash string
 	MergeTimestamps []int64
+	PreviousHead    string
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -49,6 +50,7 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 		CLIVersion:        version.Version,
 		DictionaryVersion: p.dictionary.Version,
 		ExpectedOrgHash:   input.ExpectedOrgHash,
+		PreviousHead:      input.PreviousHead,
 	})
 	return payload, nil
 }

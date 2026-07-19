@@ -15,6 +15,7 @@ type Config struct {
 	LinkPath                  string
 	CheckPath                 string
 	SyncPath                  string
+	DeviceKeyRegistrationPath string
 	DictionaryPath            string
 	LatestVersionPath         string
 	LogLevel                  string
@@ -35,6 +36,7 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("api.link_path", "/api/v1/cli/repos/link")
 	v.SetDefault("api.check_path", "/api/v1/cli/repos/check")
 	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
+	v.SetDefault("api.device_key_registration_path", "/api/v1/cli/auth/device-key")
 	v.SetDefault("api.dictionary_path", "/api/v1/cli/dictionary")
 	v.SetDefault("release.latest_version_path", "/latest.json")
 	v.SetDefault("log.level", "info")
@@ -46,6 +48,7 @@ func Load(ctx context.Context) (Config, error) {
 		LinkPath:                  v.GetString("api.link_path"),
 		CheckPath:                 v.GetString("api.check_path"),
 		SyncPath:                  v.GetString("api.sync_path"),
+		DeviceKeyRegistrationPath: v.GetString("api.device_key_registration_path"),
 		DictionaryPath:            v.GetString("api.dictionary_path"),
 		LatestVersionPath:         v.GetString("release.latest_version_path"),
 		LogLevel:                  v.GetString("log.level"),

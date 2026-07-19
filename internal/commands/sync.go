@@ -2,16 +2,19 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 	"time"
 
+	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
 	"github.com/proofboard/proofboard/internal/logging"
+	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/pipeline"
 	"github.com/proofboard/proofboard/internal/pipeline/phase1"
@@ -198,6 +201,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "MergeTimestamps", "failure", err.Error())
 				return err
 			}
+			previousHead := repoState.LastHeadSHA
 
 			if verbose {
 				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
@@ -210,6 +214,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				Provider:        identity.Provider,
 				ExpectedOrgHash: repoState.OrgHash,
 				MergeTimestamps: mergeTimestamps,
+				PreviousHead:    previousHead,
 			})
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
@@ -226,10 +231,48 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintln(out, "Phase 6: transmit")
 			}
 			err = retryAfterAuth(ctx, out, "proofboard sync", func() error {
-				_, syncErr := runtime.api.Sync(ctx, credentials.Token, payload)
+				freshCredentials, err := runtime.credentials.Load(ctx)
+				if err != nil {
+					return fmt.Errorf("reload credentials: %w", err)
+				}
+				if freshCredentials.Token == "" {
+					return fmt.Errorf("missing authentication token")
+				}
+				signedPayload := payload
+				keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
+				deviceKey, err := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
+				if err != nil {
+					return fmt.Errorf("ensure device key: %w", err)
+				}
+				freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
+				if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
+					return fmt.Errorf("persist device key id: %w", err)
+				}
+				signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
+				signedPayload.DeviceSignature = ""
+				signingBytes, err := json.Marshal(signedPayload)
+				if err != nil {
+					return fmt.Errorf("marshal sync payload for signing: %w", err)
+				}
+				signature, err := keyStore.Sign(ctx, signingBytes)
+				if err != nil {
+					return fmt.Errorf("sign sync payload: %w", err)
+				}
+				signedPayload.DeviceSignature = signature
+				_, syncErr := runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
 				if syncErr != nil && strings.Contains(syncErr.Error(), "No linked project found") {
-					payload.OrgHash, payload.RepoHash = payload.RepoHash, payload.OrgHash
-					_, syncErr = runtime.api.Sync(ctx, credentials.Token, payload)
+					signedPayload.OrgHash, signedPayload.RepoHash = signedPayload.RepoHash, signedPayload.OrgHash
+					signedPayload.DeviceSignature = ""
+					signingBytes, err = json.Marshal(signedPayload)
+					if err != nil {
+						return fmt.Errorf("marshal swapped sync payload for signing: %w", err)
+					}
+					signature, err = keyStore.Sign(ctx, signingBytes)
+					if err != nil {
+						return fmt.Errorf("sign swapped sync payload: %w", err)
+					}
+					signedPayload.DeviceSignature = signature
+					_, syncErr = runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
 				}
 				return syncErr
 			})
@@ -263,7 +306,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return err
 				}
 			}
-			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), len(payload.ImpactScores))
+			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), countImpactCategories(payload.ImpactScores))
 			if err != nil {
 				return err
 			}
@@ -278,6 +321,16 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd.Flags().BoolVar(&fromHook, "from-hook", false, "run silent hook gating before syncing")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "print pipeline steps")
 	return cmd
+}
+
+func countImpactCategories(scores model.ImpactScores) int {
+	count := 0
+	for _, value := range []float64{scores.Feature, scores.Bugfix, scores.Refactor, scores.Ship, scores.Maintenance} {
+		if value > 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func isDocFile(filePath string) bool {

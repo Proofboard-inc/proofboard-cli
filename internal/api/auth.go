@@ -1,9 +1,7 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 )
@@ -21,52 +19,38 @@ type PollDeviceCodeResponse struct {
 	Username     string `json:"username"`
 }
 
+type DeviceKeyRegistrationRequest struct {
+	PublicKey string `json:"publicKey"`
+}
+
+type DeviceKeyRegistrationResponse struct {
+	DeviceKeyID string `json:"deviceKeyId"`
+}
+
 func (c Client) CreateDeviceCode(ctx context.Context, deviceCode string) (DeviceCodeResponse, error) {
-	reqBody, _ := json.Marshal(map[string]string{"deviceCode": deviceCode})
-	url := fmt.Sprintf("%s/api/v1/cli/auth/device-code", c.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return DeviceCodeResponse{}, fmt.Errorf("create device code request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return DeviceCodeResponse{}, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return DeviceCodeResponse{}, fmt.Errorf("server returned %s", resp.Status)
-	}
-
 	var parsed DeviceCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return DeviceCodeResponse{}, fmt.Errorf("decode response: %w", err)
+	if err := c.requestJSON(ctx, http.MethodPost, "/api/v1/cli/auth/device-code", "", nil, map[string]string{"deviceCode": deviceCode}, &parsed); err != nil {
+		return DeviceCodeResponse{}, err
 	}
 	return parsed, nil
 }
 
 func (c Client) PollDeviceCode(ctx context.Context, deviceCode string) (PollDeviceCodeResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/cli/auth/poll/%s", c.baseURL, deviceCode)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return PollDeviceCodeResponse{}, fmt.Errorf("create poll request: %w", err)
-	}
-	
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return PollDeviceCodeResponse{}, fmt.Errorf("do poll request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return PollDeviceCodeResponse{}, fmt.Errorf("poll returned %s", resp.Status)
-	}
-
 	var parsed PollDeviceCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return PollDeviceCodeResponse{}, fmt.Errorf("decode response: %w", err)
+	if err := c.requestJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v1/cli/auth/poll/%s", deviceCode), "", nil, nil, &parsed); err != nil {
+		return PollDeviceCodeResponse{}, err
+	}
+	return parsed, nil
+}
+
+func (c Client) RegisterDeviceKey(ctx context.Context, token string, publicKey string) (DeviceKeyRegistrationResponse, error) {
+	path := c.deviceKeyRegistrationPath
+	if path == "" {
+		path = "/api/v1/cli/auth/device-key"
+	}
+	var parsed DeviceKeyRegistrationResponse
+	if err := c.requestJSON(ctx, http.MethodPost, path, token, nil, DeviceKeyRegistrationRequest{PublicKey: publicKey}, &parsed); err != nil {
+		return DeviceKeyRegistrationResponse{}, err
 	}
 	return parsed, nil
 }
