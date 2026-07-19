@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +19,14 @@ func Execute(ctx context.Context, args []string) error {
 	root := NewRootCommand(ctx, os.Stdout, os.Stderr)
 	root.SetArgs(args)
 
+	if shouldLaunchShellHookMaintenance(args) {
+		launchShellHookMaintenance(ctx)
+	}
+
 	// Intercept execution on the very first run, even for bare commands
-	_ = runFirstTimeSetup(ctx, root)
+	if shouldRunFirstTimeSetup(args) {
+		_ = runFirstTimeSetup(ctx, root)
+	}
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -54,6 +59,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		newDetectCommand(ctx, out),
 		newNotifyCommand(ctx, out),
 		newNotifyActivateCommand(ctx, out),
+		newShellHookMaintenanceCommand(ctx, out),
 		newStatusCommand(ctx, out),
 		newLogsCommand(ctx, out),
 		newUpdateCommand(ctx, out),
@@ -69,7 +75,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 
 func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	name := cmd.Name()
-	if name == "update" || name == "update-dictionary" || name == "help" || cmd.Parent() == nil {
+	if name == "update" || name == "update-dictionary" || name == "help" || name == "hook-maintain" || name == "notify" || name == "notify-activate" || cmd.Parent() == nil {
 		return nil
 	}
 
@@ -200,7 +206,7 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 					}
 				}
 
-				detectCmd := fmt.Sprintf("%s detect >/dev/null 2>&1 &", strconv.Quote(execPath))
+				detectCmd := shellDetectionLine
 				content, err = os.ReadFile(rcFile)
 				if err == nil && !strings.Contains(string(content), detectCmd) {
 					f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
@@ -218,4 +224,27 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 	fmt.Fprintf(out, "--- Setup Complete ---\n\n")
 
 	return nil
+}
+
+func shouldLaunchShellHookMaintenance(args []string) bool {
+	if isInternalCommand(args) {
+		return false
+	}
+	return true
+}
+
+func shouldRunFirstTimeSetup(args []string) bool {
+	return !isInternalCommand(args)
+}
+
+func isInternalCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "notify", "notify-activate", "hook-maintain":
+		return true
+	default:
+		return false
+	}
 }
