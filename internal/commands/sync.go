@@ -1,11 +1,9 @@
 package commands
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -82,31 +80,20 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "unlinked repo in hook")
 					return nil
 				}
-				notifications.Dispatch(nil, notifications.NewProjectDetected(identity.Repo))
-
-				switch promptForNewProjectDetection(os.Stdin, out) {
-				case "y":
-					linkCmd := newLinkCommand(ctx, out)
-					linkCmd.SetArgs([]string{})
-					if err := linkCmd.ExecuteContext(ctx); err != nil {
-						return err
-					}
-					current, err = runtime.state.Load(ctx)
-					if err != nil {
-						return err
-					}
-					repoState, linked = current.LinkedRepos[identity.RepoHash]
-					if !linked {
-						return fmt.Errorf("link current repository before syncing")
-					}
-				case "x":
-					current.SuppressedWorkspaces = append(current.SuppressedWorkspaces, repoPath)
-					if err := runtime.state.Save(ctx, current); err != nil {
-						return fmt.Errorf("save suppressed workspace: %w", err)
-					}
-					return nil
-				default:
-					return nil
+				notifications.Dispatch(out, notifications.NewProjectDetected(identity.Repo))
+				fmt.Fprintln(out, "Workspace is not linked. Running proofboard link before sync...")
+				linkCmd := newLinkCommand(ctx, out)
+				linkCmd.SetArgs([]string{})
+				if err := linkCmd.ExecuteContext(ctx); err != nil {
+					return err
+				}
+				current, err = runtime.state.Load(ctx)
+				if err != nil {
+					return err
+				}
+				repoState, linked = current.LinkedRepos[identity.RepoHash]
+				if !linked {
+					return fmt.Errorf("link current repository before syncing")
 				}
 			}
 			if fromHook {
@@ -238,11 +225,14 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if verbose {
 				fmt.Fprintln(out, "Phase 6: transmit")
 			}
-			_, err = runtime.api.Sync(ctx, credentials.Token, payload)
-			if err != nil && strings.Contains(err.Error(), "No linked project found") {
-				payload.OrgHash, payload.RepoHash = payload.RepoHash, payload.OrgHash
-				_, err = runtime.api.Sync(ctx, credentials.Token, payload)
-			}
+			err = retryAfterAuth(ctx, out, "proofboard sync", func() error {
+				_, syncErr := runtime.api.Sync(ctx, credentials.Token, payload)
+				if syncErr != nil && strings.Contains(syncErr.Error(), "No linked project found") {
+					payload.OrgHash, payload.RepoHash = payload.RepoHash, payload.OrgHash
+					_, syncErr = runtime.api.Sync(ctx, credentials.Token, payload)
+				}
+				return syncErr
+			})
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", err.Error())
 				return fmt.Errorf("transmit sync payload: %w", err)
@@ -307,26 +297,4 @@ func abortSync(homeDir, repoHash string) error {
 
 func abortSyncWithTrigger(homeDir, repoHash, triggerSource string) error {
 	return logging.WriteSyncLog(homeDir, repoHash, triggerSource, "pre-classification filter", "aborted", "trivial merge skipped")
-}
-
-func promptForNewProjectDetection(in io.Reader, out io.Writer) string {
-	reader := bufio.NewReader(in)
-	for {
-		fmt.Fprintln(out, "Add this project to your proofboard?")
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "  y   Sync this project")
-		fmt.Fprintln(out, "  n   Not this project")
-		fmt.Fprintln(out, "  x   Never ask for this workspace")
-		fmt.Fprint(out, "Choose [y/n/x]: ")
-
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "n"
-		}
-		choice := strings.ToLower(strings.TrimSpace(line))
-		switch choice {
-		case "y", "n", "x":
-			return choice
-		}
-	}
 }

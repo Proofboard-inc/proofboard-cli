@@ -65,7 +65,7 @@ func promptForProject(in io.Reader, out io.Writer, options []api.ExistingProject
 		fmt.Fprintf(out, "  %d  %-15s %s\n", i+1, opt.Name, opt.Role)
 	}
 	fmt.Fprintf(out, "  n  Create a new project\n")
-	
+
 	reader := bufio.NewReader(in)
 	for {
 		fmt.Fprintf(out, "Choose [1-%d/n]: ", len(options))
@@ -116,7 +116,12 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err == nil {
 				if _, ok := current.LinkedRepos[identity.RepoHash]; ok {
 					// Verify with backend
-					checkRes, checkErr := runtime.api.Check(ctx, credentials.Token, identity.OrgHash)
+					var checkRes api.CheckResponse
+					checkErr := retryAfterAuth(ctx, out, "proofboard link", func() error {
+						var err error
+						checkRes, err = runtime.api.Check(ctx, credentials.Token, identity.OrgHash)
+						return err
+					})
 					if checkErr == nil && checkRes.IsLinked {
 						fmt.Fprintln(out, "Repository is already linked to Proofboard.")
 						return nil
@@ -124,9 +129,9 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					// If backend check failed or returned not linked, proceed with link
 				}
 			}
-			
+
 			fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
-			
+
 			// Call 1
 			req := api.LinkRequest{
 				OrgHash:  identity.OrgHash,
@@ -136,7 +141,12 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					SSHTest: true,
 				},
 			}
-			response, err := runtime.api.Link(ctx, credentials.Token, req)
+			var response api.LinkResponse
+			err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+				var linkErr error
+				response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+				return linkErr
+			})
 			if err != nil {
 				return fmt.Errorf("register linked repository: %w", err)
 			}
@@ -145,13 +155,21 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
 				req.ExistingProjectID = existingID
 				req.CreateNew = createNew
-				response, err = runtime.api.Link(ctx, credentials.Token, req)
+				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+					var linkErr error
+					response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+					return linkErr
+				})
 				if err != nil {
 					return fmt.Errorf("register linked repository selection: %w", err)
 				}
 			} else if response.IsNewProject && response.ProjectID == "" {
 				req.CreateNew = true
-				response, err = runtime.api.Link(ctx, credentials.Token, req)
+				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+					var linkErr error
+					response, linkErr = runtime.api.Link(ctx, credentials.Token, req)
+					return linkErr
+				})
 				if err != nil {
 					return fmt.Errorf("register linked repository (new): %w", err)
 				}
@@ -162,7 +180,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			head, _ := pbgit.Head(ctx, repo)
-			
+
 			branch := detectDefaultBranch(ctx, repo.Path)
 			if branch == "" {
 				branch = promptForBranch(os.Stdin, out)
