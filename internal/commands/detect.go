@@ -1,21 +1,25 @@
 package commands
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"strings"
+	"time"
 
+	"github.com/proofboard/proofboard/internal/api"
+	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/detection"
-	"github.com/proofboard/proofboard/internal/notifications"
+	pbgit "github.com/proofboard/proofboard/internal/git"
+	"github.com/proofboard/proofboard/internal/hooks"
+	"github.com/proofboard/proofboard/internal/logging"
+	"github.com/proofboard/proofboard/internal/model"
+	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
 )
 
 func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var workspace string
 	var editor string
-	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "detect",
@@ -30,24 +34,22 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			result, err := detection.Inspect(ctx, runtime.homeDir, workspace, editor)
 			if err != nil {
-				return fmt.Errorf("inspect workspace: %w", err)
+				_ = logging.WriteSyncLog(runtime.homeDir, "", "detect", "failure", "inspect workspace", err.Error())
+				return nil
 			}
 
-			if jsonOutput {
-				data, err := result.Marshal()
-				if err != nil {
-					return fmt.Errorf("marshal detection result: %w", err)
+			if result.Action == detection.ActionLink {
+				if err := autoLinkWorkspace(ctx, runtime, result); err != nil {
+					_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", "failure", "auto-link", err.Error())
+					return nil
 				}
-				_, err = fmt.Fprintln(out, string(data))
-				return err
 			}
 
-			switch result.Action {
-			case detection.ActionLink:
-				notifications.Dispatch(out, notifications.NewProjectDetected(result.RepoName))
-			case detection.ActionSync:
-				notifications.Dispatch(out, notifications.ProjectSyncNeeded(result.RepoName))
-			default:
+			reason := result.Reason
+			if reason == "" {
+				reason = string(result.Action)
+			}
+			if err := logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", string(result.Action), reason, ""); err != nil {
 				return nil
 			}
 			return nil
@@ -56,28 +58,61 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 
 	cmd.Flags().StringVar(&workspace, "workspace", "", "workspace root to inspect")
 	cmd.Flags().StringVar(&editor, "editor", "", "editor or IDE name")
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON instead of terminal output")
 	return cmd
 }
 
-func promptForNewProjectDetection(in io.Reader, out io.Writer) string {
-	reader := bufio.NewReader(in)
-	for {
-		fmt.Fprintln(out, "Add this project to your proofboard?")
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "  y   Sync this project")
-		fmt.Fprintln(out, "  n   Not this project")
-		fmt.Fprintln(out, "  x   Never ask for this workspace")
-		fmt.Fprint(out, "Choose [y/n/x]: ")
-
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "n"
-		}
-		choice := strings.ToLower(strings.TrimSpace(line))
-		switch choice {
-		case "y", "n", "x":
-			return choice
-		}
+func autoLinkWorkspace(ctx context.Context, runtime runtimeContext, result detection.Result) error {
+	credentials, err := runtime.credentials.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load credentials: %w", err)
 	}
+
+	repo := pbgit.Repo{Path: result.RepoPath}
+	req := api.LinkRequest{
+		OrgHash:   result.OrgHash,
+		RepoHash:  result.RepoHash,
+		Provider:  result.Provider,
+		CreateNew: true,
+		Handshake: &api.LinkHandshake{SSHTest: true},
+	}
+	response, err := runtime.api.Link(ctx, credentials.Token, req)
+	if err != nil {
+		return fmt.Errorf("link workspace: %w", err)
+	}
+	if response.ProjectID == "" {
+		return fmt.Errorf("link workspace returned empty project id")
+	}
+
+	current, err := runtime.state.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	head, err := pbgit.Head(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("read head: %w", err)
+	}
+	branch := detectDefaultBranch(ctx, repo.Path)
+	if branch == "" {
+		branch = "main"
+	}
+
+	current = statestore.AddLinkedRepo(current, model.LinkedRepoState{
+		RepoHash:           result.RepoHash,
+		OrgHash:            result.OrgHash,
+		PathHash:           crypto.SHA256(repo.Path),
+		Provider:           result.Provider,
+		LastHeadSHA:        head,
+		LastSyncAt:         time.Time{},
+		ProjectID:          response.ProjectID,
+		PublicKey:          response.PublicKey,
+		DictionaryVersion:  response.DictionaryVersion,
+		ProductionBranches: []string{branch},
+	})
+	if err := runtime.state.Save(ctx, current); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	if err := hooks.Install(ctx, repo); err != nil {
+		return fmt.Errorf("install hooks: %w", err)
+	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -194,6 +195,16 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 							f.Close()
 							fmt.Fprintf(out, "✓ Completions installed to %s. Please restart your terminal or run: source %s\n", rcFile, rcFile)
 						}
+					}
+				}
+
+				detectCmd := fmt.Sprintf("%s detect >/dev/null 2>&1 &", strconv.Quote(execPath))
+				content, err = os.ReadFile(rcFile)
+				if err == nil && !strings.Contains(string(content), detectCmd) {
+					f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+					if err == nil {
+						_, _ = f.WriteString(fmt.Sprintf("\n# Proofboard Workspace Detection\n%s\n", detectCmd))
+						_ = f.Close()
 					}
 				}
 			}
