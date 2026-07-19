@@ -30,9 +30,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}
-			credentials, err := runtime.credentials.Load(ctx)
+			credentials, err := loadOrAuthCredentials(ctx, out, runtime)
 			if err != nil {
-				return fmt.Errorf("load credentials: %w", err)
+				return fmt.Errorf("authenticate: %w", err)
 			}
 			repo, err := pbgit.Discover(ctx, runtime.workingDir)
 			if err != nil {
