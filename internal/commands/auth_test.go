@@ -50,6 +50,11 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 				"verificationUrl": "https://app.proofboard.io/cli-auth",
 				"expiresIn":       600,
 			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/auth/device-key":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"deviceKeyId": "device-key-123",
+			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/cli/auth/poll/"):
 			deviceCode := strings.TrimPrefix(r.URL.Path, "/api/v1/cli/auth/poll/")
 			select {

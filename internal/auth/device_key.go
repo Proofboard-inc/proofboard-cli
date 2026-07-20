@@ -4,15 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/proofboard/proofboard/internal/api"
 )
@@ -80,12 +77,13 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 	record, err := s.Load(ctx)
 	if err == nil && !rotate {
 		if record.DeviceKeyID == "" {
-			if registered, regErr := s.register(ctx, client, token, record); regErr == nil {
-				record = registered
-				_ = s.Save(ctx, record)
-			} else if record.DeviceKeyID == "" {
-				record.DeviceKeyID = stableDeviceKeyID(record.PublicKey)
-				_ = s.Save(ctx, record)
+			registered, regErr := s.register(ctx, client, token, record)
+			if regErr != nil {
+				return DeviceKeyRecord{}, regErr
+			}
+			record = registered
+			if err := s.Save(ctx, record); err != nil {
+				return DeviceKeyRecord{}, err
 			}
 		}
 		return record, nil
@@ -100,11 +98,12 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 	record = DeviceKeyRecord{
 		PublicKey:   base64.StdEncoding.EncodeToString(publicKey),
 		PrivateKey:  base64.StdEncoding.EncodeToString(privateKey),
-		DeviceKeyID: stableDeviceKeyID(base64.StdEncoding.EncodeToString(publicKey)),
 	}
-	if registered, regErr := s.register(ctx, client, token, record); regErr == nil {
-		record = registered
+	registered, regErr := s.register(ctx, client, token, record)
+	if regErr != nil {
+		return DeviceKeyRecord{}, regErr
 	}
+	record = registered
 	if err := s.Save(ctx, record); err != nil {
 		return DeviceKeyRecord{}, err
 	}
@@ -117,11 +116,7 @@ func (s DeviceKeyStore) RegisterIfNeeded(ctx context.Context, client api.Client,
 	}
 	registered, err := s.register(ctx, client, token, record)
 	if err != nil {
-		record.DeviceKeyID = stableDeviceKeyID(record.PublicKey)
-		if saveErr := s.Save(ctx, record); saveErr != nil {
-			return DeviceKeyRecord{}, saveErr
-		}
-		return record, nil
+		return DeviceKeyRecord{}, err
 	}
 	if err := s.Save(ctx, registered); err != nil {
 		return DeviceKeyRecord{}, err
@@ -162,13 +157,4 @@ func (s DeviceKeyStore) register(ctx context.Context, client api.Client, token s
 	}
 	record.DeviceKeyID = resp.DeviceKeyID
 	return record, nil
-}
-
-func stableDeviceKeyID(publicKey string) string {
-	keyBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(publicKey))
-	if err != nil {
-		keyBytes = []byte(strings.TrimSpace(publicKey))
-	}
-	sum := sha256.Sum256(keyBytes)
-	return hex.EncodeToString(sum[:])
 }
