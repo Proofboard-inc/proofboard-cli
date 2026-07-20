@@ -19,7 +19,7 @@ fi
 
 echo "Upload URL: $UPLOAD_URL"
 
-for FILE in dist/proofboard-* dist/checksums.txt; do
+for FILE in dist/proofboard dist/proofboard-* dist/checksums.txt; do
   [ -e "$FILE" ] || continue
   FILENAME=$(basename "$FILE")
   echo "Uploading $FILENAME..."
