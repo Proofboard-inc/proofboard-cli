@@ -1,24 +1,26 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 REPO="Proofboard-inc/proofboard-cli"
-TAG="v1.8.5"
+VERSION=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
+TAG="v${VERSION}"
 
-echo "Deleting existing release for tag $TAG..."
-RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.id // empty')
-if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
-  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/$RELEASE_ID"
+echo "Ensuring release exists for tag $TAG..."
+RELEASE_ID=$(curl -sS -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.id // empty')
+if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+  CREATE_RESP=$(curl -sS -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" \
+    -d '{"tag_name":"'"$TAG"'","name":"Proofboard CLI '"$TAG"'","body":"Proofboard CLI release '"$TAG"'."}' \
+    "https://api.github.com/repos/$REPO/releases")
+  RELEASE_ID=$(echo "$CREATE_RESP" | jq -r '.id')
+  UPLOAD_URL=$(echo "$CREATE_RESP" | jq -r '.upload_url' | sed -e 's/{?name,label}//')
+else
+  UPLOAD_URL=$(curl -sS -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/$RELEASE_ID" | jq -r '.upload_url' | sed -e 's/{?name,label}//')
 fi
 
-echo "Creating new release for tag $TAG..."
-CREATE_RESP=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" \
-  -d '{"tag_name":"'"$TAG"'","name":"Proofboard CLI v1.8.5","body":"Added secure release signing and verification using ECDSA keys. Removed Phase 6 Handshake. Added local fraud detection. Finalized notification architecture and typography."}' \
-  "https://api.github.com/repos/$REPO/releases")
-
-UPLOAD_URL=$(echo "$CREATE_RESP" | jq -r '.upload_url' | sed -e 's/{?name,label}//')
 echo "Upload URL: $UPLOAD_URL"
 
-for FILE in dist/proofboard-*; do
+for FILE in dist/proofboard-* dist/checksums.txt; do
+  [ -e "$FILE" ] || continue
   FILENAME=$(basename "$FILE")
   echo "Uploading $FILENAME..."
   curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" \
