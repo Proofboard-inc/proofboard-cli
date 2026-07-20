@@ -194,6 +194,12 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 		case "/latest.json":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"version":"` + version.Version + `"}`))
+		case "/api/v1/cli/auth/device-key":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deviceKeyId":"device-key-123"}`))
+		case "/api/v1/cli/repos/link":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projectId":"proj-1","dictionaryVersion":"` + version.Version + `","publicKey":"pub-1","isNewProject":false}`))
 		case "/api/v1/cli/sync":
 			if r.Method != http.MethodPost {
 				t.Fatalf("expected POST /api/v1/cli/sync, got %s %s", r.Method, r.URL.Path)
