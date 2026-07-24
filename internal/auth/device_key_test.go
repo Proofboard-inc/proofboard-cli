@@ -104,3 +104,40 @@ func TestDeviceKeyStoreEnsureRegistersReusesAndSigns(t *testing.T) {
 		t.Fatalf("expected 0600 permissions, got %v", info.Mode().Perm())
 	}
 }
+
+func TestDeviceKeyStoreRepairsExistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not report POSIX permission bits")
+	}
+	homeDir := t.TempDir()
+	store := NewDeviceKeyStore(homeDir)
+	directory := filepath.Dir(store.Path())
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatalf("create permissive directory: %v", err)
+	}
+	if err := os.WriteFile(store.Path(), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("create permissive key file: %v", err)
+	}
+	record := DeviceKeyRecord{
+		DeviceKeyID: "device-1",
+		PublicKey:   "public",
+		PrivateKey:  "private",
+	}
+	if err := store.Save(context.Background(), record); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	directoryInfo, err := os.Stat(directory)
+	if err != nil {
+		t.Fatalf("stat key directory: %v", err)
+	}
+	if directoryInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("key directory mode = %v, want 0700", directoryInfo.Mode().Perm())
+	}
+	fileInfo, err := os.Stat(store.Path())
+	if err != nil {
+		t.Fatalf("stat key file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("key file mode = %v, want 0600", fileInfo.Mode().Perm())
+	}
+}

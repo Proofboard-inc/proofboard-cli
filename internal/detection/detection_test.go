@@ -71,6 +71,9 @@ func TestInspectDetectsLinkSyncAndNone(t *testing.T) {
 	if linkedRepo.Action != ActionLink {
 		t.Fatalf("expected link action for unlinked repo, got %q", linkedRepo.Action)
 	}
+	if linkedRepo.SuggestedAction != "Sync Project" {
+		t.Fatalf("suggested action = %q, want Sync Project", linkedRepo.SuggestedAction)
+	}
 
 	store := statestore.NewStore(homeDir)
 	stateData, err := store.Load(ctx)

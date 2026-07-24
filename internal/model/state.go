@@ -13,6 +13,7 @@ type State struct {
 	FirstRunSetupComplete     bool                       `json:"firstRunSetupComplete"`
 	IDEProcesses              []string                   `json:"ideProcesses,omitempty"`
 	AuthReconnectPrompted     bool                       `json:"authReconnectPrompted,omitempty"`
+	AuthReconnectPromptedAt   time.Time                  `json:"authReconnectPromptedAt,omitempty"`
 }
 
 type LinkedRepo struct {

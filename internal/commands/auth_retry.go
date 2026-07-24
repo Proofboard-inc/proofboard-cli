@@ -16,6 +16,8 @@ import (
 
 var errAgentReconnectRequired = errors.New("proofboard career agent reconnect required")
 
+const agentReconnectPromptInterval = 6 * time.Hour
+
 func isAuthFailure(err error) bool {
 	if err == nil {
 		return false
@@ -55,7 +57,7 @@ func loadOrAuthCredentials(ctx context.Context, out io.Writer, runtime runtimeCo
 		return model.Credentials{}, fmt.Errorf("reload credentials: %w", err)
 	}
 	if credentials.Token == "" {
-		return model.Credentials{}, fmt.Errorf("proofboard auth did not produce credentials")
+		return model.Credentials{}, fmt.Errorf("career agent connection did not produce credentials")
 	}
 	return credentials, nil
 }
@@ -130,14 +132,21 @@ func retryAfterAuthForAgent(ctx context.Context, out io.Writer, runtime runtimeC
 }
 
 func promptAgentReconnect(ctx context.Context, out io.Writer, runtime runtimeContext) error {
+	return promptAgentReconnectAt(ctx, out, runtime, time.Now())
+}
+
+func promptAgentReconnectAt(ctx context.Context, out io.Writer, runtime runtimeContext, now time.Time) error {
 	current, err := runtime.state.Load(ctx)
 	if err != nil {
 		return err
 	}
-	if current.AuthReconnectPrompted {
+	if current.AuthReconnectPrompted &&
+		!current.AuthReconnectPromptedAt.IsZero() &&
+		now.Before(current.AuthReconnectPromptedAt.Add(agentReconnectPromptInterval)) {
 		return nil
 	}
 	current.AuthReconnectPrompted = true
+	current.AuthReconnectPromptedAt = now.UTC()
 	if err := runtime.state.Save(ctx, current); err != nil {
 		return err
 	}

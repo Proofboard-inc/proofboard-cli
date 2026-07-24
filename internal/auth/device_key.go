@@ -60,8 +60,12 @@ func (s DeviceKeyStore) Save(ctx context.Context, record DeviceKeyRecord) error 
 		return errors.New("device key record missing key material")
 	}
 	path := s.Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create device key directory: %w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return fmt.Errorf("secure device key directory: %w", err)
 	}
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -69,6 +73,9 @@ func (s DeviceKeyStore) Save(ctx context.Context, record DeviceKeyRecord) error 
 	}
 	if err := os.WriteFile(path, data, deviceKeyFileMode); err != nil {
 		return fmt.Errorf("write device key: %w", err)
+	}
+	if err := os.Chmod(path, deviceKeyFileMode); err != nil {
+		return fmt.Errorf("secure device key file: %w", err)
 	}
 	return nil
 }

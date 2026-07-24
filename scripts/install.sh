@@ -39,8 +39,8 @@ LATEST_VERSION=$(printf '%s' "$LATEST_JSON" | grep -o '"version": *"[^"]*"' | se
 DOWNLOAD_BASE_URL=$(printf '%s' "$LATEST_JSON" | grep -o '"url": *"[^"]*"' | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "$LATEST_VERSION" ]; then
-    echo "Fallback: Using hardcoded latest version v1.8.11"
-    LATEST_VERSION="v1.8.11"
+    echo "Fallback: Using hardcoded latest version v1.8.12"
+    LATEST_VERSION="v1.8.12"
 fi
 case "$LATEST_VERSION" in
     v*) RELEASE_TAG="$LATEST_VERSION" ;;

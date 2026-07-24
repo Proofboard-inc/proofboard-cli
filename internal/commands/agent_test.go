@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestAgentPIDLifecycle(t *testing.T) {
@@ -48,5 +49,29 @@ func TestMatchesIDEProcess(t *testing.T) {
 	}
 	if matchesIDEProcess("/usr/bin/git", []string{"code", "cursor"}) {
 		t.Fatal("did not expect git process to match")
+	}
+}
+
+func TestPruneInactiveWorkspaceSessionsResetsNotNowAfterWorkspaceCloses(t *testing.T) {
+	seenUnlinked := map[string]bool{
+		"/workspace/open":   true,
+		"/workspace/closed": true,
+	}
+	lastSyncLaunch := map[string]time.Time{
+		"/workspace/open":   time.Now(),
+		"/workspace/closed": time.Now(),
+	}
+	active := map[string]bool{"/workspace/open": true}
+
+	pruneInactiveWorkspaceSessions(seenUnlinked, lastSyncLaunch, active)
+
+	if !seenUnlinked["/workspace/open"] {
+		t.Fatal("active workspace prompt session was removed")
+	}
+	if seenUnlinked["/workspace/closed"] {
+		t.Fatal("closed workspace remained dismissed after its IDE session ended")
+	}
+	if _, exists := lastSyncLaunch["/workspace/closed"]; exists {
+		t.Fatal("closed workspace retained its sync throttle")
 	}
 }

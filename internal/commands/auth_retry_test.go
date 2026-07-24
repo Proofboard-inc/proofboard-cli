@@ -105,7 +105,7 @@ func TestCredentialsCompletelyExpiredRequiresMissingRefreshToken(t *testing.T) {
 	}
 }
 
-func TestDeferExpiredAgentSessionPromptsOncePerAgentSession(t *testing.T) {
+func TestDeferExpiredAgentSessionSuppressesDuplicatePromptDuringCooldown(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
@@ -129,6 +129,68 @@ func TestDeferExpiredAgentSessionPromptsOncePerAgentSession(t *testing.T) {
 	deferred, err = deferExpiredAgentSession(ctx, runtime, &out)
 	if err != nil || !deferred || out.Len() != 0 {
 		t.Fatalf("second defer = %v, %v, output=%q", deferred, err, out.String())
+	}
+}
+
+func TestReconnectPromptRepeatsAfterCooldown(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	ctx := context.Background()
+	runtime, err := loadRuntime(ctx)
+	if err != nil {
+		t.Fatalf("load runtime: %v", err)
+	}
+	start := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+
+	if err := promptAgentReconnectAt(ctx, &out, runtime, start); err != nil {
+		t.Fatalf("first reconnect prompt: %v", err)
+	}
+	if !strings.Contains(out.String(), "Reconnect") {
+		t.Fatalf("first reconnect prompt missing: %q", out.String())
+	}
+
+	out.Reset()
+	if err := promptAgentReconnectAt(ctx, &out, runtime, start.Add(agentReconnectPromptInterval-time.Second)); err != nil {
+		t.Fatalf("cooldown reconnect check: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("reconnect prompt repeated during cooldown: %q", out.String())
+	}
+
+	if err := promptAgentReconnectAt(ctx, &out, runtime, start.Add(agentReconnectPromptInterval)); err != nil {
+		t.Fatalf("reconnect prompt after cooldown: %v", err)
+	}
+	if !strings.Contains(out.String(), "Reconnect") {
+		t.Fatalf("reconnect prompt did not repeat after cooldown: %q", out.String())
+	}
+}
+
+func TestLegacyReconnectStateWithoutTimestampPromptsAgain(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	ctx := context.Background()
+	runtime, err := loadRuntime(ctx)
+	if err != nil {
+		t.Fatalf("load runtime: %v", err)
+	}
+	current, err := runtime.state.Load(ctx)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	current.AuthReconnectPrompted = true
+	if err := runtime.state.Save(ctx, current); err != nil {
+		t.Fatalf("save legacy state: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := promptAgentReconnectAt(ctx, &out, runtime, time.Now()); err != nil {
+		t.Fatalf("legacy reconnect prompt: %v", err)
+	}
+	if !strings.Contains(out.String(), "Reconnect") {
+		t.Fatalf("legacy reconnect state remained permanently suppressed: %q", out.String())
 	}
 }
 

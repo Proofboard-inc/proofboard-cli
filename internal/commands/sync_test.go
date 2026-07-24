@@ -159,6 +159,20 @@ func TestAbortSync(t *testing.T) {
 func TestSyncPipelineOrdering(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := t.TempDir()
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/auth/device-key":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-key-pipeline"})
+		case "/api/v1/cli/sync":
+			_ = json.NewEncoder(w).Encode(model.SyncReceipt{ID: "sync-pipeline", Status: "ok"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", apiServer.URL)
 
 	// Initialize git repo
 	cmdInit := exec.Command("git", "init", "-b", "main")
@@ -195,11 +209,12 @@ func TestSyncPipelineOrdering(t *testing.T) {
 
 	repoHash := crypto.SHA256("github:org/repo")
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
-		RepoHash:    repoHash,
-		OrgHash:     crypto.SHA256("github:org"),
-		PathHash:    "path-hash",
-		LastHeadSHA: "some-sha",
+		RepoHash:  repoHash,
+		OrgHash:   crypto.SHA256("github:org"),
+		PathHash:  "path-hash",
+		ProjectID: "project-pipeline",
 	}
+	st.AutoUpdateDictionary = false
 	if err := stateStore.Save(ctx, st); err != nil {
 		t.Fatalf("failed to save state: %v", err)
 	}
@@ -233,8 +248,9 @@ func TestSyncPipelineOrdering(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newSyncCommand(ctx, &out)
 
-	// Execute command, ignore handshake error
-	_ = cmd.ExecuteContext(ctx)
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("sync pipeline: %v", err)
+	}
 
 	// Read sync.log and inspect the steps sequence
 	logPath := filepath.Join(tempHome, ".proofboard", "sync.log")

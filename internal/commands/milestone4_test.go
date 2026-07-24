@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/state"
 )
@@ -228,6 +229,20 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	repoDir := createTempGitRepo(t)
 
 	t.Setenv("HOME", tempHome)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/auth/device-key":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-key-log"})
+		case "/api/v1/cli/sync":
+			_ = json.NewEncoder(w).Encode(model.SyncReceipt{ID: "sync-log", Status: "ok"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", apiServer.URL)
 
 	ctx := context.Background()
 
@@ -248,13 +263,18 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	}
 
 	// Pre-link repo in state
-	_, _ = filepath.Abs(repoDir)
-	repoHash := "test-repo-hash"
-	st.LinkedRepos[repoHash] = model.LinkedRepoState{
-		RepoHash:    repoHash,
-		PathHash:    "path-hash",
-		LastHeadSHA: "some-sha",
+	repoPath, err := filepath.Abs(repoDir)
+	if err != nil {
+		t.Fatalf("resolve repo path: %v", err)
 	}
+	repoHash := crypto.SHA256("github:org/repo")
+	st.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:  repoHash,
+		OrgHash:   crypto.SHA256("github:org"),
+		PathHash:  crypto.SHA256(repoPath),
+		ProjectID: "project-log",
+	}
+	st.AutoUpdateDictionary = false
 	if err := stateStore.Save(ctx, st); err != nil {
 		t.Fatalf("failed to save state: %v", err)
 	}
@@ -281,9 +301,9 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newSyncCommand(ctx, &out)
 
-	// Execute command (will fail on remote handshake or other parts since no mock API,
-	// but should still log activity!)
-	_ = cmd.ExecuteContext(ctx)
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("sync command: %v", err)
+	}
 
 	// Verify that sync.log is created in tempHome
 	logPath := filepath.Join(tempHome, ".proofboard", "sync.log")

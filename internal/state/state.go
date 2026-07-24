@@ -30,8 +30,12 @@ func (s Store) Save(ctx context.Context, state model.State) error {
 		return fmt.Errorf("save state: %w", err)
 	}
 	path := s.Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return fmt.Errorf("secure state directory: %w", err)
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -39,6 +43,9 @@ func (s Store) Save(ctx context.Context, state model.State) error {
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write state: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure state file: %w", err)
 	}
 	return nil
 }

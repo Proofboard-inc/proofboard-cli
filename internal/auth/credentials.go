@@ -29,8 +29,12 @@ func (s CredentialStore) Save(ctx context.Context, credentials model.Credentials
 		return fmt.Errorf("save credentials: %w", err)
 	}
 	path := s.Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create credentials directory: %w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return fmt.Errorf("secure credentials directory: %w", err)
 	}
 	data, err := json.MarshalIndent(credentials, "", "  ")
 	if err != nil {
@@ -38,6 +42,9 @@ func (s CredentialStore) Save(ctx context.Context, credentials model.Credentials
 	}
 	if err := os.WriteFile(path, data, credentialsFileMode); err != nil {
 		return fmt.Errorf("write credentials: %w", err)
+	}
+	if err := os.Chmod(path, credentialsFileMode); err != nil {
+		return fmt.Errorf("secure credentials file: %w", err)
 	}
 	return nil
 }

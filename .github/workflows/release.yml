@@ -234,11 +234,11 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Prevents suppressed workspace paths and repository names from being retained in local state.
-            - Detects unavailable or soft-404 browser authorization pages and fails with a clear reconnect message.
-            - Verifies release signatures or checksums before shell, PowerShell, and npm installations.
-            - Uses manifest-provided release URLs for updates while enforcing HTTPS.
-            - Includes an npm package tarball and latest-release manifest alongside native installers and four static platform binaries.
+            - Removes API request and response bodies from local logs and sanitizes legacy log entries.
+            - Repairs credential, state, and log permissions to private-only access.
+            - Keeps `Not Now` scoped to the current workspace session and reconnect prompts on a safe cooldown.
+            - Presents repository detection as `Sync Project` while retaining hidden advanced command compatibility.
+            - Makes integration tests hermetic so test runs never call the production or development API.
 
             This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |
