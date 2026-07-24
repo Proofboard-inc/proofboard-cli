@@ -213,7 +213,7 @@ func printAgentStatus(ctx context.Context, out io.Writer) error {
 
 func claimAgentPID(homeDir string) error {
 	if running, pid := agentRunning(homeDir); running {
-		return fmt.Errorf("Proofboard Career Agent is already running (pid %d)", pid)
+		return fmt.Errorf("cannot start Proofboard Career Agent: already running (pid %d)", pid)
 	}
 	path := agentPIDPath(homeDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

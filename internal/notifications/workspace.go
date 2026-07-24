@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	statestore "github.com/proofboard/proofboard/internal/state"
@@ -111,21 +110,15 @@ func suppressWorkspace(ctx context.Context, workspace string) error {
 	if err != nil {
 		return fmt.Errorf("resolve home directory: %w", err)
 	}
-	absPath, err := filepath.Abs(workspace)
-	if err != nil {
-		return fmt.Errorf("resolve workspace path: %w", err)
-	}
 	store := statestore.NewStore(homeDir)
 	current, err := store.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load workspace suppression state: %w", err)
 	}
-	for _, existing := range current.SuppressedWorkspaces {
-		if existing == absPath {
-			return nil
-		}
+	current, err = statestore.AddWorkspaceSuppression(current, workspace)
+	if err != nil {
+		return err
 	}
-	current.SuppressedWorkspaces = append(current.SuppressedWorkspaces, absPath)
 	if err := store.Save(ctx, current); err != nil {
 		return fmt.Errorf("save workspace suppression state: %w", err)
 	}

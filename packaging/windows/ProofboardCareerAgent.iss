@@ -3,7 +3,7 @@
 #endif
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.8.10"
+  #define MyAppVersion "1.8.11"
 #endif
 
 #ifndef InstallerOutputDir
@@ -40,7 +40,7 @@ Source: "{#BinaryPath}"; DestDir: "{app}"; DestName: "proofboard.exe"; Flags: ig
 Name: "{group}\Proofboard Career Agent Status"; Filename: "{app}\proofboard.exe"; Parameters: "status"
 
 [Run]
-Filename: "{app}\proofboard.exe"; Parameters: "agent enable"; Description: "Start Proofboard Career Agent"; Flags: runhidden waituntilterminated
+Filename: "{app}\proofboard.exe"; Parameters: "agent enable"; Description: "Start Proofboard Career Agent"; Flags: runhidden waituntilterminated runasoriginaluser
 
 [UninstallRun]
 Filename: "{app}\proofboard.exe"; Parameters: "agent disable"; RunOnceId: "DisableCareerAgent"; Flags: runhidden waituntilterminated skipifdoesntexist

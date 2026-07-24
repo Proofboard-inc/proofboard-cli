@@ -100,11 +100,22 @@ func RemoteNotification(n model.Notification) Event {
 			body = fmt.Sprintf("Open Proofboard to review this %s notification.", strings.ReplaceAll(n.Type, "_", " "))
 		}
 		return Event{
-			Title:         strings.Title(strings.ReplaceAll(n.Type, "_", " ")),
+			Title:         notificationTypeTitle(n.Type),
 			Body:          body,
 			PrimaryAction: "Open Proofboard",
 		}
 	}
+}
+
+func notificationTypeTitle(notificationType string) string {
+	title := strings.ReplaceAll(notificationType, "_", " ")
+	if title == "" {
+		return "Proofboard notification"
+	}
+	for index, character := range title {
+		return strings.ToUpper(string(character)) + title[index+len(string(character)):]
+	}
+	return "Proofboard notification"
 }
 
 func NewProjectDetected(projectName string) Event {

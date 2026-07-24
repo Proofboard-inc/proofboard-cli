@@ -14,7 +14,7 @@ import (
 	"github.com/proofboard/proofboard/internal/notifications"
 )
 
-var errAgentReconnectRequired = errors.New("Career Agent reconnect required")
+var errAgentReconnectRequired = errors.New("proofboard career agent reconnect required")
 
 func isAuthFailure(err error) bool {
 	if err == nil {

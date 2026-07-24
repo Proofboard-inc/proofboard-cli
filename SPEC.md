@@ -1,6 +1,6 @@
 Updated spec:
 
-# Proofboard Career Agent — Product & UX Override (v1.8.10)
+# Proofboard Career Agent — Product & UX Override (v1.8.11)
 
 This section supersedes older user-facing terminology and the earlier “no persistent process” decision below. The open-source Go executable and NDA-safe eight-phase pipeline remain the implementation; the product presented to engineers is **Proofboard Career Agent**.
 

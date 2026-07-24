@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -53,7 +54,10 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	fmt.Printf("Connect your Proofboard Career Agent.\n\n")
 	fmt.Printf("Your device code is: %s\n\n", resp.UserCode)
 
-	verificationURL := s.resolveAuthorizationURL(ctx, resp.UserCode, resp.VerificationURL)
+	verificationURL, err := s.resolveAuthorizationURL(ctx, resp.UserCode, resp.VerificationURL)
+	if err != nil {
+		return model.Credentials{}, err
+	}
 	if os.Getenv("NO_BROWSER") == "1" {
 		fmt.Printf("Headless environment detected (NO_BROWSER=1).\nNavigate to the following URL manually to login:\n%s\n\n", verificationURL)
 	} else if err := OpenBrowser(ctx, verificationURL); err != nil {
@@ -103,23 +107,47 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	}
 }
 
-func (s Service) resolveAuthorizationURL(ctx context.Context, userCode, fallbackURL string) string {
+func (s Service) resolveAuthorizationURL(ctx context.Context, userCode, fallbackURL string) (string, error) {
 	preferredURL := s.authorizationURL(userCode)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, preferredURL, nil)
-	if err == nil {
-		request.Header.Set("Range", "bytes=0-0")
-		client := &http.Client{Timeout: 3 * time.Second}
-		if response, requestErr := client.Do(request); requestErr == nil {
-			_ = response.Body.Close()
-			if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusBadRequest {
-				return preferredURL
-			}
+	if authorizationPageAvailable(ctx, preferredURL) {
+		return preferredURL, nil
+	}
+	fallbackURL = strings.TrimSpace(fallbackURL)
+	if fallbackURL != "" && fallbackURL != preferredURL && authorizationPageAvailable(ctx, fallbackURL) {
+		return fallbackURL, nil
+	}
+	return "", fmt.Errorf("proofboard authorization page is unavailable; try Reconnect again shortly")
+}
+
+func authorizationPageAvailable(ctx context.Context, candidateURL string) bool {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, candidateURL, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 128*1024))
+	if err != nil {
+		return false
+	}
+	lowerBody := strings.ToLower(string(body))
+	for _, notFoundMarker := range []string{
+		"this page could not be found",
+		"next_http_error_fallback;404",
+		"deployment_not_found",
+	} {
+		if strings.Contains(lowerBody, notFoundMarker) {
+			return false
 		}
 	}
-	if strings.TrimSpace(fallbackURL) != "" {
-		return strings.TrimSpace(fallbackURL)
-	}
-	return preferredURL
+	return true
 }
 
 func (s Service) authorizationURL(deviceCode string) string {

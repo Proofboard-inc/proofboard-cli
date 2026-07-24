@@ -47,7 +47,8 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			if err != nil {
 				return err
 			}
-			if latest.Version == "" || latest.Version == version.Version {
+			latestVersion := strings.TrimPrefix(latest.Version, "v")
+			if latestVersion == "" || latestVersion == version.Version {
 				_, err := fmt.Fprintf(out, "Proofboard Career Agent is up to date (%s).\n", version.Version)
 				return err
 			}
@@ -60,7 +61,12 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			binaryName := fmt.Sprintf("proofboard-%s-%s%s", runtime.GOOS, runtime.GOARCH, suffix)
 
 			// Clean/build download URL
-			downloadURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/"), latest.Version, binaryName)
+			downloadURL := strings.TrimSpace(latest.URL)
+			if downloadURL == "" {
+				downloadURL = fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/"), latest.Version, binaryName)
+			} else if !strings.HasSuffix(downloadURL, "/"+binaryName) {
+				downloadURL = strings.TrimSuffix(downloadURL, "/") + "/" + binaryName
+			}
 
 			// Get current running executable path
 			execPath, err := options.executablePath()
@@ -136,7 +142,7 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 				fmt.Fprintf(out, "Warning: Failed to perform system PATH installation: %v\n", err)
 			}
 
-			_, err = fmt.Fprintf(out, "Proofboard Career Agent updated successfully to version %s.\n", latest.Version)
+			_, err = fmt.Fprintf(out, "Proofboard Career Agent updated successfully to version %s.\n", latestVersion)
 			return err
 		},
 	}
