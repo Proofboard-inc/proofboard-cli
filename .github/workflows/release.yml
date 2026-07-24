@@ -157,6 +157,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -179,6 +182,10 @@ jobs:
             go run scripts/sign.go "$SIGNING_KEY_FILE" "dist/$binary"
             go run ./scripts/verify_signature "dist/$binary" "dist/$binary.sig"
           done
+          PROOFBOARD_LATEST_RELEASE_URL=file:///dev/null \
+            PROOFBOARD_DOWNLOAD_BASE_URL="file://${PWD}/dist" \
+            PROOFBOARD_INSTALL_VERIFY_ONLY=1 \
+            scripts/test_no_system_pollution.sh scripts/install.sh
       - name: Verify complete release matrix
         run: |
           test -f dist/proofboard-linux-amd64
@@ -197,6 +204,11 @@ jobs:
         run: |
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
+          npm pack ./npm-package --pack-destination dist
+          test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-agent-*.tgz' -print -quit)"
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          printf '{"version":"%s","url":"https://releases.proofboard.io/%s"}\n' \
+            "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
           cd dist
           sha256sum \
             proofboard-linux-amd64 \
@@ -212,7 +224,9 @@ jobs:
             Proofboard-Career-Agent-darwin-arm64.pkg \
             Proofboard-Career-Agent-windows-amd64-setup.exe \
             install.sh \
-            install.ps1 > checksums.txt
+            install.ps1 \
+            proofboard-agent-*.tgz \
+            latest.json > checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
           name: Proofboard Career Agent ${{ github.ref_name }}
@@ -220,11 +234,11 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Adds the continuously running local Career Agent with IDE workspace detection and automatic project sync.
-            - Fixes device-code authentication to use the server-generated polling token and prefilled browser authorization.
-            - Adds silent refresh-token renewal, reconnect prompts, milestone actions, and Career Agent status.
-            - Preserves the NDA-safe local shredder and transmits only anonymized engineering metadata.
-            - Includes native installers, four static platform binaries, update signatures, and SHA-256 checksums.
+            - Prevents suppressed workspace paths and repository names from being retained in local state.
+            - Detects unavailable or soft-404 browser authorization pages and fails with a clear reconnect message.
+            - Verifies release signatures or checksums before shell, PowerShell, and npm installations.
+            - Uses manifest-provided release URLs for updates while enforcing HTTPS.
+            - Includes an npm package tarball and latest-release manifest alongside native installers and four static platform binaries.
 
             This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |
@@ -243,6 +257,8 @@ jobs:
             dist/checksums.txt
             dist/install.sh
             dist/install.ps1
+            dist/proofboard-agent-*.tgz
+            dist/latest.json
           fail_on_unmatched_files: true
 
   publish-npm:

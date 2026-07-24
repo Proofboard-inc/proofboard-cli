@@ -33,25 +33,48 @@ fi
 BINARY_NAME="proofboard-${OS}-${ARCH}"
 
 # Determine latest version
-LATEST_JSON=$(curl -sSL https://releases.proofboard.io/latest.json || echo "")
-LATEST_VERSION=$(echo "$LATEST_JSON" | grep -o '"version": *"[^"]*"' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_RELEASE_URL="${PROOFBOARD_LATEST_RELEASE_URL:-https://releases.proofboard.io/latest.json}"
+LATEST_JSON=$(curl -fsSL "$LATEST_RELEASE_URL" || echo "")
+LATEST_VERSION=$(printf '%s' "$LATEST_JSON" | grep -o '"version": *"[^"]*"' | sed -E 's/.*"([^"]+)".*/\1/')
+DOWNLOAD_BASE_URL=$(printf '%s' "$LATEST_JSON" | grep -o '"url": *"[^"]*"' | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "$LATEST_VERSION" ]; then
-    echo "Fallback: Using hardcoded latest version v1.8.10"
-    LATEST_VERSION="v1.8.10"
+    echo "Fallback: Using hardcoded latest version v1.8.11"
+    LATEST_VERSION="v1.8.11"
+fi
+case "$LATEST_VERSION" in
+    v*) RELEASE_TAG="$LATEST_VERSION" ;;
+    *) RELEASE_TAG="v$LATEST_VERSION" ;;
+esac
+if [ -z "$DOWNLOAD_BASE_URL" ]; then
+    DOWNLOAD_BASE_URL="${PROOFBOARD_DOWNLOAD_BASE_URL:-https://releases.proofboard.io/$RELEASE_TAG}"
 fi
 
-DOWNLOAD_URL="https://releases.proofboard.io/${LATEST_VERSION}/${BINARY_NAME}"
+DOWNLOAD_URL="${DOWNLOAD_BASE_URL}/${BINARY_NAME}"
 INSTALL_DIR="/usr/local/bin"
 TEMP_DIR=$(mktemp -d)
 TEMP_BINARY="${TEMP_DIR}/proofboard"
+TEMP_SIGNATURE="${TEMP_DIR}/proofboard.sig"
+TEMP_PUBLIC_KEY="${TEMP_DIR}/proofboard-release-public.pem"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 echo "Downloading ${BINARY_NAME} ${LATEST_VERSION}..."
-curl -fsSL -o "$TEMP_BINARY" "$DOWNLOAD_URL" || {
-    echo "Download failed from releases.proofboard.io. Falling back to GitHub releases..."
-    curl -fsSL -o "$TEMP_BINARY" "https://github.com/Proofboard-inc/proofboard-cli/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
-}
+curl -fsSL -o "$TEMP_BINARY" "$DOWNLOAD_URL"
+curl -fsSL -o "$TEMP_SIGNATURE" "${DOWNLOAD_URL}.sig"
+printf '%s\n' \
+    '-----BEGIN PUBLIC KEY-----' \
+    'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdYPsxqaryQ9bQI3G3hQpsmyrTGs0' \
+    'nKxvQXQC+nAK+EsNF6VEofCYuX42bTeooKLR1Ol+Eh3NhWErh4tfSkH1mA==' \
+    '-----END PUBLIC KEY-----' > "$TEMP_PUBLIC_KEY"
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "OpenSSL is required to verify the Proofboard release signature." >&2
+    exit 1
+fi
+openssl dgst -sha256 -verify "$TEMP_PUBLIC_KEY" -signature "$TEMP_SIGNATURE" "$TEMP_BINARY" >/dev/null
+if [ "${PROOFBOARD_INSTALL_VERIFY_ONLY:-0}" = "1" ]; then
+    echo "Proofboard Career Agent ${LATEST_VERSION} signature verified."
+    exit 0
+fi
 
 echo "Installing to ${INSTALL_DIR}/proofboard..."
 chmod +x "$TEMP_BINARY"

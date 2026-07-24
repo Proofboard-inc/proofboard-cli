@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -229,11 +228,10 @@ func TestSyncSuppressedWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	repoPathAbs, err := filepath.Abs(repoDir)
+	st, err = state.AddWorkspaceSuppression(st, repoDir)
 	if err != nil {
-		t.Fatalf("failed to get absolute path: %v", err)
+		t.Fatalf("failed to suppress workspace: %v", err)
 	}
-	st.SuppressedWorkspaces = append(st.SuppressedWorkspaces, repoPathAbs)
 	if err := stateStore.Save(ctx, st); err != nil {
 		t.Fatalf("failed to save state: %v", err)
 	}

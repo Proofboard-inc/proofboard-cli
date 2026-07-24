@@ -32,7 +32,10 @@ func TestResolveAuthorizationURLPrefersCareerAgentRoute(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	service := NewService(CredentialStore{}, api.Client{}, server.URL+"/agent/cli-auth")
-	got := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", "https://fallback.example/cli-auth")
+	got, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", "https://fallback.example/cli-auth")
+	if err != nil {
+		t.Fatalf("resolveAuthorizationURL() error: %v", err)
+	}
 	want := server.URL + "/agent/cli-auth?code=ABCD-1234"
 	if got != want {
 		t.Fatalf("resolveAuthorizationURL() = %q, want %q", got, want)
@@ -40,12 +43,31 @@ func TestResolveAuthorizationURLPrefersCareerAgentRoute(t *testing.T) {
 }
 
 func TestResolveAuthorizationURLFallsBackWhileCareerAgentRouteIsMissing(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
+	preferredServer := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(preferredServer.Close)
+	fallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Authorize Proofboard Career Agent"))
+	}))
+	t.Cleanup(fallbackServer.Close)
+	service := NewService(CredentialStore{}, api.Client{}, preferredServer.URL+"/agent/cli-auth")
+	fallbackURL := fallbackServer.URL + "/cli-auth?code=ABCD-1234"
+	got, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", fallbackURL)
+	if err != nil {
+		t.Fatalf("resolveAuthorizationURL() error: %v", err)
+	}
+	if got != fallbackURL {
+		t.Fatalf("resolveAuthorizationURL() = %q", got)
+	}
+}
+
+func TestResolveAuthorizationURLRejectsSoftNotFoundPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<title>404: This page could not be found.</title>`))
+	}))
 	t.Cleanup(server.Close)
 	service := NewService(CredentialStore{}, api.Client{}, server.URL+"/agent/cli-auth")
-	got := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", "https://fallback.example/cli-auth?code=ABCD-1234")
-	if got != "https://fallback.example/cli-auth?code=ABCD-1234" {
-		t.Fatalf("resolveAuthorizationURL() = %q", got)
+	if _, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", server.URL+"/cli-auth"); err == nil {
+		t.Fatal("expected soft 404 authorization page to be rejected")
 	}
 }
 

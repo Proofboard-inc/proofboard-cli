@@ -165,15 +165,3 @@ func dominantImpact(scores map[string]int) string {
 	}
 	return best
 }
-
-func representativeSHAs(commits []model.CommitSignal) []string {
-	limit := 3
-	if len(commits) < limit {
-		limit = len(commits)
-	}
-	shas := make([]string, 0, limit)
-	for i := 0; i < limit; i++ {
-		shas = append(shas, commits[i].SHA)
-	}
-	return shas
-}

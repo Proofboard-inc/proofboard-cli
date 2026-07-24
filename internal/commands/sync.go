@@ -19,6 +19,7 @@ import (
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/pipeline"
 	"github.com/proofboard/proofboard/internal/pipeline/phase1"
+	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -79,14 +80,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "failure", err.Error())
 					return err
 				}
-				isSuppressed := false
-				for _, path := range current.SuppressedWorkspaces {
-					if path == repoPath {
-						isSuppressed = true
-						break
-					}
-				}
-				if isSuppressed {
+				if statestore.IsWorkspaceSuppressed(current, repoPath) {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "workspace suppressed")
 					return nil
 				}

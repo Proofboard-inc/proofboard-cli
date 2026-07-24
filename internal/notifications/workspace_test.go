@@ -1,9 +1,9 @@
 package notifications
 
 import (
+	"bytes"
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/proofboard/proofboard/internal/state"
@@ -21,9 +21,19 @@ func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
-	want, _ := filepath.Abs(workspace)
+	want, err := state.WorkspaceSuppressionKey(workspace)
+	if err != nil {
+		t.Fatalf("suppression key: %v", err)
+	}
 	if len(current.SuppressedWorkspaces) != 1 || current.SuppressedWorkspaces[0] != want {
 		t.Fatalf("suppressed workspaces = %#v, want %q", current.SuppressedWorkspaces, want)
+	}
+	persisted, err := os.ReadFile(state.NewStore(homeDir).Path())
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	if bytes.Contains(persisted, []byte(workspace)) {
+		t.Fatalf("state file retained proprietary workspace path: %s", persisted)
 	}
 	info, err := os.Stat(state.NewStore(homeDir).Path())
 	if err != nil {

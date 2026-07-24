@@ -2,10 +2,15 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const DEFAULT_VERSION = 'v1.8.10';
+const DEFAULT_VERSION = 'v1.8.11';
 const DEFAULT_RELEASES_URL = 'https://releases.proofboard.io/latest.json';
+const RELEASE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdYPsxqaryQ9bQI3G3hQpsmyrTGs0
+nKxvQXQC+nAK+EsNF6VEofCYuX42bTeooKLR1Ol+Eh3NhWErh4tfSkH1mA==
+-----END PUBLIC KEY-----`;
 
 function getBinaryName(platform = os.type(), arch = os.arch()) {
     let osName = '';
@@ -35,85 +40,121 @@ function getBinaryName(platform = os.type(), arch = os.arch()) {
     return `proofboard-${osName}-${archName}${osName === 'windows' ? '.exe' : ''}`;
 }
 
-function fetchText(url) {
+function fetchBuffer(url, redirectsRemaining = 5) {
     return new Promise((resolve) => {
-        const req = https.get(url, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            res.on('end', () => resolve({ statusCode: res.statusCode, data }));
+        let parsedURL;
+        try {
+            parsedURL = new URL(url);
+        } catch (err) {
+            resolve({ statusCode: 0, data: Buffer.alloc(0) });
+            return;
+        }
+        if (parsedURL.protocol !== 'https:') {
+            resolve({ statusCode: 0, data: Buffer.alloc(0) });
+            return;
+        }
+        const req = https.get(parsedURL, (res) => {
+            if ([301, 302, 303, 307, 308].includes(res.statusCode) && redirectsRemaining > 0) {
+                const location = res.headers.location;
+                res.resume();
+                if (!location) {
+                    resolve({ statusCode: res.statusCode, data: Buffer.alloc(0) });
+                    return;
+                }
+                fetchBuffer(new URL(location, url).toString(), redirectsRemaining - 1).then(resolve);
+                return;
+            }
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+            res.on('end', () => resolve({ statusCode: res.statusCode, data: Buffer.concat(chunks) }));
         });
-        req.on('error', () => resolve({ statusCode: 0, data: '' }));
+        req.on('error', () => resolve({ statusCode: 0, data: Buffer.alloc(0) }));
         req.end();
     });
 }
 
-async function getLatestRelease(releasesUrl = DEFAULT_RELEASES_URL) {
-    const response = await fetchText(releasesUrl);
+async function getLatestReleaseInfo(releasesUrl = DEFAULT_RELEASES_URL) {
+    const response = await fetchBuffer(releasesUrl);
     if (response.statusCode === 200) {
         try {
-            const parsed = JSON.parse(response.data);
-            return parsed.version || DEFAULT_VERSION;
+            const parsed = JSON.parse(response.data.toString('utf8'));
+            const version = parsed.version || DEFAULT_VERSION;
+            const releaseTag = version.startsWith('v') ? version : `v${version}`;
+            return {
+                version,
+                url: parsed.url || `https://releases.proofboard.io/${releaseTag}`,
+            };
         } catch (err) {
-            return DEFAULT_VERSION;
+            // Fall through to the pinned release.
         }
     }
-    return DEFAULT_VERSION;
+    return {
+        version: DEFAULT_VERSION,
+        url: `https://releases.proofboard.io/${DEFAULT_VERSION}`,
+    };
 }
 
-function downloadBinary(url, dest) {
-    return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(dest);
-        const req = https.get(url, (res) => {
-            if (res.statusCode === 301 || res.statusCode === 302) {
-                const location = res.headers.location;
-                if (!location) {
-                    reject(new Error('Missing redirect location'));
-                    return;
-                }
-                file.close();
-                fs.unlink(dest, () => {});
-                downloadBinary(location, dest).then(resolve).catch(reject);
-                return;
-            }
-            if (res.statusCode !== 200) {
-                file.close();
-                fs.unlink(dest, () => {});
-                reject(new Error(`Failed to download binary: ${res.statusCode}`));
-                return;
-            }
-            res.pipe(file);
-            file.on('finish', () => {
-                file.close();
-                resolve();
-            });
-        });
-        req.on('error', (err) => {
-            file.close();
-            fs.unlink(dest, () => {});
-            reject(err);
-        });
-    });
+async function getLatestRelease(releasesUrl = DEFAULT_RELEASES_URL) {
+    return (await getLatestReleaseInfo(releasesUrl)).version;
+}
+
+async function downloadBinary(url, dest) {
+    const response = await fetchBuffer(url);
+    if (response.statusCode !== 200) {
+        throw new Error(`Failed to download binary: ${response.statusCode}`);
+    }
+    fs.writeFileSync(dest, response.data, { mode: 0o600 });
+}
+
+function verifyBinarySignature(binaryPath, signaturePath, publicKey = RELEASE_PUBLIC_KEY) {
+    const valid = crypto.verify(
+        'sha256',
+        fs.readFileSync(binaryPath),
+        { key: publicKey, dsaEncoding: 'der' },
+        fs.readFileSync(signaturePath),
+    );
+    if (!valid) {
+        throw new Error('Proofboard release signature verification failed');
+    }
 }
 
 async function ensureBinary(options = {}) {
-    const version = options.version || await getLatestRelease(options.releasesUrl);
+    const release = options.version ? {
+        version: options.version,
+        url: options.releaseBaseUrl || `https://releases.proofboard.io/${options.version.startsWith('v') ? options.version : `v${options.version}`}`,
+    } : await getLatestReleaseInfo(options.releasesUrl);
+    const version = release.version;
     const binaryName = options.binaryName || getBinaryName(options.platform, options.arch);
     const cacheDir = options.cacheDir || path.join(os.homedir(), '.proofboard', 'bin', version);
     const binaryPath = path.join(cacheDir, binaryName);
-    const downloadUrl = options.downloadUrl || `https://releases.proofboard.io/${version}/${binaryName}`;
-    const fallbackUrl = options.fallbackUrl || `https://github.com/Proofboard-inc/proofboard-cli/releases/download/${version}/${binaryName}`;
+    const signaturePath = `${binaryPath}.sig`;
+    const downloadUrl = options.downloadUrl || `${release.url.replace(/\/$/, '')}/${binaryName}`;
+    const signatureUrl = options.signatureUrl || `${downloadUrl}.sig`;
 
     if (!fs.existsSync(cacheDir)) {
         fs.mkdirSync(cacheDir, { recursive: true });
     }
 
-    if (!fs.existsSync(binaryPath)) {
+    let downloadRequired = !fs.existsSync(binaryPath) || !fs.existsSync(signaturePath);
+    if (!downloadRequired) {
+        try {
+            verifyBinarySignature(binaryPath, signaturePath, options.publicKey);
+        } catch (err) {
+            fs.rmSync(binaryPath, { force: true });
+            fs.rmSync(signaturePath, { force: true });
+            downloadRequired = true;
+        }
+    }
+
+    if (downloadRequired) {
         try {
             await downloadBinary(downloadUrl, binaryPath);
+            await downloadBinary(signatureUrl, signaturePath);
+            verifyBinarySignature(binaryPath, signaturePath, options.publicKey);
         } catch (err) {
-            await downloadBinary(fallbackUrl, binaryPath);
+            fs.rmSync(binaryPath, { force: true });
+            fs.rmSync(signaturePath, { force: true });
+            throw err;
         }
         fs.chmodSync(binaryPath, 0o755);
     }
@@ -137,7 +178,9 @@ module.exports = {
     DEFAULT_VERSION,
     getBinaryName,
     getLatestRelease,
+    getLatestReleaseInfo,
     downloadBinary,
+    verifyBinarySignature,
     ensureBinary,
     run,
 };

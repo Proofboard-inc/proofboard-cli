@@ -21,7 +21,12 @@ type LatestVersion struct {
 }
 
 func NewReleaseClient(baseURL string) ReleaseClient {
-	return ReleaseClient{baseURL: baseURL, httpClient: &http.Client{}}
+	return ReleaseClient{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			CheckRedirect: validateReleaseRedirect,
+		},
+	}
 }
 
 func (c ReleaseClient) Latest(ctx context.Context, route string) (LatestVersion, error) {
@@ -57,6 +62,13 @@ func (c ReleaseClient) Download(ctx context.Context, route string, w io.Writer) 
 			return err
 		}
 	}
+	parsedEndpoint, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("parse download URL: %w", err)
+	}
+	if err := validateReleaseURL(parsedEndpoint); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create download request: %w", err)
@@ -72,6 +84,17 @@ func (c ReleaseClient) Download(ctx context.Context, route string, w io.Writer) 
 	_, err = io.Copy(w, res.Body)
 	if err != nil {
 		return fmt.Errorf("write download data: %w", err)
+	}
+	return nil
+}
+
+func validateReleaseRedirect(req *http.Request, _ []*http.Request) error {
+	return validateReleaseURL(req.URL)
+}
+
+func validateReleaseURL(candidate *url.URL) error {
+	if candidate.Scheme != "https" && candidate.Hostname() != "127.0.0.1" && candidate.Hostname() != "localhost" {
+		return fmt.Errorf("release download must use HTTPS")
 	}
 	return nil
 }

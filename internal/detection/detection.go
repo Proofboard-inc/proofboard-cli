@@ -74,13 +74,11 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 		Provider:      identity.Provider,
 	}
 
-	for _, path := range stateData.SuppressedWorkspaces {
-		if samePath(path, absWorkspace) {
-			result.Action = ActionSuppressed
-			result.Suppressed = true
-			result.Reason = "workspace suppressed"
-			return result, nil
-		}
+	if statestore.IsWorkspaceSuppressed(stateData, absWorkspace) {
+		result.Action = ActionSuppressed
+		result.Suppressed = true
+		result.Reason = "workspace suppressed"
+		return result, nil
 	}
 
 	repoState, linked := stateData.LinkedRepos[identity.RepoHash]
@@ -119,18 +117,6 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	result.Action = ActionNone
 	result.Reason = "workspace already linked and synchronized"
 	return result, nil
-}
-
-func samePath(a, b string) bool {
-	if a == b {
-		return true
-	}
-	aa, errA := filepath.Abs(a)
-	bb, errB := filepath.Abs(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	return aa == bb
 }
 
 func (r Result) Marshal() ([]byte, error) {

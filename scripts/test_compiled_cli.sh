@@ -20,6 +20,12 @@ export PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS=1
 export NO_BROWSER=1
 
 TEST_ARTIFACT_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_ARTIFACT_DIR"' EXIT
+export HOME="$TEST_ARTIFACT_DIR/home"
+export XDG_CONFIG_HOME="$TEST_ARTIFACT_DIR/xdg-config"
+export XDG_DATA_HOME="$TEST_ARTIFACT_DIR/xdg-data"
+export XDG_STATE_HOME="$TEST_ARTIFACT_DIR/xdg-state"
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 
 "$COMPILED_BINARY" > "$TEST_ARTIFACT_DIR/root-help.txt"
 grep -q 'Proofboard Career Agent' "$TEST_ARTIFACT_DIR/root-help.txt"

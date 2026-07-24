@@ -21,6 +21,7 @@ dist/Proofboard-Career-Agent-darwin-arm64.pkg
 dist/Proofboard-Career-Agent-windows-amd64-setup.exe
 dist/install.sh
 dist/install.ps1
+dist/latest.json
 dist/checksums.txt
 "
 
@@ -30,6 +31,12 @@ for FILE in $REQUIRED_FILES; do
     exit 1
   fi
 done
+
+NPM_PACKAGES=(dist/proofboard-agent-*.tgz)
+if [ "${#NPM_PACKAGES[@]}" -ne 1 ]; then
+  echo "Expected exactly one npm release package, found ${#NPM_PACKAGES[@]}." >&2
+  exit 1
+fi
 
 echo "Ensuring release exists for tag $TAG..."
 RELEASE_ID=$(curl -sS -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.id // empty')
@@ -45,7 +52,7 @@ fi
 
 echo "Upload URL: $UPLOAD_URL"
 
-for FILE in $REQUIRED_FILES; do
+for FILE in $REQUIRED_FILES "${NPM_PACKAGES[@]}"; do
   FILENAME=$(basename "$FILE")
   echo "Uploading $FILENAME..."
   curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" \

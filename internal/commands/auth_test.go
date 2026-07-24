@@ -75,6 +75,8 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 				"refreshToken": "refresh-token-456",
 				"username":     "Ada Lovelace",
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/agent/cli-auth":
+			_, _ = w.Write([]byte("Authorize Proofboard Career Agent"))
 		default:
 			http.NotFound(w, r)
 		}
