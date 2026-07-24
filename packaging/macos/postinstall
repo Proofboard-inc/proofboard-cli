@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+CONSOLE_USER=$(stat -f '%Su' /dev/console 2>/dev/null || true)
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+    exit 0
+fi
+
+CONSOLE_UID=$(id -u "$CONSOLE_USER")
+CONSOLE_HOME=$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+if [ -z "$CONSOLE_HOME" ]; then
+    CONSOLE_HOME="/Users/$CONSOLE_USER"
+fi
+
+/bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" \
+    env HOME="$CONSOLE_HOME" /usr/local/bin/proofboard agent enable >/dev/null 2>&1 || true
+
+exit 0

@@ -36,6 +36,7 @@ type Result struct {
 	Suppressed       bool   `json:"suppressed"`
 	Linked           bool   `json:"linked"`
 	OutOfDate        bool   `json:"outOfDate"`
+	MetadataChanged  bool   `json:"metadataChanged"`
 }
 
 func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result, error) {
@@ -86,7 +87,7 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	result.Linked = linked
 	if !linked {
 		result.Action = ActionLink
-		result.SuggestedCommand = "proofboard link"
+		result.SuggestedCommand = "proofboard sync"
 		result.Reason = "workspace is not linked"
 		return result, nil
 	}
@@ -97,12 +98,21 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	}
 	result.LastHeadSHA = repoState.LastHeadSHA
 	result.CurrentHeadSHA = currentHead
+	metadataHash, err := git.MetadataFingerprint(ctx, repo)
+	if err != nil {
+		return Result{}, err
+	}
+	result.MetadataChanged = repoState.MetadataHash == "" || repoState.MetadataHash != metadataHash
 
-	if repoState.LastHeadSHA == "" || !strings.EqualFold(repoState.LastHeadSHA, currentHead) {
+	if repoState.LastHeadSHA == "" || !strings.EqualFold(repoState.LastHeadSHA, currentHead) || result.MetadataChanged {
 		result.Action = ActionSync
 		result.OutOfDate = true
 		result.SuggestedCommand = "proofboard sync"
-		result.Reason = "workspace has new commits since the last sync"
+		if result.MetadataChanged && strings.EqualFold(repoState.LastHeadSHA, currentHead) {
+			result.Reason = "repository metadata changed since the last sync"
+		} else {
+			result.Reason = "workspace has new commits since the last sync"
+		}
 		return result, nil
 	}
 
@@ -130,9 +140,9 @@ func (r Result) Marshal() ([]byte, error) {
 func (r Result) HumanMessage() string {
 	switch r.Action {
 	case ActionLink:
-		return fmt.Sprintf("Proofboard: New project detected\n%s\nRun `proofboard link` to add it.", r.RepoName)
+		return fmt.Sprintf("Proofboard Career Agent: New repository detected\n%s\nChoose Sync Project to begin private local tracking.", r.RepoName)
 	case ActionSync:
-		return fmt.Sprintf("Proofboard: Project needs sync\n%s\nRun `proofboard sync` to capture the latest work.", r.RepoName)
+		return fmt.Sprintf("Proofboard Career Agent: Syncing %s in the background.", r.RepoName)
 	case ActionSuppressed:
 		return ""
 	default:

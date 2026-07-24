@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -186,37 +187,28 @@ func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 
 	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", ts.URL)
 
-	// Since os.Executable returns the running test binary,
-	// replacing it directly might cause issues if permissions are denied or if we're not running in a writable temp directory.
-	// But in modern Go test execution, the test binary resides in a writable temp folder under /tmp.
-	// Let's first check if the test executable file is writable.
-	execPath, err := os.Executable()
-	if err != nil {
-		t.Fatalf("failed to get executable path: %v", err)
+	execPath := filepath.Join(t.TempDir(), "proofboard")
+	if err := os.WriteFile(execPath, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("write temporary executable: %v", err)
 	}
-
-	// We can back up the original test binary by copying it, then execute the command, and restore it afterward.
-	backupPath := execPath + ".bak"
-	originalBytes, err := os.ReadFile(execPath)
-	if err != nil {
-		t.Fatalf("failed to read test executable: %v", err)
-	}
-	err = os.WriteFile(backupPath, originalBytes, 0755)
-	if err != nil {
-		t.Fatalf("failed to create backup of test executable: %v", err)
-	}
-	defer func() {
-		// Restore original test executable
-		_ = os.Rename(backupPath, execPath)
-	}()
+	installCalled := false
 
 	var out bytes.Buffer
-	cmd := newUpdateCommand(ctx, &out)
+	cmd := newUpdateCommandWithOptions(ctx, &out, updateCommandOptions{
+		executablePath: func() (string, error) { return execPath, nil },
+		install: func(io.Writer) error {
+			installCalled = true
+			return nil
+		},
+	})
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		t.Fatalf("update command failed: %v", err)
 	}
+	if !installCalled {
+		t.Fatal("expected updater to invoke installation after replacement")
+	}
 
-	expectedMsg := "Proofboard CLI updated successfully to version 1.3.0.\n"
+	expectedMsg := "Proofboard Career Agent updated successfully to version 1.3.0.\n"
 	if !strings.Contains(out.String(), expectedMsg) {
 		t.Errorf("expected message to contain %q, got %q", expectedMsg, out.String())
 	}
@@ -254,7 +246,7 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	
+
 	// Pre-link repo in state
 	_, _ = filepath.Abs(repoDir)
 	repoHash := "test-repo-hash"

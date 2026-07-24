@@ -16,6 +16,7 @@ import (
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/crypto"
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
@@ -187,6 +188,10 @@ func TestStatusPendingStates(t *testing.T) {
 	}
 
 	repoHash := crypto.SHA256("github:org/repo-pending")
+	metadataHash, err := pbgit.MetadataFingerprint(ctx, pbgit.Repo{Path: repoDir})
+	if err != nil {
+		t.Fatalf("metadata fingerprint: %v", err)
+	}
 
 	// Set up state
 	stateStore := state.NewStore(tempHome)
@@ -199,6 +204,7 @@ func TestStatusPendingStates(t *testing.T) {
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 		ProjectID:         "proj-123",
 		DictionaryVersion: "1.0.0",
+		MetadataHash:      metadataHash,
 	}
 	st.LinkedRepos["some-other-repo"] = model.LinkedRepoState{
 		RepoHash:          "some-other-repo",

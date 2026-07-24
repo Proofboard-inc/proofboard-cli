@@ -13,11 +13,11 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard CLI v1.8.9
+Proofboard Career Agent v1.8.10
 
 Implementation language: Go 1.21+
 
-CLI entrypoint:
+Agent executable and advanced CLI entrypoint:
 
 ```bash
 proofboard
@@ -25,9 +25,9 @@ proofboard
 
 ## Mission
 
-Proofboard is a local-first developer verification system.
+Proofboard is a local-first Career Agent that builds structured engineering proof while developers focus on building software.
 
-The CLI reads local Git history, classifies work locally, destroys proprietary information before network transmission, and sends only anonymized metadata to the Proofboard API.
+The Career Agent reads local Git history, classifies work locally, destroys proprietary information before network transmission, and sends only anonymized metadata to the Proofboard API. Authentication, repository setup, and synchronization should be automatic; commands remain available for advanced users, automation, debugging, scripting, and CI/CD.
 
 The NDA-safe architecture is non-negotiable.
 
@@ -66,7 +66,7 @@ Only transmit:
 
 ## Commands
 
-Required commands:
+Required advanced commands:
 
 * auth (Supports headless fallback via CLI output)
 * link
@@ -79,18 +79,25 @@ Required commands:
 * install (Global system-wide installer)
 * uninstall (Global uninstaller)
 * completion (Interactive auto-completion setup)
+* agent (Background Career Agent lifecycle and status)
 
 ## Desktop Detection
 
-When an engineer opens a Git workspace in an IDE, the CLI must detect the workspace even if the engineer never runs `link` or `sync` manually. The watcher must treat both unlinked repositories and linked-but-unsynced repositories as actionable.
+When an engineer opens a Git workspace in an IDE, the Career Agent must detect the workspace even if the engineer never runs `link` or `sync` manually. The watcher must treat both untracked repositories and tracked-but-unsynced repositories as actionable. Tracked repositories sync automatically without another prompt.
 
 Use the same three-option surface as the terminal prompt:
 
-* `y` links or re-syncs the repo and continues.
-* `n` dismisses for the current session.
-* `x` suppresses the workspace permanently.
+* `Sync Project` connects or re-syncs the repo and continues.
+* `Not Now` dismisses for the current session.
+* `Never Ask Again` suppresses the workspace permanently.
 
 The watcher must compare the active workspace against Proofboard state, ignore already-suppressed workspaces, and surface the prompt as soon as the IDE opens the project.
+
+## Career Agent UX
+
+Installation must register and start the background agent. When synchronization requires authentication, the agent opens `https://proofboard.io/agent/cli-auth?code=<generated_code>` with the temporary code prefilled, stores access and refresh tokens securely, and resumes synchronization. Valid refresh tokens are used silently.
+
+The user-facing product name is `Proofboard Career Agent`. Avoid presenting `CLI`, `auth`, `link`, or `sync` as required user concepts. The primary promise is: `Proofboard builds your career while you focus on building software.`
 
 ## Pipeline
 

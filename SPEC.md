@@ -1,5 +1,69 @@
 Updated spec:
 
+# Proofboard Career Agent — Product & UX Override (v1.8.10)
+
+This section supersedes older user-facing terminology and the earlier “no persistent process” decision below. The open-source Go executable and NDA-safe eight-phase pipeline remain the implementation; the product presented to engineers is **Proofboard Career Agent**.
+
+**Promise:** Proofboard builds your career while you focus on building software.
+
+## Product Model
+
+The engineer installs the Career Agent and writes code. The local agent quietly detects repositories, authenticates when needed, connects projects, synchronizes meaningful activity, updates career records, and generates engineering proof. Existing `proofboard auth`, `link`, and `sync` commands remain supported for advanced users, automation, debugging, scripting, and CI/CD, but are not required concepts in the primary experience.
+
+## Installation
+
+The recommended website action is **Install Proofboard Career Agent**. Installation must install the executable, add it to `PATH`, register the platform background service, and start it automatically without requiring a terminal. Releases therefore include a Linux amd64 `.deb`, macOS amd64 and arm64 `.pkg` installers, and a Windows amd64 setup `.exe` in addition to the four explicit static binaries. The website must choose the matching native installer; shell scripts and bare binaries are power-user surfaces. Power-user channels may include `brew install proofboard` and `npm install -g @proofboard/agent`.
+
+The background registration mechanisms are a systemd user service or desktop autostart entry on Linux, a LaunchAgent on macOS, and an at-logon scheduled task on Windows.
+
+## Authentication and Sessions
+
+Synchronization checks credentials automatically. When no usable session exists, the agent creates a temporary device code and opens:
+
+`https://proofboard.io/agent/cli-auth?code=<generated_code>`
+
+The code is prefilled. After the user authorizes in the browser, the agent securely stores access and refresh tokens and resumes the interrupted project sync. A valid refresh token is used silently. If the complete session has expired, the user sees **Your Proofboard session has expired** with a **Reconnect** action.
+
+## Repository Detection and Sync Project
+
+The Career Agent watches supported IDE processes and workspace arguments. A newly opened, unsuppressed Git repository surfaces:
+
+> New repository detected.
+> Would you like Proofboard to track this project?
+
+Actions:
+
+- **Sync Project** — creates a project if necessary, connects the repository, performs its first sync, installs activity hooks, and begins continuous tracking.
+- **Not Now** — dismisses for the current agent session.
+- **Never Ask Again** — stores the local workspace suppression and does not prompt again.
+
+Already tracked repositories do not prompt. If their HEAD or one-way local repository-metadata fingerprint differs from the last successful sync, the agent synchronizes them automatically. The metadata fingerprint covers provider/org/repository hashes, remote refs, and the default remote branch; raw names are never persisted or transmitted. Post-commit, post-merge, and post-rewrite hooks provide additional event-driven synchronization.
+
+## Milestones and Status
+
+Detected milestones use the title **Milestone detected** and expose **Review**, **Publish**, and **Ignore** actions. When the backend supplies a milestone bundle ID, Publish approves the bundle and Ignore declines it through the milestone-bundle API. Review opens that bundle in the dashboard. A locally detected milestone without a bundle ID routes Review/Publish to the dashboard until asynchronous bundle creation completes.
+
+The status surface uses Career Agent terminology and includes:
+
+- Active/stopped local state
+- Last sync
+- Number of repositories tracked
+- Authentication status
+
+## Privacy Messaging
+
+User-facing surfaces should consistently state:
+
+- Runs entirely on your machine.
+- No proprietary source code leaves your computer.
+- No employer access required.
+- Designed to preserve NDA-safe engineering proof.
+- Builds structured engineering proof without exposing confidential code.
+
+The Phase 5 Shredder and all transmission allowlists below remain non-negotiable.
+
+---
+
 PROOFBOARD   |   CLI Engineer Specification   |   v1.4   |   Go
 PROOFBOARD
 CLI Engineer Specification

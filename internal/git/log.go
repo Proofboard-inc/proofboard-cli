@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
-	"sort"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/model"
@@ -117,4 +117,3 @@ func MergeTimestamps(ctx context.Context, repo Repo) ([]int64, error) {
 	})
 	return timestamps, nil
 }
-

@@ -3,8 +3,10 @@ package commands
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/crypto"
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/state"
 	"github.com/proofboard/proofboard/internal/version"
@@ -17,6 +19,87 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
+		t.Fatalf("initial commit: %v: %s", err, output)
+	}
+	ctx := context.Background()
+	repo := pbgit.Repo{Path: repoDir}
+	head, err := pbgit.Head(ctx, repo)
+	if err != nil {
+		t.Fatalf("head: %v", err)
+	}
+	metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
+	if err != nil {
+		t.Fatalf("metadata fingerprint: %v", err)
+	}
+
+	var received model.SyncPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/auth/device-key":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-key-1"})
+		case "/api/v1/cli/sync":
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				t.Fatalf("decode sync payload: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(model.SyncReceipt{ID: "sync-1", Status: "ok"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "token", EmailHash: "email-hash"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	store := state.NewStore(homeDir)
+	current := state.Default()
+	repoHash := crypto.SHA256("github:org/repo")
+	current.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:          repoHash,
+		OrgHash:           crypto.SHA256("github:org"),
+		LastHeadSHA:       head,
+		MetadataHash:      metadataHash,
+		ProjectID:         "project-1",
+		LastSyncAt:        time.Now().Add(-time.Hour),
+		DictionaryVersion: version.Version,
+	}
+	current.AutoUpdateDictionary = false
+	if err := store.Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := exec.Command("git", "-C", repoDir, "update-ref", "refs/remotes/origin/main", head).Run(); err != nil {
+		t.Fatalf("update remote ref: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+	var out bytes.Buffer
+	cmd := newSyncCommand(ctx, &out)
+	cmd.SetArgs([]string{"--incremental", "--agent"})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("metadata sync: %v; output=%s", err, out.String())
+	}
+	if len(received.SHAs) != 0 {
+		t.Fatalf("expected metadata-only payload, got SHAs=%v", received.SHAs)
+	}
+	if !strings.Contains(out.String(), "Repository metadata synchronized") {
+		t.Fatalf("expected metadata sync output, got %q", out.String())
+	}
+}
 
 func TestIsDocFile(t *testing.T) {
 	tests := []struct {
@@ -281,7 +364,7 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 		t.Fatalf("sync execution failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard") {
-		t.Fatalf("expected proof-of-ship echo, got %q", out.String())
+	if !strings.Contains(out.String(), "Milestone detected") || !strings.Contains(out.String(), "Review | Publish | Ignore") {
+		t.Fatalf("expected actionable milestone prompt, got %q", out.String())
 	}
 }

@@ -38,7 +38,7 @@ func Execute(ctx context.Context, args []string) error {
 func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "proofboard",
-		Short:         "Local-first developer verification",
+		Short:         "Proofboard Career Agent — private, local-first engineering proof",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version.Version,
@@ -56,9 +56,11 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		newLinkCommand(ctx, out),
 		newUnlinkCommand(ctx, out),
 		newSyncCommand(ctx, out),
+		newAgentCommand(ctx, out),
 		newDetectCommand(ctx, out),
 		newNotifyCommand(ctx, out),
 		newNotifyActivateCommand(ctx, out),
+		newMilestoneActionCommand(ctx, out),
 		newShellHookMaintenanceCommand(ctx, out),
 		newStatusCommand(ctx, out),
 		newLogsCommand(ctx, out),
@@ -74,6 +76,9 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 }
 
 func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
+	if os.Getenv("PROOFBOARD_DISABLE_STARTUP_CHECKS") == "1" {
+		return nil
+	}
 	name := cmd.Name()
 	if name == "update" || name == "update-dictionary" || name == "help" || name == "hook-maintain" || name == "notify" || name == "notify-activate" || cmd.Parent() == nil {
 		return nil
@@ -92,7 +97,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// 1. Check CLI Version
 	latestCLI, err := releases.Latest(checkCtx, runCtx.config.LatestVersionPath)
 	if err == nil && latestCLI.Version != "" && latestCLI.Version != version.Version {
-		fmt.Fprintf(cmd.OutOrStdout(), "A new version of the Proofboard CLI is available. Run: proofboard update\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
 	}
 
 	// 2. Check Dictionary Version
@@ -156,11 +161,11 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "\n--- Welcome to Proofboard! Let's get set up. ---\n")
+	fmt.Fprintf(out, "\n--- Welcome to Proofboard Career Agent ---\n")
 
 	execPath, err := os.Executable()
 	if err == nil {
-		fmt.Fprintf(out, "Would you like to install proofboard permanently to your user PATH? (y/N): ")
+		fmt.Fprintf(out, "Would you like to install and start Proofboard Career Agent? (y/N): ")
 		var answer1 string
 		fmt.Scanln(&answer1)
 		answer1 = strings.TrimSpace(strings.ToLower(answer1))
@@ -227,6 +232,9 @@ func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
 }
 
 func shouldLaunchShellHookMaintenance(args []string) bool {
+	if os.Getenv("PROOFBOARD_DISABLE_SHELL_HOOK_MAINTENANCE") == "1" {
+		return false
+	}
 	if isInternalCommand(args) {
 		return false
 	}
@@ -234,7 +242,7 @@ func shouldLaunchShellHookMaintenance(args []string) bool {
 }
 
 func shouldRunFirstTimeSetup(args []string) bool {
-	return !isInternalCommand(args)
+	return false
 }
 
 func isInternalCommand(args []string) bool {
@@ -242,7 +250,9 @@ func isInternalCommand(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "notify", "notify-activate", "hook-maintain":
+	case "notify", "notify-activate", "milestone-action", "hook-maintain":
+		return true
+	case "agent":
 		return true
 	default:
 		return false

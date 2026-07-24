@@ -13,17 +13,21 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var rotateKey bool
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Authenticate Proofboard CLI",
+		Short: "Connect the Proofboard Career Agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("auth: %w", err)
 			}
-			emailHash, err := authEmailHash(ctx)
-			if err != nil {
-				return fmt.Errorf("auth email bridge: %w", err)
+			emailHash, emailErr := authEmailHash(ctx)
+			if emailErr != nil {
+				if existing, loadErr := runtime.credentials.Load(ctx); loadErr == nil && existing.EmailHash != "" {
+					emailHash = existing.EmailHash
+				} else {
+					emailHash = ""
+				}
 			}
-			service := pbauth.NewService(runtime.credentials, runtime.api)
+			service := pbauth.NewService(runtime.credentials, runtime.api, runtime.config.AgentAuthURL)
 			credentials, err := service.Login(ctx, emailHash)
 			if err != nil {
 				return fmt.Errorf("auth login: %w", err)
@@ -37,11 +41,15 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err := runtime.credentials.Save(ctx, credentials); err != nil {
 				return fmt.Errorf("persist device key id: %w", err)
 			}
+			if current, loadErr := runtime.state.Load(ctx); loadErr == nil {
+				current.AuthReconnectPrompted = false
+				_ = runtime.state.Save(ctx, current)
+			}
 			name := credentials.Username
 			if name == "" {
 				name = "Proofboard user"
 			}
-			_, err = fmt.Fprintf(out, "Authenticated as %s. Run proofboard link inside a repository to get started.\n", name)
+			_, err = fmt.Fprintf(out, "Authenticated as %s. Proofboard Career Agent is connected and projects will sync automatically.\n", name)
 			return err
 		},
 	}

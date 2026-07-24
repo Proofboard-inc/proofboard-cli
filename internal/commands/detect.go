@@ -45,8 +45,10 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				reason = string(result.Action)
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", string(result.Action), reason, "")
-			if result.Action != detection.ActionNone && result.Action != detection.ActionSuppressed {
+			if result.Action == detection.ActionLink {
 				_ = launchWorkspaceNotification(ctx, runtime, result)
+			} else if result.Action == detection.ActionSync {
+				_ = launchWorkspaceSync(ctx, result.WorkspacePath)
 			}
 
 			if jsonOutput {
@@ -65,6 +67,19 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&editor, "editor", "", "editor or IDE name")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit machine-readable detection output")
 	return cmd
+}
+
+func launchWorkspaceSync(ctx context.Context, workspace string) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, execPath, "sync", "--incremental", "--agent")
+	cmd.Dir = workspace
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return startDetachedCommand(cmd)
 }
 
 func isNotGitRepoError(err error) bool {

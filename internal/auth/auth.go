@@ -2,9 +2,9 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -15,19 +15,17 @@ import (
 )
 
 type Service struct {
-	store  CredentialStore
-	client api.Client
+	store        CredentialStore
+	client       api.Client
+	agentAuthURL string
 }
 
-func NewService(store CredentialStore, client api.Client) Service {
-	return Service{store: store, client: client}
-}
-
-func generateDeviceCode() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	hexStr := strings.ToUpper(hex.EncodeToString(b))
-	return hexStr[:4] + "-" + hexStr[4:]
+func NewService(store CredentialStore, client api.Client, agentAuthURL ...string) Service {
+	authURL := "https://proofboard.io/agent/cli-auth"
+	if len(agentAuthURL) > 0 && strings.TrimSpace(agentAuthURL[0]) != "" {
+		authURL = agentAuthURL[0]
+	}
+	return Service{store: store, client: client, agentAuthURL: authURL}
 }
 
 func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials, error) {
@@ -35,21 +33,33 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 		return model.Credentials{}, fmt.Errorf("login: %w", err)
 	}
 
-	code := generateDeviceCode()
-	resp, err := s.client.CreateDeviceCode(ctx, code)
+	resp, err := s.client.CreateDeviceCode(ctx)
 	if err != nil {
 		return model.Credentials{}, err
 	}
+	if resp.DeviceCode == "" {
+		return model.Credentials{}, fmt.Errorf("device-code response did not include a polling token")
+	}
+	if resp.UserCode == "" {
+		return model.Credentials{}, fmt.Errorf("device-code response did not include a user code")
+	}
+	pollCtx := ctx
+	if resp.ExpiresIn > 0 {
+		var cancel context.CancelFunc
+		pollCtx, cancel = context.WithTimeout(ctx, time.Duration(resp.ExpiresIn)*time.Second)
+		defer cancel()
+	}
 
-	fmt.Printf("Please authenticate your CLI session.\n\n")
-	fmt.Printf("Your device code is: %s\n\n", resp.DeviceCode)
+	fmt.Printf("Connect your Proofboard Career Agent.\n\n")
+	fmt.Printf("Your device code is: %s\n\n", resp.UserCode)
 
+	verificationURL := s.resolveAuthorizationURL(ctx, resp.UserCode, resp.VerificationURL)
 	if os.Getenv("NO_BROWSER") == "1" {
-		fmt.Printf("Headless environment detected (NO_BROWSER=1).\nNavigate to the following URL manually to login:\n%s\n\n", resp.VerificationURL)
-	} else if err := OpenBrowser(ctx, resp.VerificationURL); err != nil {
-		fmt.Printf("Navigate to the following URL manually to login:\n%s\n\n", resp.VerificationURL)
+		fmt.Printf("Headless environment detected (NO_BROWSER=1).\nNavigate to the following URL manually to login:\n%s\n\n", verificationURL)
+	} else if err := OpenBrowser(ctx, verificationURL); err != nil {
+		fmt.Printf("Navigate to the following URL manually to login:\n%s\n\n", verificationURL)
 	} else {
-		fmt.Printf("Opening browser to complete authentication...\nIf it does not open automatically, navigate to:\n%s\n\n", resp.VerificationURL)
+		fmt.Printf("Opening browser to connect your Career Agent...\nIf it does not open automatically, navigate to:\n%s\n\n", verificationURL)
 	}
 	fmt.Printf("Waiting for authentication...\n")
 
@@ -58,10 +68,10 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 
 	for {
 		select {
-		case <-ctx.Done():
-			return model.Credentials{}, ctx.Err()
+		case <-pollCtx.Done():
+			return model.Credentials{}, fmt.Errorf("authentication window closed: %w", pollCtx.Err())
 		case <-ticker.C:
-			pollResp, err := s.client.PollDeviceCode(ctx, resp.DeviceCode)
+			pollResp, err := s.client.PollDeviceCode(pollCtx, resp.DeviceCode)
 			if err != nil {
 				// if it's a 429, we should just wait longer
 				if strings.Contains(err.Error(), "429") {
@@ -91,4 +101,55 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 			}
 		}
 	}
+}
+
+func (s Service) resolveAuthorizationURL(ctx context.Context, userCode, fallbackURL string) string {
+	preferredURL := s.authorizationURL(userCode)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, preferredURL, nil)
+	if err == nil {
+		request.Header.Set("Range", "bytes=0-0")
+		client := &http.Client{Timeout: 3 * time.Second}
+		if response, requestErr := client.Do(request); requestErr == nil {
+			_ = response.Body.Close()
+			if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusBadRequest {
+				return preferredURL
+			}
+		}
+	}
+	if strings.TrimSpace(fallbackURL) != "" {
+		return strings.TrimSpace(fallbackURL)
+	}
+	return preferredURL
+}
+
+func (s Service) authorizationURL(deviceCode string) string {
+	u, err := url.Parse(s.agentAuthURL)
+	if err != nil {
+		return s.agentAuthURL
+	}
+	q := u.Query()
+	q.Set("code", deviceCode)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (s Service) Refresh(ctx context.Context, credentials model.Credentials) (model.Credentials, error) {
+	if credentials.RefreshToken == "" {
+		return model.Credentials{}, fmt.Errorf("refresh credentials: refresh token is missing")
+	}
+	response, err := s.client.RefreshAccessToken(ctx, credentials.RefreshToken)
+	if err != nil {
+		return model.Credentials{}, fmt.Errorf("refresh credentials: %w", err)
+	}
+	credentials.Token = response.Token
+	if response.RefreshToken != "" {
+		credentials.RefreshToken = response.RefreshToken
+	}
+	if expiry, err := crypto.JWTExpiry(credentials.Token); err == nil {
+		credentials.ExpiresAt = expiry
+	}
+	if err := s.store.Save(ctx, credentials); err != nil {
+		return model.Credentials{}, fmt.Errorf("save refreshed credentials: %w", err)
+	}
+	return credentials, nil
 }

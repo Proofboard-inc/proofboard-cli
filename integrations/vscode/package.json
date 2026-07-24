@@ -1,7 +1,7 @@
 {
   "name": "proofboard-vscode",
-  "displayName": "Proofboard Workspace Detection",
-  "description": "Announces opened workspaces to the Proofboard CLI.",
+  "displayName": "Proofboard Career Agent",
+  "description": "Lets the local Proofboard Career Agent privately detect and sync opened Git workspaces.",
   "version": "0.1.0",
   "publisher": "proofboard",
   "engines": {

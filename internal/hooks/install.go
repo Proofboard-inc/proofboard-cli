@@ -21,6 +21,9 @@ func Install(ctx context.Context, repo pbgit.Repo) error {
 	if err := writeHook(repo, "post-rewrite", "#!/bin/sh\nproofboard sync --incremental --from-hook 2>/dev/null &\n"); err != nil {
 		return err
 	}
+	if err := writeHook(repo, "post-commit", "#!/bin/sh\nproofboard sync --incremental --agent 2>/dev/null &\n"); err != nil {
+		return err
+	}
 	return nil
 }
 

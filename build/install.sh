@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
 set -eu
 
-echo "Install script placeholder for Proofboard CLI."
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "${SCRIPT_DIR}/../scripts/install.sh" "$@"

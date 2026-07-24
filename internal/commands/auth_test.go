@@ -43,11 +43,15 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode device code request: %v", err)
 			}
-			pending <- payload["deviceCode"]
+			if _, exists := payload["deviceCode"]; exists {
+				t.Fatal("device-code request must not send a client-generated deviceCode")
+			}
+			pending <- "secret-polling-token"
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"deviceCode":      payload["deviceCode"],
-				"verificationUrl": "https://app.proofboard.io/cli-auth",
+				"deviceCode":      "secret-polling-token",
+				"userCode":        "ABCD-1234",
+				"verificationUrl": "https://proofboard.io/agent/cli-auth?code=ABCD-1234",
 				"expiresIn":       600,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/auth/device-key":
@@ -78,6 +82,7 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+	t.Setenv("PROOFBOARD_AGENT_AUTH_URL", server.URL+"/agent/cli-auth")
 
 	oldWd, err := os.Getwd()
 	if err != nil {

@@ -15,13 +15,18 @@ type Event struct {
 	Body            string
 	PrimaryAction   string
 	SecondaryAction string
+	TertiaryAction  string
 }
 
 func Dispatch(out io.Writer, event Event) {
+	PrintEvent(out, event)
+	_ = NotifyDesktop(event)
+}
+
+func PrintEvent(out io.Writer, event Event) {
 	if out != nil {
 		_, _ = fmt.Fprintln(out, renderTerminal(event))
 	}
-	_ = NotifyDesktop(event)
 }
 
 func renderTerminal(event Event) string {
@@ -32,19 +37,16 @@ func renderTerminal(event Event) string {
 		b.WriteString("\n")
 		b.WriteString(event.Body)
 	}
-	if event.PrimaryAction != "" || event.SecondaryAction != "" {
+	if event.PrimaryAction != "" || event.SecondaryAction != "" || event.TertiaryAction != "" {
 		b.WriteString("\n")
-		if event.PrimaryAction != "" {
-			b.WriteString("Primary: ")
-			b.WriteString(event.PrimaryAction)
+		actions := make([]string, 0, 3)
+		for _, action := range []string{event.PrimaryAction, event.SecondaryAction, event.TertiaryAction} {
+			if action != "" {
+				actions = append(actions, action)
+			}
 		}
-		if event.PrimaryAction != "" && event.SecondaryAction != "" {
-			b.WriteString(" | ")
-		}
-		if event.SecondaryAction != "" {
-			b.WriteString("Secondary: ")
-			b.WriteString(event.SecondaryAction)
-		}
+		b.WriteString("Actions: ")
+		b.WriteString(strings.Join(actions, " | "))
 	}
 	return b.String()
 }
@@ -70,6 +72,8 @@ func RemoteNotification(n model.Notification) Event {
 	}
 
 	switch n.Type {
+	case "milestone_bundle_ready":
+		return MilestoneDetected(get("title", "milestoneTitle", "name"))
 	case "proposal_viewed", "proposal_accepted", "proposal_declined", "proofboard_viewed":
 		role := get("role", "roleTitle", "title")
 		org := get("company", "companyName", "organization", "org")
@@ -105,19 +109,19 @@ func RemoteNotification(n model.Notification) Event {
 
 func NewProjectDetected(projectName string) Event {
 	return Event{
-		Title:           "New project detected",
-		Body:            fmt.Sprintf("%s\nAdd it to Proofboard to start tracking this repo.", projectName),
-		PrimaryAction:   "proofboard link",
-		SecondaryAction: "Not this project",
+		Title:           "New repository detected",
+		Body:            fmt.Sprintf("%s\nWould you like Proofboard to track this project? Processing stays local and no proprietary source code leaves your computer.", projectName),
+		PrimaryAction:   "Sync Project",
+		SecondaryAction: "Not Now / Never Ask Again",
 	}
 }
 
 func ProjectSyncNeeded(projectName string) Event {
 	return Event{
 		Title:           "Project needs sync",
-		Body:            fmt.Sprintf("%s\nRun proofboard sync to capture the latest work.", projectName),
-		PrimaryAction:   "proofboard sync",
-		SecondaryAction: "Later",
+		Body:            fmt.Sprintf("%s\nThe Career Agent will capture the latest work automatically.", projectName),
+		PrimaryAction:   "Sync Project",
+		SecondaryAction: "Not Now",
 	}
 }
 
@@ -132,9 +136,24 @@ func InboundOpportunity(role, org string, reasons []string) Event {
 
 func ProofOfShipCaptured(milestoneCount int) Event {
 	return Event{
-		Title:         "Proof-of-Ship captured",
-		Body:          fmt.Sprintf("%d milestones captured.\nYour work has been added to your proofboard.", milestoneCount),
-		PrimaryAction: "View Dashboard",
+		Title:           "Milestone detected",
+		Body:            fmt.Sprintf("%d milestone(s) were captured locally and added to your engineering proof.", milestoneCount),
+		PrimaryAction:   "Review",
+		SecondaryAction: "Publish",
+		TertiaryAction:  "Ignore",
+	}
+}
+
+func MilestoneDetected(title string) Event {
+	if strings.TrimSpace(title) == "" {
+		title = "Engineering milestone"
+	}
+	return Event{
+		Title:           "Milestone detected",
+		Body:            title,
+		PrimaryAction:   "Review",
+		SecondaryAction: "Publish",
+		TertiaryAction:  "Ignore",
 	}
 }
 
@@ -150,7 +169,7 @@ func MonthlyCareerSummary(monthName string) Event {
 func UpdateAvailable(version string) Event {
 	return Event{
 		Title:           "Update available",
-		Body:            fmt.Sprintf("Proofboard CLI %s is available.\nRun \"proofboard update\" to install.", version),
+		Body:            fmt.Sprintf("Proofboard Career Agent %s is available.", version),
 		PrimaryAction:   "Update Now",
 		SecondaryAction: "Later",
 	}
@@ -158,9 +177,17 @@ func UpdateAvailable(version string) Event {
 
 func AuthExpiringSoon(days int) Event {
 	return Event{
-		Title:           "Re-authentication needed",
-		Body:            fmt.Sprintf("Your session expires in %d days.\nRun \"proofboard auth\" to continue syncing without interruption.", days),
-		PrimaryAction:   "Re-authenticate",
+		Title:           "Your Proofboard session has expired",
+		Body:            fmt.Sprintf("Your current session expires in %d days. The Career Agent will refresh it automatically when possible.", days),
+		PrimaryAction:   "Reconnect",
 		SecondaryAction: "Later",
+	}
+}
+
+func SessionExpired() Event {
+	return Event{
+		Title:         "Your Proofboard session has expired",
+		Body:          "Reconnect to resume private background synchronization.",
+		PrimaryAction: "Reconnect",
 	}
 }

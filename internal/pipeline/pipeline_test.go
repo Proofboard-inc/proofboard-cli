@@ -30,10 +30,10 @@ func TestPipelinePayloadContainsNoProprietaryText(t *testing.T) {
 		Organization: "secret-org",
 	}}
 	payload, err := New(dict).Run(context.Background(), RunInput{
-		Raw:             raw,
-		OrgHash:         "org-hash",
-		RepoHash:        "repo-hash",
-		EmailHash:       "email-hash",
+		Raw:       raw,
+		OrgHash:   "org-hash",
+		RepoHash:  "repo-hash",
+		EmailHash: "email-hash",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)

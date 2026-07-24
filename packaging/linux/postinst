@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# Start the agent for active desktop users. The XDG autostart entry handles
+# future sign-ins and machines without an active graphical session.
+if command -v loginctl >/dev/null 2>&1; then
+    loginctl list-users --no-legend 2>/dev/null | while read -r uid user rest; do
+        case "$uid" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        if [ "$uid" -ge 1000 ] && [ -n "$user" ]; then
+            runuser -u "$user" -- /usr/bin/proofboard agent start >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+exit 0

@@ -259,4 +259,3 @@ func TestSyncSuppressedWorkspace(t *testing.T) {
 		t.Errorf("expected no output for suppressed workspace, got: %q", out.String())
 	}
 }
-

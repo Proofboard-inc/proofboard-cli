@@ -13,21 +13,29 @@ import (
 )
 
 func newInstallCommand() *cobra.Command {
+	return newInstallCommandWithAction(performInstall)
+}
+
+func newInstallCommandWithAction(action func(io.Writer) error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
-		Short: "Install proofboard permanently to your PATH",
+		Short: "Install and start Proofboard Career Agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return performInstall(cmd.OutOrStdout())
+			return action(cmd.OutOrStdout())
 		},
 	}
 }
 
 func newUninstallCommand() *cobra.Command {
+	return newUninstallCommandWithAction(performUninstall)
+}
+
+func newUninstallCommandWithAction(action func(io.Writer) error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove proofboard from your PATH",
+		Short: "Remove Proofboard Career Agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return performUninstall(cmd.OutOrStdout())
+			return action(cmd.OutOrStdout())
 		},
 	}
 }
@@ -47,7 +55,10 @@ func performInstall(out io.Writer) error {
 		destFile = "/usr/local/bin/proofboard"
 
 		if execPath == destFile {
-			fmt.Fprintln(out, "Proofboard is already installed system-wide.")
+			fmt.Fprintln(out, "Proofboard Career Agent is already installed system-wide.")
+			if err := installAgentService(destFile, out); err != nil {
+				return fmt.Errorf("register Career Agent: %w", err)
+			}
 			return nil
 		}
 
@@ -72,14 +83,20 @@ func performInstall(out io.Writer) error {
 		} else if err != nil {
 			return err
 		}
-		fmt.Fprintln(out, "✓ Global installation successful.")
+		if err := installAgentService(destFile, out); err != nil {
+			return fmt.Errorf("register Career Agent: %w", err)
+		}
+		fmt.Fprintln(out, "✓ Proofboard Career Agent installed and started.")
 		return nil
 	} else {
 		destDir = filepath.Join(os.Getenv("ProgramFiles"), "Proofboard")
 		destFile = filepath.Join(destDir, "proofboard.exe")
 
 		if execPath == destFile {
-			fmt.Fprintln(out, "Proofboard is already installed system-wide.")
+			fmt.Fprintln(out, "Proofboard Career Agent is already installed system-wide.")
+			if err := installAgentService(destFile, out); err != nil {
+				return fmt.Errorf("register Career Agent: %w", err)
+			}
 			return nil
 		}
 
@@ -112,7 +129,10 @@ func performInstall(out io.Writer) error {
 		if err := registerProtocolHandler(destFile); err != nil {
 			fmt.Fprintf(out, "Warning: Failed to register notification callback handler: %v\n", err)
 		}
-		fmt.Fprintln(out, "✓ Global installation successful.")
+		if err := installAgentService(destFile, out); err != nil {
+			return fmt.Errorf("register Career Agent: %w", err)
+		}
+		fmt.Fprintln(out, "✓ Proofboard Career Agent installed and started.")
 		return nil
 	}
 }
@@ -123,6 +143,9 @@ func performUninstall(out io.Writer) error {
 
 	if runtime.GOOS != "windows" {
 		destFile = "/usr/local/bin/proofboard"
+		if err := uninstallAgentService(out); err != nil {
+			return fmt.Errorf("unregister Career Agent: %w", err)
+		}
 
 		fmt.Fprintf(out, "Removing %s...\n", destFile)
 		err := os.Remove(destFile)
@@ -143,6 +166,9 @@ func performUninstall(out io.Writer) error {
 	} else {
 		destDir = filepath.Join(os.Getenv("ProgramFiles"), "Proofboard")
 		destFile = filepath.Join(destDir, "proofboard.exe")
+		if err := uninstallAgentService(out); err != nil {
+			return fmt.Errorf("unregister Career Agent: %w", err)
+		}
 
 		fmt.Fprintf(out, "Removing %s...\n", destFile)
 		if err := os.Remove(destFile); err != nil {

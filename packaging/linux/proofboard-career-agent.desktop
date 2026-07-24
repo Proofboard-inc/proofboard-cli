@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Proofboard Career Agent
+Comment=Builds your career while you focus on building software
+Exec=/usr/bin/proofboard agent run
+Terminal=false
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

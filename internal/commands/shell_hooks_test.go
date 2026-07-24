@@ -38,6 +38,36 @@ func TestEnsureLineInFile_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureLineInFile_MigratesTrackedBackgroundJob(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".bashrc")
+	content := "# Proofboard Workspace Detection\n" + legacyShellDetectionLine + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o640); err != nil {
+		t.Fatalf("write legacy hook: %v", err)
+	}
+
+	updated, err := ensureLineInFile(path, shellDetectionLine)
+	if err != nil || !updated {
+		t.Fatalf("migration = %v, %v", updated, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migrated hook: %v", err)
+	}
+	if strings.Contains(string(data), "\n"+legacyShellDetectionLine+"\n") {
+		t.Fatalf("legacy hook remains: %q", data)
+	}
+	if strings.Count(string(data), shellDetectionLine) != 1 {
+		t.Fatalf("migrated hook count = %d", strings.Count(string(data), shellDetectionLine))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat migrated hook: %v", err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %o, want 640", info.Mode().Perm())
+	}
+}
+
 func TestIsInternalCommand(t *testing.T) {
 	cases := map[string]struct {
 		args []string
@@ -56,5 +86,13 @@ func TestIsInternalCommand(t *testing.T) {
 				t.Fatalf("isInternalCommand(%v) = %v, want %v", tc.args, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCareerAgentNeverRequiresInteractiveFirstRunSetup(t *testing.T) {
+	for _, args := range [][]string{{"install"}, {"sync"}, {"auth"}, nil} {
+		if shouldRunFirstTimeSetup(args) {
+			t.Fatalf("shouldRunFirstTimeSetup(%v) = true", args)
+		}
 	}
 }

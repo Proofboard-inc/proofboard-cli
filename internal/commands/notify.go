@@ -13,6 +13,7 @@ func newNotifyCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var kind string
 	var workspace string
 	var repoName string
+	var target string
 
 	cmd := &cobra.Command{
 		Use:    "notify",
@@ -26,6 +27,7 @@ func newNotifyCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				Kind:      kind,
 				Workspace: workspace,
 				RepoName:  repoName,
+				Target:    target,
 			})
 		},
 	}
@@ -33,6 +35,7 @@ func newNotifyCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&kind, "kind", "", "workspace state kind")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "workspace path")
 	cmd.Flags().StringVar(&repoName, "repo-name", "", "repository name")
+	cmd.Flags().StringVar(&target, "target", "", "notification action target")
 	return cmd
 }
 
@@ -49,11 +52,11 @@ func newNotifyActivateCommand(ctx context.Context, out io.Writer) *cobra.Command
 			if raw == "" {
 				return nil
 			}
-			kind, workspace, err := notifications.ParseWorkspaceActionURI(raw)
+			kind, workspace, target, err := notifications.ParseWorkspaceTargetActionURI(raw)
 			if err != nil {
 				return fmt.Errorf("parse notification activation: %w", err)
 			}
-			return notifications.ActivateWorkspaceAction(ctx, kind, workspace)
+			return notifications.ActivateWorkspaceAction(ctx, kind, workspace, target)
 		},
 	}
 	cmd.SetOut(out)
