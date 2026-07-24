@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -31,18 +30,6 @@ func newShellHookMaintenanceCommand(ctx context.Context, out io.Writer) *cobra.C
 	}
 	cmd.SetOut(out)
 	return cmd
-}
-
-func launchShellHookMaintenance(ctx context.Context) {
-	execPath, err := os.Executable()
-	if err != nil {
-		return
-	}
-	cmd := exec.CommandContext(ctx, execPath, "hook-maintain")
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	_ = startDetachedCommand(cmd)
 }
 
 func maintainShellHooks(ctx context.Context) error {

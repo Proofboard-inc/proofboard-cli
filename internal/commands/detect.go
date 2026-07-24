@@ -99,7 +99,6 @@ func launchWorkspaceNotification(ctx context.Context, runtime runtimeContext, re
 	cmd := exec.CommandContext(ctx, execPath, "notify",
 		"--kind", string(result.Action),
 		"--workspace", result.WorkspacePath,
-		"--repo-name", result.RepoName,
 	)
 	return cmd.Start()
 }

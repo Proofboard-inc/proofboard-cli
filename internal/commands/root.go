@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
@@ -18,15 +17,6 @@ import (
 func Execute(ctx context.Context, args []string) error {
 	root := NewRootCommand(ctx, os.Stdout, os.Stderr)
 	root.SetArgs(args)
-
-	if shouldLaunchShellHookMaintenance(args) {
-		launchShellHookMaintenance(ctx)
-	}
-
-	// Intercept execution on the very first run, even for bare commands
-	if shouldRunFirstTimeSetup(args) {
-		_ = runFirstTimeSetup(ctx, root)
-	}
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -144,105 +134,6 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	surfaceUnreadNotifications(checkCtx, cmd.OutOrStdout(), runCtx)
 
 	return nil
-}
-
-func runFirstTimeSetup(ctx context.Context, cmd *cobra.Command) error {
-	runCtx, err := loadRuntime(ctx)
-	if err != nil {
-		return nil
-	}
-	stateData, err := runCtx.state.Load(ctx)
-	if err != nil {
-		return nil
-	}
-
-	if stateData.FirstRunSetupComplete {
-		return nil
-	}
-
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "\n--- Welcome to Proofboard Career Agent ---\n")
-
-	execPath, err := os.Executable()
-	if err == nil {
-		fmt.Fprintf(out, "Would you like to install and start Proofboard Career Agent? (y/N): ")
-		var answer1 string
-		fmt.Scanln(&answer1)
-		answer1 = strings.TrimSpace(strings.ToLower(answer1))
-		if answer1 == "y" || answer1 == "yes" {
-			if err := performInstall(out); err != nil {
-				fmt.Fprintf(out, "Installation failed: %v\n", err)
-			}
-		}
-	}
-
-	shellPath := os.Getenv("SHELL")
-	if shellPath != "" {
-		shell := filepath.Base(shellPath)
-		var rcFile string
-		var installCmd string
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			switch shell {
-			case "bash":
-				rcFile = filepath.Join(homeDir, ".bashrc")
-				installCmd = fmt.Sprintf("source <(%s completion bash)", execPath)
-			case "zsh":
-				rcFile = filepath.Join(homeDir, ".zshrc")
-				installCmd = fmt.Sprintf("source <(%s completion zsh)", execPath)
-			}
-
-			if rcFile != "" {
-				content, err := os.ReadFile(rcFile)
-				if err != nil || !strings.Contains(string(content), installCmd) {
-					fmt.Fprintf(out, "\nWould you like to install %s shell autocompletion? (y/N): ", shell)
-					var answer2 string
-					fmt.Scanln(&answer2)
-					answer2 = strings.TrimSpace(strings.ToLower(answer2))
-					if answer2 == "y" || answer2 == "yes" {
-						f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-						if err != nil {
-							fmt.Fprintf(out, "Failed to open %s: %v\n", rcFile, err)
-						} else {
-							f.WriteString(fmt.Sprintf("\n# Proofboard Autocompletion\n%s\n", installCmd))
-							f.Close()
-							fmt.Fprintf(out, "✓ Completions installed to %s. Please restart your terminal or run: source %s\n", rcFile, rcFile)
-						}
-					}
-				}
-
-				detectCmd := shellDetectionLine
-				content, err = os.ReadFile(rcFile)
-				if err == nil && !strings.Contains(string(content), detectCmd) {
-					f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-					if err == nil {
-						_, _ = f.WriteString(fmt.Sprintf("\n# Proofboard Workspace Detection\n%s\n", detectCmd))
-						_ = f.Close()
-					}
-				}
-			}
-		}
-	}
-
-	stateData.FirstRunSetupComplete = true
-	runCtx.state.Save(ctx, stateData)
-	fmt.Fprintf(out, "--- Setup Complete ---\n\n")
-
-	return nil
-}
-
-func shouldLaunchShellHookMaintenance(args []string) bool {
-	if os.Getenv("PROOFBOARD_DISABLE_SHELL_HOOK_MAINTENANCE") == "1" {
-		return false
-	}
-	if isInternalCommand(args) {
-		return false
-	}
-	return true
-}
-
-func shouldRunFirstTimeSetup(args []string) bool {
-	return false
 }
 
 func isInternalCommand(args []string) bool {

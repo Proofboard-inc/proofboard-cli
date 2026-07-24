@@ -4,12 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	pbauth "github.com/proofboard/proofboard/internal/auth"
-	"github.com/proofboard/proofboard/internal/crypto"
-	pbgit "github.com/proofboard/proofboard/internal/git"
-	"github.com/proofboard/proofboard/internal/model"
-	"github.com/proofboard/proofboard/internal/state"
-	"github.com/proofboard/proofboard/internal/version"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +13,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/crypto"
+	pbgit "github.com/proofboard/proofboard/internal/git"
+	"github.com/proofboard/proofboard/internal/model"
+	"github.com/proofboard/proofboard/internal/state"
+	"github.com/proofboard/proofboard/internal/version"
 )
 
 func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
@@ -101,6 +103,130 @@ func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
 	}
 }
 
+func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	secretSubject := "feat: Secret Payments Infrastructure"
+	secretPath := "internal/secret-payments/processor.go"
+	if err := os.MkdirAll(filepath.Join(repoDir, filepath.Dir(secretPath)), 0o700); err != nil {
+		t.Fatalf("create secret test directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, secretPath), []byte("package secretpayments\n"), 0o600); err != nil {
+		t.Fatalf("write secret test file: %v", err)
+	}
+	runGit(t, repoDir, "add", secretPath)
+	runGit(t, repoDir, "commit", "-m", secretSubject)
+	head := gitOutput(t, repoDir, "rev-parse", "HEAD")
+	runGit(t, repoDir, "update-ref", "refs/remotes/origin/main", head)
+	runGit(t, repoDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read %s request: %v", r.URL.Path, err)
+			http.Error(w, "request read failed", http.StatusInternalServerError)
+			return
+		}
+		for _, secret := range []string{secretSubject, secretPath, "org/repo", "test@example.com"} {
+			if bytes.Contains(body, []byte(secret)) {
+				t.Errorf("%s request exposed %q: %s", r.URL.Path, secret, body)
+				http.Error(w, "privacy failure", http.StatusInternalServerError)
+				return
+			}
+		}
+		calls = append(calls, r.URL.Path)
+		switch r.URL.Path {
+		case "/api/v1/cli/repos/link":
+			var request map[string]any
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Errorf("decode link request: %v", err)
+				http.Error(w, "bad link request", http.StatusBadRequest)
+				return
+			}
+			if request["orgHash"] == "" || request["repoHash"] == "" || request["provider"] != "github" {
+				t.Errorf("link request missing anonymized identity: %s", body)
+				http.Error(w, "missing anonymized identity", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"isNewProject":      false,
+				"projectId":         "project-first-sync",
+				"dictionaryVersion": version.Version,
+			})
+		case "/api/v1/cli/auth/device-key":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-first-sync"})
+		case "/api/v1/cli/sync":
+			var payload model.SyncPayload
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Errorf("decode sync payload: %v", err)
+				http.Error(w, "bad sync payload", http.StatusBadRequest)
+				return
+			}
+			if len(payload.SHAs) != 1 || payload.SHAs[0] != head {
+				t.Errorf("first sync SHAs = %#v, want %s", payload.SHAs, head)
+				http.Error(w, "incorrect sync SHAs", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(model.SyncReceipt{ID: "sync-first", Status: "ok"})
+		case "/api/v1/projects/milestone-bundles":
+			_ = json.NewEncoder(w).Encode([]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{
+		Token:     "access-token",
+		EmailHash: crypto.NormalizedSHA256("test@example.com"),
+	}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	current := state.Default()
+	current.AutoUpdateDictionary = false
+	if err := state.NewStore(homeDir).Save(ctx, current); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var out bytes.Buffer
+	command := newSyncCommand(ctx, &out)
+	command.SetArgs([]string{"--agent"})
+	if err := command.ExecuteContext(ctx); err != nil {
+		t.Fatalf("Sync Project: %v\n%s", err, out.String())
+	}
+
+	wantCalls := []string{
+		"/api/v1/cli/repos/link",
+		"/api/v1/cli/auth/device-key",
+		"/api/v1/cli/sync",
+		"/api/v1/projects/milestone-bundles",
+	}
+	if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
+		t.Fatalf("Sync Project API sequence = %#v, want %#v", calls, wantCalls)
+	}
+	persisted, err := state.NewStore(homeDir).Load(ctx)
+	if err != nil {
+		t.Fatalf("load first-sync state: %v", err)
+	}
+	repoHash := crypto.SHA256("github:org/repo")
+	repoState, linked := persisted.LinkedRepos[repoHash]
+	if !linked || repoState.ProjectID != "project-first-sync" || repoState.LastHeadSHA != head || repoState.LastSyncAt.IsZero() {
+		t.Fatalf("first-sync state = %+v, linked=%v", repoState, linked)
+	}
+	for _, hook := range []string{"post-commit", "post-merge", "post-rewrite"} {
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "hooks", hook)); err != nil {
+			t.Fatalf("%s hook not installed by Sync Project: %v", hook, err)
+		}
+	}
+}
+
 func TestIsDocFile(t *testing.T) {
 	tests := []struct {
 		path     string
@@ -125,6 +251,27 @@ func TestIsDocFile(t *testing.T) {
 				t.Errorf("isDocFile(%q) = %v, want %v", tc.path, got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestIsRevertSubjectUsesByteInput(t *testing.T) {
+	tests := []struct {
+		subject []byte
+		want    bool
+	}{
+		{subject: []byte("Revert: undo release"), want: true},
+		{subject: []byte("  REVERT: undo release  "), want: true},
+		{subject: []byte("reverted deployment"), want: false},
+		{subject: []byte("fix: normal change"), want: false},
+	}
+	for _, test := range tests {
+		before := append([]byte(nil), test.subject...)
+		if got := isRevertSubject(test.subject); got != test.want {
+			t.Fatalf("isRevertSubject(%q) = %v, want %v", test.subject, got, test.want)
+		}
+		if !bytes.Equal(test.subject, before) {
+			t.Fatalf("isRevertSubject mutated source bytes: got %q want %q", test.subject, before)
+		}
 	}
 }
 

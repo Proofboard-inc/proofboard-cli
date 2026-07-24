@@ -23,7 +23,7 @@ try {
     $DownloadBaseUrl = $ReleaseData.url
 } catch {
     Write-Warning "Failed to fetch the latest release manifest, using fallback version."
-    $LatestVersion = "v1.8.12"
+    $LatestVersion = "v1.8.13"
 }
 
 if ($LatestVersion.StartsWith("v")) {
