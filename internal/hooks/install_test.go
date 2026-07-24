@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	pbgit "github.com/proofboard/proofboard/internal/git"
 )
@@ -114,11 +115,7 @@ func TestInstallWrapsAndRestoresNonShellHook(t *testing.T) {
 		t.Fatalf("preserved hook changed:\n%s", preserved)
 	}
 
-	command := exec.Command(hookPath)
-	command.Dir = repo.Path
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("run wrapped hook: %v: %s", err, output)
-	}
+	runWrappedHook(t, hookPath, repo.Path)
 	if data, err := os.ReadFile(filepath.Join(repo.Path, "user-hook-ran")); err != nil || string(data) != "yes" {
 		t.Fatalf("original hook did not run through wrapper: data=%q err=%v", data, err)
 	}
@@ -135,6 +132,41 @@ func TestInstallWrapsAndRestoresNonShellHook(t *testing.T) {
 	}
 	if _, err := os.Lstat(hookPath + hookBackupSuffix); !os.IsNotExist(err) {
 		t.Fatalf("preserved hook sidecar remains after restore: %v", err)
+	}
+}
+
+// runWrappedHook executes an installed hook without depending on whether a real
+// Career Agent is installed on the machine. The hook backgrounds a sync command
+// that inherits the process output descriptors, so the output is collected in a
+// regular file: a pipe would keep the test waiting for that background process.
+func runWrappedHook(t *testing.T, hookPath, workDir string) {
+	t.Helper()
+	stubDir := t.TempDir()
+	stub := filepath.Join(stubDir, "proofboard")
+	if runtime.GOOS == "windows" {
+		stub += ".bat"
+	}
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write Career Agent stub: %v", err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "hook-output")
+	output, err := os.Create(outputPath)
+	if err != nil {
+		t.Fatalf("create hook output: %v", err)
+	}
+	defer output.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, hookPath)
+	command.Dir = workDir
+	command.Env = append(os.Environ(), "PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	command.Stdout = output
+	command.Stderr = output
+	if err := command.Run(); err != nil {
+		logged, _ := os.ReadFile(outputPath)
+		t.Fatalf("run wrapped hook: %v: %s", err, logged)
 	}
 }
 

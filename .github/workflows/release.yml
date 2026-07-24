@@ -237,11 +237,9 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Polls server-generated authorization codes immediately and resumes the interrupted project sync automatically.
-            - Adds a hermetic Career Agent end-to-end test covering authorization, device registration, project connection, first sync, and NDA-safe payloads.
-            - Preserves existing shell and non-shell Git hooks while adding or removing Proofboard tracking.
-            - Stops ordinary commands from modifying shell profiles or launching hidden maintenance processes.
-            - Expands compiled-executable coverage across every public and internal command surface without touching the system installation.
+            - Keeps the Git hook verification hermetic so it exercises the installed wrapper against a stub agent instead of whichever Career Agent happens to be installed on the machine.
+            - Stops that verification from waiting on the background sync process that inherits the hook output descriptors, which previously stalled the suite on developer machines while passing on clean runners.
+            - Carries the v1.8.13 Career Agent behaviour forward unchanged; this release contains no functional changes to the agent itself.
 
             This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |
