@@ -46,7 +46,7 @@ func TestMergeTimestamps(t *testing.T) {
 	}
 
 	// Initialize repo
-	runGit("init")
+	runGit("init", "--initial-branch=main")
 	// Configure user
 	runGit("config", "user.name", "Test User")
 	runGit("config", "user.email", "test@example.com")
