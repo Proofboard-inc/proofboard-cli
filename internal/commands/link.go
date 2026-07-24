@@ -118,7 +118,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				if _, ok := current.LinkedRepos[identity.RepoHash]; ok {
 					// Verify with backend
 					var checkRes api.CheckResponse
-					checkErr := retryAfterAuth(ctx, out, "proofboard link", func() error {
+					checkErr := retryAfterAuth(ctx, out, "project setup", func() error {
 						freshCredentials, loadErr := runtime.credentials.Load(ctx)
 						if loadErr != nil {
 							return fmt.Errorf("reload credentials: %w", loadErr)
@@ -148,7 +148,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				},
 			}
 			var response api.LinkResponse
-			err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+			err = retryAfterAuth(ctx, out, "project setup", func() error {
 				freshCredentials, err := runtime.credentials.Load(ctx)
 				if err != nil {
 					return fmt.Errorf("reload credentials: %w", err)
@@ -173,7 +173,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					req.ExistingProjectID = existingID
 					req.CreateNew = createNew
 				}
-				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+				err = retryAfterAuth(ctx, out, "project setup", func() error {
 					freshCredentials, err := runtime.credentials.Load(ctx)
 					if err != nil {
 						return fmt.Errorf("reload credentials: %w", err)
@@ -190,7 +190,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 			} else if response.IsNewProject && response.ProjectID == "" {
 				req.CreateNew = true
-				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
+				err = retryAfterAuth(ctx, out, "project setup", func() error {
 					freshCredentials, err := runtime.credentials.Load(ctx)
 					if err != nil {
 						return fmt.Errorf("reload credentials: %w", err)

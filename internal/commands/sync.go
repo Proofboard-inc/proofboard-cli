@@ -105,7 +105,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 				repoState, linked = current.LinkedRepos[identity.RepoHash]
 				if !linked {
-					return fmt.Errorf("link current repository before syncing")
+					return fmt.Errorf("project connection did not complete")
 				}
 			}
 			metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
@@ -297,7 +297,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if fromAgent {
 				err = retryAfterAuthForAgent(ctx, out, runtime, transmit)
 			} else {
-				err = retryAfterAuth(ctx, out, "proofboard sync", transmit)
+				err = retryAfterAuth(ctx, out, "project synchronization", transmit)
 			}
 			if errors.Is(err, errAgentReconnectRequired) {
 				return nil

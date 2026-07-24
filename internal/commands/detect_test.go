@@ -118,4 +118,10 @@ func TestDetectCommandJsonOutputsInspection(t *testing.T) {
 	if got := result["repoName"]; got != "repo" {
 		t.Fatalf("expected repo name repo, got %v", got)
 	}
+	if got := result["suggestedAction"]; got != "Sync Project" {
+		t.Fatalf("expected Career Agent action Sync Project, got %v", got)
+	}
+	if _, exists := result["suggestedCommand"]; exists {
+		t.Fatal("detect output exposed a CLI command as the primary action")
+	}
 }

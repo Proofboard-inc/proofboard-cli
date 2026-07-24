@@ -20,8 +20,9 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var jsonOutput bool
 
 	cmd := &cobra.Command{
-		Use:   "detect",
-		Short: "Inspect an opened workspace and surface link or sync actions",
+		Use:    "detect",
+		Short:  "Inspect an opened workspace and surface Career Agent actions",
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {

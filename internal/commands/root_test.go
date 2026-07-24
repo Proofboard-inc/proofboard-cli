@@ -26,6 +26,13 @@ func TestRootIncludesRequiredCommands(t *testing.T) {
 			t.Fatalf("missing command %q", name)
 		}
 	}
+	detect, _, err := cmd.Find([]string{"detect"})
+	if err != nil {
+		t.Fatalf("find internal detect command: %v", err)
+	}
+	if !detect.Hidden {
+		t.Fatal("detect command must remain hidden from the Career Agent user interface")
+	}
 }
 
 func TestRelativeSyncTime(t *testing.T) {

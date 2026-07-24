@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/spf13/cobra"
@@ -43,6 +44,7 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			if current, loadErr := runtime.state.Load(ctx); loadErr == nil {
 				current.AuthReconnectPrompted = false
+				current.AuthReconnectPromptedAt = time.Time{}
 				_ = runtime.state.Save(ctx, current)
 			}
 			name := credentials.Username

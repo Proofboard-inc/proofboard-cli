@@ -30,6 +30,38 @@ func TestStoreSaveCreates0600StateFile(t *testing.T) {
 	}
 }
 
+func TestStoreSaveRepairsExistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not report POSIX permission bits")
+	}
+	homeDir := t.TempDir()
+	store := NewStore(homeDir)
+	directory := filepath.Dir(store.Path())
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatalf("create permissive directory: %v", err)
+	}
+	if err := os.WriteFile(store.Path(), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("create permissive state file: %v", err)
+	}
+	if err := store.Save(context.Background(), Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	directoryInfo, err := os.Stat(directory)
+	if err != nil {
+		t.Fatalf("stat state directory: %v", err)
+	}
+	if directoryInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("state directory mode = %v, want 0700", directoryInfo.Mode().Perm())
+	}
+	fileInfo, err := os.Stat(store.Path())
+	if err != nil {
+		t.Fatalf("stat state file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("state file mode = %v, want 0600", fileInfo.Mode().Perm())
+	}
+}
+
 func TestWorkspaceSuppressionUsesOneWayPathKey(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "confidential-payment-platform")
 	state := Default()

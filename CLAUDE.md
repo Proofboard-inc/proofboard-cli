@@ -13,7 +13,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard Career Agent v1.8.11
+Proofboard Career Agent v1.8.12
 
 Implementation language: Go 1.21+
 

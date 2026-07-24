@@ -93,11 +93,6 @@ func runAgent(ctx context.Context) error {
 		return err
 	}
 	defer releaseAgentPID(runtime.homeDir, os.Getpid())
-	if current, loadErr := runtime.state.Load(ctx); loadErr == nil {
-		current.AuthReconnectPrompted = false
-		_ = runtime.state.Save(ctx, current)
-	}
-
 	seenUnlinked := make(map[string]bool)
 	lastSyncLaunch := make(map[string]time.Time)
 	if err := inspectIDEWorkspaces(ctx, runtime, seenUnlinked, lastSyncLaunch); err != nil {
@@ -127,11 +122,14 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, seenUnlin
 	if err != nil {
 		return err
 	}
+	activeWorkspaces := make(map[string]bool, len(workspaces))
 	for _, workspace := range workspaces {
+		activeWorkspaces[workspace] = true
 		result, inspectErr := detection.Inspect(ctx, runtime.homeDir, workspace, "career-agent")
 		if inspectErr != nil {
 			continue
 		}
+		activeWorkspaces[result.WorkspacePath] = true
 		switch result.Action {
 		case detection.ActionLink:
 			if !seenUnlinked[result.WorkspacePath] {
@@ -145,7 +143,21 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, seenUnlin
 			}
 		}
 	}
+	pruneInactiveWorkspaceSessions(seenUnlinked, lastSyncLaunch, activeWorkspaces)
 	return nil
+}
+
+func pruneInactiveWorkspaceSessions(seenUnlinked map[string]bool, lastSyncLaunch map[string]time.Time, activeWorkspaces map[string]bool) {
+	for workspace := range seenUnlinked {
+		if !activeWorkspaces[workspace] {
+			delete(seenUnlinked, workspace)
+		}
+	}
+	for workspace := range lastSyncLaunch {
+		if !activeWorkspaces[workspace] {
+			delete(lastSyncLaunch, workspace)
+		}
+	}
 }
 
 func startAgent(ctx context.Context, out io.Writer) error {

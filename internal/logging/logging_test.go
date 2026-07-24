@@ -101,8 +101,47 @@ func TestWriteSyncLog_WithError(t *testing.T) {
 		t.Errorf("expected 6 parts in log line, got %d. Content: %q", len(parts), logContent)
 	}
 
-	if parts[5] != errMsg {
-		t.Errorf("expected error message %q, got %q", errMsg, parts[5])
+	if parts[5] != redactedLogDetail {
+		t.Errorf("expected redacted error detail %q, got %q", redactedLogDetail, parts[5])
+	}
+}
+
+func TestWriteSyncLogSanitizesLegacySensitiveDetails(t *testing.T) {
+	tempDir := t.TempDir()
+	logDir := filepath.Join(tempDir, ".proofboard")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatalf("mkdir log directory: %v", err)
+	}
+	logPath := filepath.Join(logDir, "sync.log")
+	legacy := strings.Join([]string{
+		`2026-07-24T12:00:00Z — HTTP POST — [REDACTED] — REQUEST {"repoName":"Secret Payments"} — RESPONSE (200 OK) {"organization":"Secret Employer"}`,
+		`2026-07-24T12:00:01Z — repo-hash — agent — Phase 8 — failure — request failed for /home/ada/Secret Payments`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(logPath, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy log: %v", err)
+	}
+
+	if err := WriteSyncLog(tempDir, "repo-hash", "agent", "complete", "success", ""); err != nil {
+		t.Fatalf("WriteSyncLog: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read sanitized log: %v", err)
+	}
+	for _, secret := range []string{"Secret Payments", "Secret Employer", "/home/ada"} {
+		if bytes.Contains(data, []byte(secret)) {
+			t.Fatalf("sanitized log retained %q: %s", secret, data)
+		}
+	}
+	if !bytes.Contains(data, []byte(redactedLogDetail)) {
+		t.Fatalf("sanitized log does not record redaction: %s", data)
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("stat sanitized log: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("sanitized log mode = %v, want 0600", info.Mode().Perm())
 	}
 }
 

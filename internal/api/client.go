@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
 	"time"
 )
 
@@ -95,27 +93,6 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
 
-	// Write debug log to sync.log
-	homeDir, _ := os.UserHomeDir()
-	if homeDir != "" {
-		logPath := homeDir + "/.proofboard/sync.log"
-		if file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
-			reqStr := "(none)"
-			if request != nil {
-				if tight, marshalErr := json.Marshal(request); marshalErr == nil {
-					reqStr = redactJSONForLog(tight)
-				}
-			}
-			redactedEndpoint := "[REDACTED]"
-			timestamp := time.Now().UTC().Format(time.RFC3339)
-			respStr := strings.TrimSpace(redactJSONForLog(bodyBytes))
-			respStr = strings.ReplaceAll(respStr, "\n", " ")
-			logText := fmt.Sprintf("%s — HTTP %s — %s — REQUEST %s — RESPONSE (%s) %s\n", timestamp, method, redactedEndpoint, reqStr, res.Status, respStr)
-			file.Write([]byte(logText))
-			file.Close()
-		}
-	}
-
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return fmt.Errorf("API returned %s: %s", res.Status, redactJSONForLog(bodyBytes))
 	}
@@ -133,30 +110,20 @@ func redactJSONForLog(data []byte) string {
 	if err := json.Unmarshal(data, &value); err != nil {
 		return "[NON_JSON_RESPONSE_REDACTED]"
 	}
-	redactSensitiveJSON(value)
-	redacted, err := json.Marshal(value)
+	safe := make(map[string]any)
+	if object, ok := value.(map[string]any); ok {
+		for _, key := range []string{"statusCode"} {
+			switch item := object[key].(type) {
+			case string, float64, bool:
+				safe[key] = item
+			}
+		}
+	}
+	redacted, err := json.Marshal(safe)
 	if err != nil {
 		return "[REDACTED]"
 	}
 	return string(redacted)
-}
-
-func redactSensitiveJSON(value any) {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			normalized := strings.ToLower(key)
-			if strings.Contains(normalized, "token") || strings.Contains(normalized, "signature") || normalized == "orghash" || normalized == "repohash" || normalized == "emailhash" {
-				typed[key] = "[REDACTED]"
-				continue
-			}
-			redactSensitiveJSON(child)
-		}
-	case []any:
-		for _, child := range typed {
-			redactSensitiveJSON(child)
-		}
-	}
 }
 
 func (c Client) postJSON(ctx context.Context, path string, token string, request any, response any) error {

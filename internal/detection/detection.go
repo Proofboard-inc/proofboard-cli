@@ -21,22 +21,22 @@ const (
 )
 
 type Result struct {
-	Action           Action `json:"action"`
-	Editor           string `json:"editor,omitempty"`
-	WorkspacePath    string `json:"workspacePath"`
-	RepoPath         string `json:"repoPath,omitempty"`
-	RepoName         string `json:"repoName,omitempty"`
-	RepoHash         string `json:"repoHash,omitempty"`
-	OrgHash          string `json:"orgHash,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	LastHeadSHA      string `json:"lastHeadSha,omitempty"`
-	CurrentHeadSHA   string `json:"currentHeadSha,omitempty"`
-	SuggestedCommand string `json:"suggestedCommand,omitempty"`
-	Reason           string `json:"reason,omitempty"`
-	Suppressed       bool   `json:"suppressed"`
-	Linked           bool   `json:"linked"`
-	OutOfDate        bool   `json:"outOfDate"`
-	MetadataChanged  bool   `json:"metadataChanged"`
+	Action          Action `json:"action"`
+	Editor          string `json:"editor,omitempty"`
+	WorkspacePath   string `json:"workspacePath"`
+	RepoPath        string `json:"repoPath,omitempty"`
+	RepoName        string `json:"repoName,omitempty"`
+	RepoHash        string `json:"repoHash,omitempty"`
+	OrgHash         string `json:"orgHash,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	LastHeadSHA     string `json:"lastHeadSha,omitempty"`
+	CurrentHeadSHA  string `json:"currentHeadSha,omitempty"`
+	SuggestedAction string `json:"suggestedAction,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	Suppressed      bool   `json:"suppressed"`
+	Linked          bool   `json:"linked"`
+	OutOfDate       bool   `json:"outOfDate"`
+	MetadataChanged bool   `json:"metadataChanged"`
 }
 
 func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result, error) {
@@ -85,8 +85,8 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	result.Linked = linked
 	if !linked {
 		result.Action = ActionLink
-		result.SuggestedCommand = "proofboard sync"
-		result.Reason = "workspace is not linked"
+		result.SuggestedAction = "Sync Project"
+		result.Reason = "project is not connected"
 		return result, nil
 	}
 
@@ -105,7 +105,7 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	if repoState.LastHeadSHA == "" || !strings.EqualFold(repoState.LastHeadSHA, currentHead) || result.MetadataChanged {
 		result.Action = ActionSync
 		result.OutOfDate = true
-		result.SuggestedCommand = "proofboard sync"
+		result.SuggestedAction = "Sync Project"
 		if result.MetadataChanged && strings.EqualFold(repoState.LastHeadSHA, currentHead) {
 			result.Reason = "repository metadata changed since the last sync"
 		} else {
@@ -115,7 +115,7 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	}
 
 	result.Action = ActionNone
-	result.Reason = "workspace already linked and synchronized"
+	result.Reason = "project already connected and synchronized"
 	return result, nil
 }
 
