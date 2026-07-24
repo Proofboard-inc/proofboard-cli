@@ -70,4 +70,3 @@ func TestShredWithNilSubject(t *testing.T) {
 		t.Fatalf("expected proprietary raw fields to be dropped")
 	}
 }
-

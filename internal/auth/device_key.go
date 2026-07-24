@@ -96,8 +96,8 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 	privateKey := ed25519.NewKeyFromSeed(seed)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 	record = DeviceKeyRecord{
-		PublicKey:   base64.StdEncoding.EncodeToString(publicKey),
-		PrivateKey:  base64.StdEncoding.EncodeToString(privateKey),
+		PublicKey:  base64.StdEncoding.EncodeToString(publicKey),
+		PrivateKey: base64.StdEncoding.EncodeToString(privateKey),
 	}
 	registered, regErr := s.register(ctx, client, token, record)
 	if regErr != nil {

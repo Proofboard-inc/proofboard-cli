@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var incremental bool
 	var fromHook bool
+	var fromAgent bool
 	var verbose bool
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -32,6 +34,13 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("sync: %w", err)
+			}
+			if fromAgent {
+				if deferred, deferErr := deferExpiredAgentSession(ctx, runtime, out); deferErr != nil {
+					return fmt.Errorf("check Career Agent session: %w", deferErr)
+				} else if deferred {
+					return nil
+				}
 			}
 			credentials, err := loadOrAuthCredentials(ctx, out, runtime)
 			if err != nil {
@@ -51,7 +60,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 
 			triggerSource := "manual"
-			if fromHook {
+			if fromAgent {
+				triggerSource = "agent"
+			} else if fromHook {
 				triggerSource = "hook"
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "start", "success", "")
@@ -84,9 +95,13 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return nil
 				}
 				notifications.Dispatch(out, notifications.NewProjectDetected(identity.Repo))
-				fmt.Fprintln(out, "Workspace is not linked. Running proofboard link before sync...")
+				fmt.Fprintln(out, "Preparing this project for automatic tracking...")
 				linkCmd := newLinkCommand(ctx, out)
-				linkCmd.SetArgs([]string{})
+				if fromAgent {
+					linkCmd.SetArgs([]string{"--non-interactive"})
+				} else {
+					linkCmd.SetArgs([]string{})
+				}
 				if err := linkCmd.ExecuteContext(ctx); err != nil {
 					return err
 				}
@@ -99,6 +114,12 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("link current repository before syncing")
 				}
 			}
+			metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
+			if err != nil {
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "repository metadata", "failure", err.Error())
+				return err
+			}
+			metadataChanged := repoState.MetadataHash == "" || repoState.MetadataHash != metadataHash
 			if fromHook {
 				branch, err := pbgit.CurrentBranch(ctx, repo)
 				if err != nil {
@@ -140,7 +161,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "failure", err.Error())
 				return err
 			}
-			if len(raw) == 0 {
+			if len(raw) == 0 && !metadataChanged {
 				_, err := fmt.Fprintln(out, "No commits to sync.")
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "skipped", "no new commits to sync")
 				return err
@@ -156,7 +177,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 
 				// b. Documentation only: All files changed are docs (.md, .txt, README, CHANGELOG, LICENSE, .rst)
-				if !shouldAbort {
+				if !shouldAbort && len(raw) > 0 {
 					hasFiles := false
 					isDocOnly := true
 					for _, commit := range raw {
@@ -220,6 +241,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
 				return err
 			}
+			if len(raw) == 0 && metadataChanged {
+				payload.AntiFraudSignals.LowCommitCount = false
+			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "success", "")
 
 			// c. High boilerplate noise: Average aiNoiseScore (AINoiseScore) across all commits in the range > 0.85
@@ -230,7 +254,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if verbose {
 				fmt.Fprintln(out, "Phase 6: transmit")
 			}
-			err = retryAfterAuth(ctx, out, "proofboard sync", func() error {
+			transmit := func() error {
 				freshCredentials, err := runtime.credentials.Load(ctx)
 				if err != nil {
 					return fmt.Errorf("reload credentials: %w", err)
@@ -275,7 +299,15 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_, syncErr = runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
 				}
 				return syncErr
-			})
+			}
+			if fromAgent {
+				err = retryAfterAuthForAgent(ctx, out, runtime, transmit)
+			} else {
+				err = retryAfterAuth(ctx, out, "proofboard sync", transmit)
+			}
+			if errors.Is(err, errAgentReconnectRequired) {
+				return nil
+			}
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", err.Error())
 				return fmt.Errorf("transmit sync payload: %w", err)
@@ -289,6 +321,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			repoState.LastHeadSHA = head
 			repoState.LastSyncAt = time.Now().UTC()
 			repoState.DictionaryVersion = dict.Version
+			repoState.MetadataHash = metadataHash
 			current, err = runtime.state.Load(ctx)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "load state", "failure", err.Error())
@@ -299,14 +332,16 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
 				return err
 			}
-			if len(payload.SHAs) > 0 {
-				notifications.Dispatch(nil, notifications.ProofOfShipCaptured(len(payload.MilestoneClusters)))
-				_, err = fmt.Fprintln(out, "✔  Proofboard: Milestone captured. Review at proofboard.io/dashboard")
-				if err != nil {
-					return err
-				}
+			if len(payload.MilestoneClusters) > 0 {
+				bundleID, title := resolveMilestoneNotification(ctx, runtime, repoState.ProjectID, payload.MilestoneClusters[0].Category)
+				notifications.PrintEvent(out, notifications.MilestoneDetected(title))
+				_ = launchTargetActionNotification(ctx, "milestone", bundleID, title)
 			}
-			_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), countImpactCategories(payload.ImpactScores))
+			if len(payload.SHAs) == 0 && metadataChanged {
+				_, err = fmt.Fprintln(out, "Repository metadata synchronized.")
+			} else {
+				_, err = fmt.Fprintf(out, "Synced %d commits. Categories detected: %d.\n", len(payload.SHAs), countImpactCategories(payload.ImpactScores))
+			}
 			if err != nil {
 				return err
 			}
@@ -319,8 +354,58 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&incremental, "incremental", false, "sync only commits since the last recorded HEAD")
 	cmd.Flags().BoolVar(&fromHook, "from-hook", false, "run silent hook gating before syncing")
+	cmd.Flags().BoolVar(&fromAgent, "agent", false, "run as a non-interactive Career Agent sync")
+	_ = cmd.Flags().MarkHidden("agent")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "print pipeline steps")
 	return cmd
+}
+
+func deferExpiredAgentSession(ctx context.Context, runtime runtimeContext, out io.Writer) (bool, error) {
+	credentials, err := runtime.credentials.Load(ctx)
+	if err != nil {
+		return false, nil
+	}
+	if credentialsNeedRefresh(credentials) && credentials.RefreshToken != "" {
+		service := pbauth.NewService(runtime.credentials, runtime.api, runtime.config.AgentAuthURL)
+		if _, refreshErr := service.Refresh(ctx, credentials); refreshErr == nil {
+			return false, nil
+		} else if !isAuthFailure(refreshErr) {
+			return false, refreshErr
+		}
+		if err := promptAgentReconnect(ctx, out, runtime); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if !credentialsCompletelyExpired(credentials) {
+		return false, nil
+	}
+	if err := promptAgentReconnect(ctx, out, runtime); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func resolveMilestoneNotification(ctx context.Context, runtime runtimeContext, projectID, category string) (string, string) {
+	title := strings.TrimSpace(category)
+	if title == "" {
+		title = "Engineering milestone"
+	} else {
+		title += " Completed"
+	}
+	credentials, err := runtime.credentials.Load(ctx)
+	if err != nil || credentials.Token == "" {
+		return "", title
+	}
+	bundles, err := runtime.api.GetPendingMilestoneBundles(ctx, credentials.Token, projectID, 5)
+	if err != nil || len(bundles) == 0 {
+		return "", title
+	}
+	bundle := bundles[0]
+	if strings.TrimSpace(bundle.Title) != "" {
+		title = strings.TrimSpace(bundle.Title)
+	}
+	return bundle.ID, title
 }
 
 func countImpactCategories(scores model.ImpactScores) int {

@@ -4,14 +4,268 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: actions/setup-node@v4
         with:
-          args: release --clean --config build/goreleaser.yaml
+          node-version: "20"
+      - name: Unit and integration tests without system pollution
+        run: scripts/test_no_system_pollution.sh go test -count=1 -coverprofile=coverage.out ./...
+      - name: Race detector without system pollution
+        run: scripts/test_no_system_pollution.sh go test -race -count=1 ./...
+      - name: Static analysis
+        run: go vet ./...
+      - name: Test npm Career Agent wrapper
+        run: npm --prefix npm-package test
+      - name: Validate installer and release scripts
+        run: |
+          sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_macos_pkg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh
+          bash -n scripts/publish_release.sh
+      - name: Build and test the compiled executable command surface
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/proofboard-compiled ./cmd/proofboard
+          EXPECTED_VERSION=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
+          scripts/test_compiled_cli.sh /tmp/proofboard-compiled "$EXPECTED_VERSION"
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: proofboard-linux-amd64
+          - goos: darwin
+            goarch: amd64
+            output: proofboard-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output: proofboard-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            output: proofboard-windows-amd64.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Build static Career Agent
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags="-s -w" -o "dist/${{ matrix.output }}" ./cmd/proofboard
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.output }}
+          if-no-files-found: error
+
+  installer-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: proofboard-linux-amd64
+          path: dist
+      - name: Build double-click Linux installer
+        run: |
+          chmod +x dist/proofboard-linux-amd64
+          scripts/package_linux_deb.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.deb
+          dpkg-deb --info dist/Proofboard-Career-Agent-linux-amd64.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proofboard-career-agent-linux-amd64-deb
+          path: dist/Proofboard-Career-Agent-linux-amd64.deb
+          if-no-files-found: error
+
+  installer-macos:
+    needs: build
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            binary: proofboard-darwin-amd64
+            installer: Proofboard-Career-Agent-darwin-amd64.pkg
+          - arch: arm64
+            binary: proofboard-darwin-arm64
+            installer: Proofboard-Career-Agent-darwin-arm64.pkg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: dist
+      - name: Build double-click macOS installer
+        run: |
+          chmod +x "dist/${{ matrix.binary }}"
+          scripts/package_macos_pkg.sh "${GITHUB_REF_NAME}" "dist/${{ matrix.binary }}" "dist/${{ matrix.installer }}"
+          pkgutil --payload-files "dist/${{ matrix.installer }}" | grep 'usr/local/bin/proofboard'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proofboard-career-agent-darwin-${{ matrix.arch }}-pkg
+          path: dist/${{ matrix.installer }}
+          if-no-files-found: error
+
+  installer-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: proofboard-windows-amd64.exe
+          path: dist
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build double-click Windows installer
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $binary = (Resolve-Path 'dist/proofboard-windows-amd64.exe').Path
+          $output = (Resolve-Path 'dist').Path
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DBinaryPath=$binary" "/DMyAppVersion=$version" "/DInstallerOutputDir=$output" 'packaging/windows/ProofboardCareerAgent.iss'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proofboard-career-agent-windows-amd64-setup
+          path: dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [build, installer-linux, installer-macos, installer-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Sign and verify update binaries
+        env:
+          PROOFBOARD_RELEASE_PRIVATE_KEY: ${{ secrets.PROOFBOARD_RELEASE_PRIVATE_KEY }}
+        run: |
+          test -n "$PROOFBOARD_RELEASE_PRIVATE_KEY"
+          SIGNING_KEY_FILE=$(mktemp)
+          trap 'shred -u "$SIGNING_KEY_FILE"' EXIT
+          printf '%s\n' "$PROOFBOARD_RELEASE_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
+          chmod 0600 "$SIGNING_KEY_FILE"
+          for binary in \
+            proofboard-linux-amd64 \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-arm64 \
+            proofboard-windows-amd64.exe
+          do
+            go run scripts/sign.go "$SIGNING_KEY_FILE" "dist/$binary"
+            go run ./scripts/verify_signature "dist/$binary" "dist/$binary.sig"
+          done
+      - name: Verify complete release matrix
+        run: |
+          test -f dist/proofboard-linux-amd64
+          test -f dist/proofboard-linux-amd64.sig
+          test -f dist/proofboard-darwin-amd64
+          test -f dist/proofboard-darwin-amd64.sig
+          test -f dist/proofboard-darwin-arm64
+          test -f dist/proofboard-darwin-arm64.sig
+          test -f dist/proofboard-windows-amd64.exe
+          test -f dist/proofboard-windows-amd64.exe.sig
+          test -f dist/Proofboard-Career-Agent-linux-amd64.deb
+          test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
+          test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
+          test -f dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+      - name: Stage installers
+        run: |
+          cp scripts/install.sh dist/install.sh
+          cp scripts/install.ps1 dist/install.ps1
+          cd dist
+          sha256sum \
+            proofboard-linux-amd64 \
+            proofboard-linux-amd64.sig \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-amd64.sig \
+            proofboard-darwin-arm64 \
+            proofboard-darwin-arm64.sig \
+            proofboard-windows-amd64.exe \
+            proofboard-windows-amd64.exe.sig \
+            Proofboard-Career-Agent-linux-amd64.deb \
+            Proofboard-Career-Agent-darwin-amd64.pkg \
+            Proofboard-Career-Agent-darwin-arm64.pkg \
+            Proofboard-Career-Agent-windows-amd64-setup.exe \
+            install.sh \
+            install.ps1 > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Proofboard Career Agent ${{ github.ref_name }}
+          body: |
+            Proofboard builds your career while you focus on building software.
+
+            Highlights:
+            - Adds the continuously running local Career Agent with IDE workspace detection and automatic project sync.
+            - Fixes device-code authentication to use the server-generated polling token and prefilled browser authorization.
+            - Adds silent refresh-token renewal, reconnect prompts, milestone actions, and Career Agent status.
+            - Preserves the NDA-safe local shredder and transmits only anonymized engineering metadata.
+            - Includes native installers, four static platform binaries, update signatures, and SHA-256 checksums.
+
+            This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
+          files: |
+            dist/proofboard-linux-amd64
+            dist/proofboard-linux-amd64.sig
+            dist/proofboard-darwin-amd64
+            dist/proofboard-darwin-amd64.sig
+            dist/proofboard-darwin-arm64
+            dist/proofboard-darwin-arm64.sig
+            dist/proofboard-windows-amd64.exe
+            dist/proofboard-windows-amd64.exe.sig
+            dist/Proofboard-Career-Agent-linux-amd64.deb
+            dist/Proofboard-Career-Agent-darwin-amd64.pkg
+            dist/Proofboard-Career-Agent-darwin-arm64.pkg
+            dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+            dist/checksums.txt
+            dist/install.sh
+            dist/install.ps1
+          fail_on_unmatched_files: true
+
+  publish-npm:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+      - name: Verify npm package version
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./npm-package/package.json').version")
+          test "v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"
+      - run: npm --prefix npm-package test
+      - name: Publish @proofboard/agent
+        working-directory: npm-package
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN is not configured; skipping npm publication."
+            exit 0
+          fi
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

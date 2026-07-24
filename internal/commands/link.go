@@ -85,9 +85,10 @@ func promptForProject(in io.Reader, out io.Writer, options []api.ExistingProject
 }
 
 func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
-	return &cobra.Command{
+	var nonInteractive bool
+	cmd := &cobra.Command{
 		Use:   "link",
-		Short: "Link the current repository",
+		Short: "Connect the current repository for advanced workflows",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
@@ -137,8 +138,6 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 			}
 
-			fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
-
 			// Call 1
 			req := api.LinkRequest{
 				OrgHash:  identity.OrgHash,
@@ -166,9 +165,14 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 
 			if response.IsNewProject && len(response.ExistingProjectOptions) > 0 {
-				existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
-				req.ExistingProjectID = existingID
-				req.CreateNew = createNew
+				if nonInteractive {
+					req.CreateNew = true
+				} else {
+					fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
+					existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
+					req.ExistingProjectID = existingID
+					req.CreateNew = createNew
+				}
 				err = retryAfterAuth(ctx, out, "proofboard link", func() error {
 					freshCredentials, err := runtime.credentials.Load(ctx)
 					if err != nil {
@@ -207,34 +211,47 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			head, _ := pbgit.Head(ctx, repo)
-
 			branch := detectDefaultBranch(ctx, repo.Path)
 			if branch == "" {
-				branch = promptForBranch(os.Stdin, out)
+				if nonInteractive {
+					branch = "main"
+				} else {
+					branch = promptForBranch(os.Stdin, out)
+				}
 			}
-			fmt.Fprintf(out, "Tracking branch: %s. Add others with: proofboard config add-branch <name>\n", branch)
+			if !nonInteractive {
+				fmt.Fprintf(out, "Tracking branch: %s. Add others with: proofboard config add-branch <name>\n", branch)
+			}
 
 			current = statestore.AddLinkedRepo(current, model.LinkedRepoState{
 				RepoHash:           identity.RepoHash,
 				OrgHash:            identity.OrgHash,
 				PathHash:           crypto.SHA256(repo.Path),
 				Provider:           identity.Provider,
-				LastHeadSHA:        head,
+				LastHeadSHA:        "",
 				LastSyncAt:         time.Time{},
 				ProjectID:          response.ProjectID,
 				PublicKey:          response.PublicKey,
 				DictionaryVersion:  response.DictionaryVersion,
 				ProductionBranches: []string{branch},
 			})
+			metadataHash, metadataErr := pbgit.MetadataFingerprint(ctx, repo)
+			if metadataErr == nil {
+				repoState := current.LinkedRepos[identity.RepoHash]
+				repoState.MetadataHash = metadataHash
+				current.LinkedRepos[identity.RepoHash] = repoState
+			}
 			if err := hooks.Install(ctx, repo); err != nil {
 				return err
 			}
 			if err := runtime.state.Save(ctx, current); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "Linked repository successfully. Hooks installed.\n")
+			_, err = fmt.Fprintf(out, "Project connected. Proofboard Career Agent is tracking it automatically.\n")
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "connect the project without terminal prompts")
+	_ = cmd.Flags().MarkHidden("non-interactive")
+	return cmd
 }

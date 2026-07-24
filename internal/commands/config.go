@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -117,6 +118,76 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			for _, b := range current.WatchedBranches {
 				if _, err := fmt.Fprintln(out, b); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "add-ide process-name",
+		Short: "Add an IDE process for Career Agent workspace detection",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			if name == "" {
+				return fmt.Errorf("IDE process name cannot be empty")
+			}
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
+			current, err := runtime.state.Load(ctx)
+			if err != nil {
+				return err
+			}
+			for _, existing := range current.IDEProcesses {
+				if strings.EqualFold(existing, name) {
+					return nil
+				}
+			}
+			current.IDEProcesses = append(current.IDEProcesses, name)
+			return runtime.state.Save(ctx, current)
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "remove-ide process-name",
+		Short: "Remove an IDE process from Career Agent workspace detection",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
+			current, err := runtime.state.Load(ctx)
+			if err != nil {
+				return err
+			}
+			updated := current.IDEProcesses[:0]
+			for _, existing := range current.IDEProcesses {
+				if !strings.EqualFold(existing, args[0]) {
+					updated = append(updated, existing)
+				}
+			}
+			current.IDEProcesses = updated
+			return runtime.state.Save(ctx, current)
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "ides",
+		Short: "Print IDE processes watched by the Career Agent",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
+			current, err := runtime.state.Load(ctx)
+			if err != nil {
+				return err
+			}
+			for _, name := range current.IDEProcesses {
+				if _, err := fmt.Fprintln(out, name); err != nil {
 					return err
 				}
 			}

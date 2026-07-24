@@ -15,10 +15,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type updateCommandOptions struct {
+	executablePath func() (string, error)
+	install        func(io.Writer) error
+}
+
 func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	return newUpdateCommandWithOptions(ctx, out, updateCommandOptions{
+		executablePath: os.Executable,
+		install:        performInstall,
+	})
+}
+
+func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options updateCommandOptions) *cobra.Command {
+	if options.executablePath == nil {
+		options.executablePath = os.Executable
+	}
+	if options.install == nil {
+		options.install = performInstall
+	}
 	return &cobra.Command{
 		Use:   "update",
-		Short: "Update local Proofboard CLI binary",
+		Short: "Update Proofboard Career Agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtimeContext, err := loadRuntime(ctx)
 			if err != nil {
@@ -30,7 +48,7 @@ func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			if latest.Version == "" || latest.Version == version.Version {
-				_, err := fmt.Fprintf(out, "Proofboard CLI is up to date (%s).\n", version.Version)
+				_, err := fmt.Fprintf(out, "Proofboard Career Agent is up to date (%s).\n", version.Version)
 				return err
 			}
 
@@ -45,7 +63,7 @@ func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			downloadURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/"), latest.Version, binaryName)
 
 			// Get current running executable path
-			execPath, err := os.Executable()
+			execPath, err := options.executablePath()
 			if err != nil {
 				return fmt.Errorf("retrieve executable path: %w", err)
 			}
@@ -114,11 +132,11 @@ func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 
 			// Ensure it's in PATH
-			if err := performInstall(out); err != nil {
+			if err := options.install(out); err != nil {
 				fmt.Fprintf(out, "Warning: Failed to perform system PATH installation: %v\n", err)
 			}
 
-			_, err = fmt.Fprintf(out, "Proofboard CLI updated successfully to version %s.\n", latest.Version)
+			_, err = fmt.Fprintf(out, "Proofboard Career Agent updated successfully to version %s.\n", latest.Version)
 			return err
 		},
 	}

@@ -64,6 +64,9 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 	if state.SuppressedWorkspaces == nil {
 		state.SuppressedWorkspaces = make([]string, 0)
 	}
+	if state.IDEProcesses == nil {
+		state.IDEProcesses = Default().IDEProcesses
+	}
 	return state, nil
 }
 
@@ -74,5 +77,6 @@ func Default() model.State {
 		AutoUpdateDictionary:      true,
 		MonthlyCareerSummaryShown: make(map[string]bool),
 		SuppressedWorkspaces:      make([]string, 0),
+		IDEProcesses:              []string{"code", "code-insiders", "cursor", "webstorm", "idea", "zed", "sublime_text", "vim", "nvim"},
 	}
 }

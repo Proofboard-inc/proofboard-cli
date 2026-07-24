@@ -16,6 +16,8 @@ type Config struct {
 	CheckPath                 string
 	SyncPath                  string
 	DeviceKeyRegistrationPath string
+	RefreshPath               string
+	AgentAuthURL              string
 	DictionaryPath            string
 	LatestVersionPath         string
 	LogLevel                  string
@@ -37,6 +39,8 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("api.check_path", "/api/v1/cli/repos/check")
 	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
 	v.SetDefault("api.device_key_registration_path", "/api/v1/cli/auth/device-key")
+	v.SetDefault("api.refresh_path", "/api/v1/cli/auth/refresh")
+	v.SetDefault("agent.auth_url", "https://proofboard.io/agent/cli-auth")
 	v.SetDefault("api.dictionary_path", "/api/v1/cli/dictionary")
 	v.SetDefault("release.latest_version_path", "/latest.json")
 	v.SetDefault("log.level", "info")
@@ -49,6 +53,8 @@ func Load(ctx context.Context) (Config, error) {
 		CheckPath:                 v.GetString("api.check_path"),
 		SyncPath:                  v.GetString("api.sync_path"),
 		DeviceKeyRegistrationPath: v.GetString("api.device_key_registration_path"),
+		RefreshPath:               v.GetString("api.refresh_path"),
+		AgentAuthURL:              v.GetString("agent.auth_url"),
 		DictionaryPath:            v.GetString("api.dictionary_path"),
 		LatestVersionPath:         v.GetString("release.latest_version_path"),
 		LogLevel:                  v.GetString("log.level"),

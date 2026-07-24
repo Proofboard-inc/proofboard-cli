@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Installing Proofboard CLI..." -ForegroundColor Cyan
+Write-Host "Installing Proofboard Career Agent..." -ForegroundColor Cyan
 
 $Arch = (Get-WmiObject Win32_OperatingSystem).OSArchitecture
 if ($Arch -ne "64-bit") {
@@ -21,7 +21,7 @@ try {
     $LatestVersion = $ReleaseData.version
 } catch {
     Write-Warning "Failed to fetch from releases.proofboard.io, using fallback version."
-    $LatestVersion = "v1.8.9"
+    $LatestVersion = "v1.8.10"
 }
 
 $DownloadUrl = "https://releases.proofboard.io/$LatestVersion/$BinaryName"
@@ -48,4 +48,9 @@ if ($CurrentPath -notmatch [regex]::Escape($InstallDir)) {
     [Environment]::SetEnvironmentVariable("Path", $NewPath, [EnvironmentVariableTarget]::Machine)
 }
 
-Write-Host "Proofboard CLI installed successfully! Open a new terminal and run 'proofboard auth' to get started." -ForegroundColor Green
+& $ExePath agent enable
+if ($LASTEXITCODE -ne 0) {
+    throw "Proofboard Career Agent could not be registered."
+}
+
+Write-Host "Proofboard Career Agent installed and running. Keep building software; Proofboard will handle the rest." -ForegroundColor Green

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 	statestore "github.com/proofboard/proofboard/internal/state"
 )
@@ -76,11 +77,16 @@ func TestInspectDetectsLinkSyncAndNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
+	metadataHash, err := pbgit.MetadataFingerprint(ctx, pbgit.Repo{Path: repoDir})
+	if err != nil {
+		t.Fatalf("metadata fingerprint: %v", err)
+	}
 	stateData.LinkedRepos[linkedRepo.RepoHash] = model.LinkedRepoState{
-		RepoHash:    linkedRepo.RepoHash,
-		OrgHash:     linkedRepo.OrgHash,
-		PathHash:    "",
-		LastHeadSHA: strings.TrimSpace(string(head)),
+		RepoHash:     linkedRepo.RepoHash,
+		OrgHash:      linkedRepo.OrgHash,
+		PathHash:     "",
+		LastHeadSHA:  strings.TrimSpace(string(head)),
+		MetadataHash: metadataHash,
 	}
 	if err := store.Save(ctx, stateData); err != nil {
 		t.Fatalf("save state: %v", err)
@@ -92,6 +98,27 @@ func TestInspectDetectsLinkSyncAndNone(t *testing.T) {
 	}
 	if synced.Action != ActionNone {
 		t.Fatalf("expected none action for synced repo, got %q", synced.Action)
+	}
+
+	if err := exec.Command("git", "-C", repoDir, "update-ref", "refs/remotes/origin/main", strings.TrimSpace(string(head))).Run(); err != nil {
+		t.Fatalf("update remote ref: %v", err)
+	}
+	metadataChanged, err := Inspect(ctx, homeDir, repoDir, "vscode")
+	if err != nil {
+		t.Fatalf("inspect metadata change: %v", err)
+	}
+	if metadataChanged.Action != ActionSync || !metadataChanged.MetadataChanged {
+		t.Fatalf("expected metadata sync action, got %+v", metadataChanged)
+	}
+	metadataHash, err = pbgit.MetadataFingerprint(ctx, pbgit.Repo{Path: repoDir})
+	if err != nil {
+		t.Fatalf("updated metadata fingerprint: %v", err)
+	}
+	repoState := stateData.LinkedRepos[linkedRepo.RepoHash]
+	repoState.MetadataHash = metadataHash
+	stateData.LinkedRepos[linkedRepo.RepoHash] = repoState
+	if err := store.Save(ctx, stateData); err != nil {
+		t.Fatalf("save updated metadata state: %v", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(repoDir, "feature.go"), []byte("package main\n"), 0o644); err != nil {

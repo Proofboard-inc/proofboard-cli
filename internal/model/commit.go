@@ -3,11 +3,11 @@ package model
 import "time"
 
 type RawCommit struct {
-	SHA          string
-	Timestamp    time.Time
-	Additions    int
-	Deletions    int
-	FilesChanged int
+	SHA            string
+	Timestamp      time.Time
+	Additions      int
+	Deletions      int
+	FilesChanged   int
 	Subject        []byte
 	FilePaths      []string
 	AuthorEmail    string

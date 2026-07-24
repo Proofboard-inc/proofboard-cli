@@ -14,7 +14,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const shellDetectionLine = "proofboard detect >/dev/null 2>&1 &"
+const (
+	legacyShellDetectionLine = "proofboard detect >/dev/null 2>&1 &"
+	shellDetectionLine       = "(proofboard detect >/dev/null 2>&1 &)"
+	fishShellDetectionLine   = "proofboard detect >/dev/null 2>&1 &\ndisown $last_pid"
+)
 
 func newShellHookMaintenanceCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
@@ -96,6 +100,17 @@ func ensureLineInFile(path string, line string) (bool, error) {
 	if strings.Contains(string(content), line) {
 		return false, nil
 	}
+	if strings.Contains(string(content), legacyShellDetectionLine) {
+		updated := strings.ReplaceAll(string(content), legacyShellDetectionLine, line)
+		mode := os.FileMode(0o644)
+		if info, statErr := os.Stat(path); statErr == nil {
+			mode = info.Mode().Perm()
+		}
+		if err := os.WriteFile(path, []byte(updated), mode); err != nil {
+			return false, fmt.Errorf("migrate %s: %w", path, err)
+		}
+		return true, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, fmt.Errorf("create parent dir for %s: %w", path, err)
 	}
@@ -139,7 +154,7 @@ func shellHookTargets() ([]shellHookTarget, error) {
 		}, nil
 	case "fish":
 		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Line: shellDetectionLine},
+			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Line: fishShellDetectionLine},
 		}, nil
 	case "powershell", "pwsh":
 		line := "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"

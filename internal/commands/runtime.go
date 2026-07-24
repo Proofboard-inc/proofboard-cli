@@ -47,7 +47,7 @@ func loadRuntime(ctx context.Context) (runtimeContext, error) {
 		workingDir:  wd,
 		credentials: pbauth.NewCredentialStore(home),
 		state:       state.NewStore(home),
-		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.CheckPath, cfg.SyncPath, cfg.DeviceKeyRegistrationPath),
+		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.CheckPath, cfg.SyncPath, cfg.DeviceKeyRegistrationPath, cfg.RefreshPath),
 	}, nil
 }
 
@@ -97,7 +97,7 @@ func triggerMonthlyCareerSummaryWithTime(ctx context.Context, out io.Writer, run
 
 func notifyAuthExpiry(ctx context.Context, out io.Writer, runtime runtimeContext) {
 	credentials, err := runtime.credentials.Load(ctx)
-	if err != nil || credentials.Token == "" {
+	if err != nil || credentials.Token == "" || credentials.RefreshToken != "" {
 		return
 	}
 	expiry, err := crypto.JWTExpiry(credentials.Token)
@@ -105,14 +105,39 @@ func notifyAuthExpiry(ctx context.Context, out io.Writer, runtime runtimeContext
 		return
 	}
 	until := time.Until(expiry)
-	if until <= 0 || until > 5*24*time.Hour {
+	if until > 0 {
 		return
 	}
-	days := int((until + 24*time.Hour - 1) / (24 * time.Hour))
-	if days < 1 {
-		days = 1
+	notifications.PrintEvent(out, notifications.SessionExpired())
+	if os.Getenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS") != "1" {
+		_ = launchActionNotification(ctx, "reconnect")
 	}
-	notifications.Dispatch(out, notifications.AuthExpiringSoon(days))
+}
+
+func launchActionNotification(ctx context.Context, kind string) error {
+	return launchTargetActionNotification(ctx, kind, "", "")
+}
+
+func launchTargetActionNotification(ctx context.Context, kind, target, title string) error {
+	if os.Getenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS") == "1" {
+		return nil
+	}
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+	args := []string{"notify", "--kind", kind}
+	if target != "" {
+		args = append(args, "--target", target)
+	}
+	if title != "" {
+		args = append(args, "--repo-name", title)
+	}
+	cmd := exec.CommandContext(ctx, execPath, args...)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return startDetachedCommand(cmd)
 }
 
 func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runtimeContext) {
@@ -129,9 +154,25 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 		return
 	}
 	for _, n := range res.Data {
-		notifications.Dispatch(out, notifications.RemoteNotification(n))
+		if n.Type == "milestone_bundle_ready" {
+			bundleID := notificationMetaString(n.Meta, "bundleId", "milestoneBundleId", "id")
+			title := notificationMetaString(n.Meta, "title", "milestoneTitle", "name")
+			notifications.PrintEvent(out, notifications.MilestoneDetected(title))
+			_ = launchTargetActionNotification(ctx, "milestone", bundleID, title)
+		} else {
+			notifications.Dispatch(out, notifications.RemoteNotification(n))
+		}
 		_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
 	}
+}
+
+func notificationMetaString(meta map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func getReadyCareerSummaryMonth(now time.Time) (string, string) {

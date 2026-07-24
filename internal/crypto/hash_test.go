@@ -15,7 +15,7 @@ func TestSHA256(t *testing.T) {
 func TestNormalizedSHA256(t *testing.T) {
 	hash1 := NormalizedSHA256("Test@Example.com ")
 	hash2 := NormalizedSHA256("test@example.com")
-	
+
 	if hash1 != hash2 {
 		t.Errorf("expected normalized hashes to match, got %s and %s", hash1, hash2)
 	}

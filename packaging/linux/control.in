@@ -1,0 +1,11 @@
+Package: proofboard-career-agent
+Version: @VERSION@
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Proofboard <support@proofboard.io>
+Homepage: https://proofboard.io
+Description: Local-first Proofboard Career Agent
+ Proofboard builds your career while you focus on building software. The
+ background agent detects Git workspaces and synchronizes anonymized
+ engineering metadata without transmitting proprietary source code.

@@ -11,6 +11,8 @@ type State struct {
 	MonthlyCareerSummaryShown map[string]bool            `json:"monthlyCareerSummaryShown"`
 	DictionaryVersion         string                     `json:"dictionaryVersion,omitempty"`
 	FirstRunSetupComplete     bool                       `json:"firstRunSetupComplete"`
+	IDEProcesses              []string                   `json:"ideProcesses,omitempty"`
+	AuthReconnectPrompted     bool                       `json:"authReconnectPrompted,omitempty"`
 }
 
 type LinkedRepo struct {
@@ -30,4 +32,5 @@ type LinkedRepoState struct {
 	PublicKey          string    `json:"publicKey"`
 	DictionaryVersion  string    `json:"dictionaryVersion"`
 	ProductionBranches []string  `json:"productionBranches"`
+	MetadataHash       string    `json:"metadataHash,omitempty"`
 }

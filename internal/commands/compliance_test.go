@@ -16,12 +16,11 @@ import (
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/crypto"
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
 )
-
-
 
 func TestStatusPendingCheck(t *testing.T) {
 	tempHome := t.TempDir()
@@ -68,6 +67,10 @@ func TestStatusPendingCheck(t *testing.T) {
 	}
 
 	repoHash := crypto.SHA256("github:org/repo-status")
+	metadataHash, err := pbgit.MetadataFingerprint(ctx, pbgit.Repo{Path: repoDir})
+	if err != nil {
+		t.Fatalf("metadata fingerprint: %v", err)
+	}
 
 	// Set up state
 	stateStore := state.NewStore(tempHome)
@@ -80,6 +83,7 @@ func TestStatusPendingCheck(t *testing.T) {
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 		ProjectID:         "proj-123",
 		DictionaryVersion: "1.0.0",
+		MetadataHash:      metadataHash,
 	}
 	err = stateStore.Save(ctx, st)
 	if err != nil {
@@ -252,9 +256,9 @@ func TestStartupUpdateChecks(t *testing.T) {
 
 	output := out.String()
 
-	// Verify CLI update message printed
-	if !strings.Contains(output, "A new version of the Proofboard CLI is available. Run: proofboard update") {
-		t.Errorf("expected output to contain CLI update message, got: %q", output)
+	// Verify Career Agent update message printed
+	if !strings.Contains(output, "A new version of Proofboard Career Agent is available. Run: proofboard update") {
+		t.Errorf("expected output to contain Career Agent update message, got: %q", output)
 	}
 
 	// Verify dictionary updated message printed
@@ -517,5 +521,3 @@ func TestStartupUpdateChecks_InvalidDictionarySchema(t *testing.T) {
 		t.Errorf("expected dictionary file version to remain \"1.0.0\", got %q", dictObj.Version)
 	}
 }
-
-

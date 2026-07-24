@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 
-const DEFAULT_VERSION = 'v1.8.0';
+const DEFAULT_VERSION = 'v1.8.10';
 const DEFAULT_RELEASES_URL = 'https://releases.proofboard.io/latest.json';
 
 function getBinaryName(platform = os.type(), arch = os.arch()) {
@@ -26,6 +26,10 @@ function getBinaryName(platform = os.type(), arch = os.arch()) {
         archName = 'arm64';
     } else {
         throw new Error(`Unsupported architecture: ${arch}`);
+    }
+
+    if (archName === 'arm64' && osName !== 'darwin') {
+        throw new Error(`Unsupported platform: ${osName}-${archName}`);
     }
 
     return `proofboard-${osName}-${archName}${osName === 'windows' ? '.exe' : ''}`;
@@ -96,7 +100,7 @@ function downloadBinary(url, dest) {
 async function ensureBinary(options = {}) {
     const version = options.version || await getLatestRelease(options.releasesUrl);
     const binaryName = options.binaryName || getBinaryName(options.platform, options.arch);
-    const cacheDir = options.cacheDir || path.join(os.homedir(), '.proofboard', 'bin');
+    const cacheDir = options.cacheDir || path.join(os.homedir(), '.proofboard', 'bin', version);
     const binaryPath = path.join(cacheDir, binaryName);
     const downloadUrl = options.downloadUrl || `https://releases.proofboard.io/${version}/${binaryName}`;
     const fallbackUrl = options.fallbackUrl || `https://github.com/Proofboard-inc/proofboard-cli/releases/download/${version}/${binaryName}`;
@@ -142,7 +146,7 @@ if (require.main === module) {
     run(process.argv.slice(2)).then((code) => {
         process.exit(code);
     }).catch((err) => {
-        console.error('Error running Proofboard CLI via npx:', err.message);
+        console.error('Error running Proofboard Career Agent:', err.message);
         process.exit(1);
     });
 }

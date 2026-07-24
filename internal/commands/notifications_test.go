@@ -24,7 +24,7 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	t.Setenv("HOME", tempHome)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
-	expiry := time.Now().Add(48 * time.Hour).UTC()
+	expiry := time.Now().Add(-time.Minute).UTC()
 	token := testJWT(expiry)
 
 	credStore := pbauth.NewCredentialStore(tempHome)
@@ -95,11 +95,33 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "Re-authentication needed") {
-		t.Fatalf("expected auth-expiry notification, got: %q", output)
+	if !strings.Contains(output, "Your Proofboard session has expired") {
+		t.Fatalf("expected expired-session notification, got: %q", output)
 	}
 	if !strings.Contains(output, "New opportunity match") {
 		t.Fatalf("expected inbound opportunity notification, got: %q", output)
+	}
+}
+
+func TestNotifyAuthExpiryStaysSilentWhenRefreshTokenExists(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	store := pbauth.NewCredentialStore(homeDir)
+	if err := store.Save(context.Background(), model.Credentials{
+		Token:        testJWT(time.Now().Add(-time.Hour)),
+		RefreshToken: "refresh-token",
+	}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	runtime, err := loadRuntime(context.Background())
+	if err != nil {
+		t.Fatalf("load runtime: %v", err)
+	}
+	var out bytes.Buffer
+	notifyAuthExpiry(context.Background(), &out, runtime)
+	if out.Len() != 0 {
+		t.Fatalf("expected refreshable session to remain silent, got %q", out.String())
 	}
 }
 

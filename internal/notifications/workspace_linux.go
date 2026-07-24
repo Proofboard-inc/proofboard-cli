@@ -18,9 +18,17 @@ func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 	}
 	defer conn.Close()
 
-	title, body, primary, secondary := workspaceActionLabels(action.Kind)
+	title, body, primary, secondary, tertiary := workspaceActionLabels(action.Kind)
+	primaryKey, secondaryKey, tertiaryKey := workspaceActionKeys(action.Kind)
 	if action.RepoName != "" {
 		body = fmt.Sprintf("%s\n%s", body, action.RepoName)
+	}
+	actions := []notify.Action{{Key: primaryKey, Label: primary}}
+	if secondary != "" {
+		actions = append(actions, notify.Action{Key: secondaryKey, Label: secondary})
+	}
+	if tertiary != "" {
+		actions = append(actions, notify.Action{Key: tertiaryKey, Label: tertiary})
 	}
 
 	done := make(chan struct{}, 1)
@@ -30,8 +38,8 @@ func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 			if sig == nil {
 				return
 			}
-			if sig.ActionKey == "sync" {
-				_ = ActivateWorkspaceAction(ctx, "sync", action.Workspace)
+			if sig.ActionKey != "dismiss" {
+				_ = ActivateWorkspaceAction(ctx, sig.ActionKey, action.Workspace, action.Target)
 			}
 			select {
 			case done <- struct{}{}:
@@ -51,10 +59,10 @@ func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 	defer notifier.Close()
 
 	_, err = notifier.SendNotification(notify.Notification{
-		AppName:       "Proofboard",
+		AppName:       "Proofboard Career Agent",
 		Summary:       title,
 		Body:          body,
-		Actions:       []notify.Action{{Key: "sync", Label: primary}, {Key: "dismiss", Label: secondary}},
+		Actions:       actions,
 		ExpireTimeout: 30 * time.Second,
 	})
 	if err != nil {

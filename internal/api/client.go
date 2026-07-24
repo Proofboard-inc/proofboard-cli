@@ -20,27 +20,33 @@ type Client struct {
 	checkPath                 string
 	syncPath                  string
 	deviceKeyRegistrationPath string
+	refreshPath               string
 }
 
-func NewClient(baseURL string, linkPath string, checkPath string, syncPath string, deviceKeyRegistrationPath ...string) Client {
-	path := ""
-	if len(deviceKeyRegistrationPath) > 0 {
-		path = deviceKeyRegistrationPath[0]
+func NewClient(baseURL string, linkPath string, checkPath string, syncPath string, optionalPaths ...string) Client {
+	deviceKeyPath := ""
+	refreshPath := ""
+	if len(optionalPaths) > 0 {
+		deviceKeyPath = optionalPaths[0]
+	}
+	if len(optionalPaths) > 1 {
+		refreshPath = optionalPaths[1]
 	}
 	return Client{
 		baseURL:                   baseURL,
 		linkPath:                  linkPath,
 		checkPath:                 checkPath,
 		syncPath:                  syncPath,
-		deviceKeyRegistrationPath: path,
+		deviceKeyRegistrationPath: deviceKeyPath,
+		refreshPath:               refreshPath,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
 	}
 }
 
-func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client, deviceKeyRegistrationPath ...string) Client {
-	client := NewClient(baseURL, linkPath, checkPath, syncPath, deviceKeyRegistrationPath...)
+func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client, optionalPaths ...string) Client {
+	client := NewClient(baseURL, linkPath, checkPath, syncPath, optionalPaths...)
 	client.httpClient = httpClient
 	return client
 }
@@ -96,32 +102,13 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 		if file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
 			reqStr := "(none)"
 			if request != nil {
-				// We can marshal it to a map to redact hashes
-				var m map[string]any
-				if tight, err := json.Marshal(request); err == nil {
-					if json.Unmarshal(tight, &m) == nil {
-						if _, ok := m["orgHash"]; ok {
-							m["orgHash"] = "[REDACTED]"
-						}
-						if _, ok := m["repoHash"]; ok {
-							m["repoHash"] = "[REDACTED]"
-						}
-						if _, ok := m["emailHash"]; ok {
-							m["emailHash"] = "[REDACTED]"
-						}
-						if _, ok := m["deviceSignature"]; ok {
-							m["deviceSignature"] = "[REDACTED]"
-						}
-						redacted, _ := json.Marshal(m)
-						reqStr = string(redacted)
-					} else {
-						reqStr = string(tight)
-					}
+				if tight, marshalErr := json.Marshal(request); marshalErr == nil {
+					reqStr = redactJSONForLog(tight)
 				}
 			}
 			redactedEndpoint := "[REDACTED]"
 			timestamp := time.Now().UTC().Format(time.RFC3339)
-			respStr := strings.TrimSpace(string(bodyBytes))
+			respStr := strings.TrimSpace(redactJSONForLog(bodyBytes))
 			respStr = strings.ReplaceAll(respStr, "\n", " ")
 			logText := fmt.Sprintf("%s — HTTP %s — %s — REQUEST %s — RESPONSE (%s) %s\n", timestamp, method, redactedEndpoint, reqStr, res.Status, respStr)
 			file.Write([]byte(logText))
@@ -130,7 +117,7 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("API returned %s: %s", res.Status, string(bodyBytes))
+		return fmt.Errorf("API returned %s: %s", res.Status, redactJSONForLog(bodyBytes))
 	}
 	if response == nil || res.StatusCode == http.StatusNoContent {
 		return nil
@@ -139,6 +126,37 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+func redactJSONForLog(data []byte) string {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return "[NON_JSON_RESPONSE_REDACTED]"
+	}
+	redactSensitiveJSON(value)
+	redacted, err := json.Marshal(value)
+	if err != nil {
+		return "[REDACTED]"
+	}
+	return string(redacted)
+}
+
+func redactSensitiveJSON(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalized := strings.ToLower(key)
+			if strings.Contains(normalized, "token") || strings.Contains(normalized, "signature") || normalized == "orghash" || normalized == "repohash" || normalized == "emailhash" {
+				typed[key] = "[REDACTED]"
+				continue
+			}
+			redactSensitiveJSON(child)
+		}
+	case []any:
+		for _, child := range typed {
+			redactSensitiveJSON(child)
+		}
+	}
 }
 
 func (c Client) postJSON(ctx context.Context, path string, token string, request any, response any) error {

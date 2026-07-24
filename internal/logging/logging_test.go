@@ -124,7 +124,7 @@ func TestWriteSyncLog_Rotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create large dummy file: %v", err)
 	}
-	
+
 	fiveMB := make([]byte, 5*1024*1024)
 	for i := range fiveMB {
 		fiveMB[i] = 'A'
