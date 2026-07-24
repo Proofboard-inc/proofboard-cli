@@ -188,6 +188,65 @@ func TestAgentStatusCommand(t *testing.T) {
 	}
 }
 
+func TestEveryAgentLifecycleCommandUsesItsAction(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "bare status", want: "status"},
+		{name: "run", args: []string{"run"}, want: "run"},
+		{name: "enable", args: []string{"enable"}, want: "enable"},
+		{name: "disable", args: []string{"disable"}, want: "disable"},
+		{name: "start", args: []string{"start"}, want: "start"},
+		{name: "stop", args: []string{"stop"}, want: "stop"},
+		{name: "status", args: []string{"status"}, want: "status"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got []string
+			record := func(name string) {
+				got = append(got, name)
+			}
+			actions := agentCommandActions{
+				run: func(context.Context) error {
+					record("run")
+					return nil
+				},
+				enable: func(io.Writer) error {
+					record("enable")
+					return nil
+				},
+				disable: func(io.Writer) error {
+					record("disable")
+					return nil
+				},
+				start: func(context.Context, io.Writer) error {
+					record("start")
+					return nil
+				},
+				stop: func(io.Writer) error {
+					record("stop")
+					return nil
+				},
+				status: func(context.Context, io.Writer) error {
+					record("status")
+					return nil
+				},
+			}
+			command := newAgentCommandWithActions(ctx, io.Discard, actions)
+			command.SetArgs(test.args)
+			if err := command.ExecuteContext(ctx); err != nil {
+				t.Fatalf("agent %v: %v", test.args, err)
+			}
+			if len(got) != 1 || got[0] != test.want {
+				t.Fatalf("agent %v actions = %v, want [%s]", test.args, got, test.want)
+			}
+		})
+	}
+}
+
 func writeRepoFileAndCommit(t *testing.T, repoDir string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# local test\n"), 0o600); err != nil {

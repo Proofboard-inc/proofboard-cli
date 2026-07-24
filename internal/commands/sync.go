@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -195,8 +196,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				if !shouldAbort {
 					isRevertOnly := true
 					for _, commit := range raw {
-						sub := strings.ToLower(strings.TrimSpace(string(commit.Subject)))
-						if !strings.HasPrefix(sub, "revert:") {
+						if !isRevertSubject(commit.Subject) {
 							isRevertOnly = false
 							break
 						}
@@ -421,6 +421,12 @@ func isDocFile(filePath string) bool {
 		return true
 	}
 	return false
+}
+
+func isRevertSubject(subject []byte) bool {
+	trimmed := bytes.TrimSpace(subject)
+	prefix := [...]byte{'r', 'e', 'v', 'e', 'r', 't', ':'}
+	return len(trimmed) >= len(prefix) && bytes.EqualFold(trimmed[:len(prefix)], prefix[:])
 }
 
 func abortSync(homeDir, repoHash string) error {

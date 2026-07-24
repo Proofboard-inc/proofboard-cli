@@ -67,21 +67,18 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	}
 	fmt.Printf("Waiting for authentication...\n")
 
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	pollTimer := time.NewTimer(0)
+	defer pollTimer.Stop()
 
 	for {
 		select {
 		case <-pollCtx.Done():
 			return model.Credentials{}, fmt.Errorf("authentication window closed: %w", pollCtx.Err())
-		case <-ticker.C:
+		case <-pollTimer.C:
 			pollResp, err := s.client.PollDeviceCode(pollCtx, resp.DeviceCode)
 			if err != nil {
-				// if it's a 429, we should just wait longer
-				if strings.Contains(err.Error(), "429") {
-					continue
-				}
-				continue // ignore temporary network errors during poll
+				pollTimer.Reset(5 * time.Second)
+				continue
 			}
 			if pollResp.Status == "approved" {
 				creds := model.Credentials{
@@ -103,6 +100,7 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 			} else if pollResp.Status == "expired" || pollResp.Status == "denied" {
 				return model.Credentials{}, fmt.Errorf("authentication %s", pollResp.Status)
 			}
+			pollTimer.Reset(5 * time.Second)
 		}
 	}
 }

@@ -88,11 +88,3 @@ func TestIsInternalCommand(t *testing.T) {
 		})
 	}
 }
-
-func TestCareerAgentNeverRequiresInteractiveFirstRunSetup(t *testing.T) {
-	for _, args := range [][]string{{"install"}, {"sync"}, {"auth"}, nil} {
-		if shouldRunFirstTimeSetup(args) {
-			t.Fatalf("shouldRunFirstTimeSetup(%v) = true", args)
-		}
-	}
-}

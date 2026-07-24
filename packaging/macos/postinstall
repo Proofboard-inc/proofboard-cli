@@ -12,7 +12,11 @@ if [ -z "$CONSOLE_HOME" ]; then
     CONSOLE_HOME="/Users/$CONSOLE_USER"
 fi
 
-/bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" \
-    env HOME="$CONSOLE_HOME" /usr/local/bin/proofboard agent enable >/dev/null 2>&1 || true
+if ! /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" \
+    env HOME="$CONSOLE_HOME" /usr/local/bin/proofboard agent enable >/dev/null 2>&1
+then
+    echo "Proofboard Career Agent could not be registered for $CONSOLE_USER." >&2
+    exit 1
+fi
 
 exit 0

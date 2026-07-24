@@ -18,12 +18,32 @@ import (
 
 const agentScanInterval = 15 * time.Second
 
+type agentCommandActions struct {
+	run     func(context.Context) error
+	enable  func(io.Writer) error
+	disable func(io.Writer) error
+	start   func(context.Context, io.Writer) error
+	stop    func(io.Writer) error
+	status  func(context.Context, io.Writer) error
+}
+
 func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	return newAgentCommandWithActions(ctx, out, agentCommandActions{
+		run:     runAgent,
+		enable:  enableAgent,
+		disable: uninstallAgentService,
+		start:   startAgent,
+		stop:    stopAgent,
+		status:  printAgentStatus,
+	})
+}
+
+func newAgentCommandWithActions(ctx context.Context, out io.Writer, actions agentCommandActions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Manage the local Proofboard Career Agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return printAgentStatus(ctx, out)
+			return actions.status(ctx, out)
 		},
 	}
 	cmd.AddCommand(
@@ -32,7 +52,7 @@ func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			Short:  "Run the Career Agent in the foreground",
 			Hidden: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return runAgent(ctx)
+				return actions.run(ctx)
 			},
 		},
 		&cobra.Command{
@@ -40,11 +60,7 @@ func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			Short:  "Register the Career Agent to start at sign-in",
 			Hidden: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				execPath, err := os.Executable()
-				if err != nil {
-					return fmt.Errorf("resolve Career Agent executable: %w", err)
-				}
-				return installAgentService(execPath, out)
+				return actions.enable(out)
 			},
 		},
 		&cobra.Command{
@@ -52,32 +68,40 @@ func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			Short:  "Remove the Career Agent sign-in registration",
 			Hidden: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return uninstallAgentService(out)
+				return actions.disable(out)
 			},
 		},
 		&cobra.Command{
 			Use:   "start",
 			Short: "Start the Career Agent",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return startAgent(ctx, out)
+				return actions.start(ctx, out)
 			},
 		},
 		&cobra.Command{
 			Use:   "stop",
 			Short: "Stop the Career Agent",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return stopAgent(out)
+				return actions.stop(out)
 			},
 		},
 		&cobra.Command{
 			Use:   "status",
 			Short: "Show Career Agent status",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return printAgentStatus(ctx, out)
+				return actions.status(ctx, out)
 			},
 		},
 	)
 	return cmd
+}
+
+func enableAgent(out io.Writer) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve Career Agent executable: %w", err)
+	}
+	return installAgentService(execPath, out)
 }
 
 func agentPIDPath(homeDir string) string {
