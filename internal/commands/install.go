@@ -1,19 +1,34 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 func newInstallCommand() *cobra.Command {
-	return newInstallCommandWithAction(performInstall)
+	command := &cobra.Command{
+		Use:   "install",
+		Short: "Install and start Proofboard Career Agent",
+		Long: `Install and start Proofboard Career Agent.
+
+The Career Agent installs into your own account and needs no administrator
+access. Use --system to install it for every account on the machine, which
+does require administrator access.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			systemWide, err := cmd.Flags().GetBool("system")
+			if err != nil {
+				return err
+			}
+			return installTo(cmd.OutOrStdout(), systemWide)
+		},
+	}
+	command.Flags().Bool("system", false, "Install for every account on this machine (requires administrator access)")
+	return command
 }
 
 func newInstallCommandWithAction(action func(io.Writer) error) *cobra.Command {
@@ -40,146 +55,138 @@ func newUninstallCommandWithAction(action func(io.Writer) error) *cobra.Command 
 	}
 }
 
+// performInstall installs the running executable for the current user.
 func performInstall(out io.Writer) error {
+	return installTo(out, false)
+}
+
+func installTo(out io.Writer, systemWide bool) error {
+	env, err := currentInstallEnvironment()
+	if err != nil {
+		return err
+	}
+	location := resolveInstallLocation(env, systemWide)
+
 	execPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	execPath, _ = filepath.Abs(execPath)
 
-	var destDir string
-	var destFile string
-
-	if runtime.GOOS != "windows" {
-		destDir = "/usr/local/bin"
-		destFile = "/usr/local/bin/proofboard"
-
-		if execPath == destFile {
-			fmt.Fprintln(out, "Proofboard Career Agent is already installed system-wide.")
-			if err := installAgentService(destFile, out); err != nil {
-				return fmt.Errorf("register Career Agent: %w", err)
-			}
-			return nil
-		}
-
-		fmt.Fprintf(out, "Installing to %s...\n", destFile)
-		input, err := os.ReadFile(execPath)
-		if err != nil {
-			return err
-		}
-
-		err = os.WriteFile(destFile, input, 0755)
-		if err != nil && os.IsPermission(err) {
-			fmt.Fprintln(out, "Permission denied. Attempting to install using sudo (you may be prompted for your password)...")
-			cmd := exec.Command("sudo", "cp", execPath, destFile)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = out
-			cmd.Stderr = out
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("failed to install using sudo: %w", err)
-			}
-			cmd = exec.Command("sudo", "chmod", "755", destFile)
-			cmd.Run()
-		} else if err != nil {
-			return err
-		}
-		if err := installAgentService(destFile, out); err != nil {
-			return fmt.Errorf("register Career Agent: %w", err)
-		}
-		fmt.Fprintln(out, "✓ Proofboard Career Agent installed and started.")
-		return nil
+	if execPath == location.Executable {
+		fmt.Fprintf(out, "Proofboard Career Agent is already installed at %s.\n", location.Executable)
 	} else {
-		destDir = filepath.Join(os.Getenv("ProgramFiles"), "Proofboard")
-		destFile = filepath.Join(destDir, "proofboard.exe")
-
-		if execPath == destFile {
-			fmt.Fprintln(out, "Proofboard Career Agent is already installed system-wide.")
-			if err := installAgentService(destFile, out); err != nil {
-				return fmt.Errorf("register Career Agent: %w", err)
-			}
-			return nil
-		}
-
-		fmt.Fprintf(out, "Installing to %s...\n", destFile)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			if os.IsPermission(err) {
-				return fmt.Errorf("permission denied. Please run this command as an Administrator")
-			}
+		if err := copyExecutable(execPath, location, out); err != nil {
 			return err
 		}
-
-		input, err := os.ReadFile(execPath)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(destFile, input, 0755); err != nil {
-			if os.IsPermission(err) {
-				return fmt.Errorf("permission denied. Please run this command as an Administrator")
-			}
-			return err
-		}
-
-		psCmd := fmt.Sprintf(`$path = [Environment]::GetEnvironmentVariable('Path', 'Machine'); if ($path -notmatch '%s') { [Environment]::SetEnvironmentVariable('Path', $path + ';%s', 'Machine') }`, strings.ReplaceAll(destDir, `\`, `\\`), strings.ReplaceAll(destDir, `\`, `\\`))
-		cmd := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(out, "Warning: Failed to add to System PATH. Please run as Administrator or add %s to your PATH manually.\n", destDir)
-		} else {
-			fmt.Fprintln(out, "Added to System PATH.")
-		}
-		if err := registerProtocolHandler(destFile); err != nil {
-			fmt.Fprintf(out, "Warning: Failed to register notification callback handler: %v\n", err)
-		}
-		if err := installAgentService(destFile, out); err != nil {
-			return fmt.Errorf("register Career Agent: %w", err)
-		}
-		fmt.Fprintln(out, "✓ Proofboard Career Agent installed and started.")
-		return nil
+		fmt.Fprintf(out, "Installed to %s.\n", location.Executable)
 	}
+
+	if !location.SystemWide {
+		if err := ensureDirectoryOnPath(env, location.Dir, out); err != nil {
+			return err
+		}
+	}
+	// Workspace detection runs from a shell startup hook. Installing is an
+	// explicit action by the person running it, so this is where the hook is
+	// put in place; ordinary commands never touch shell profiles.
+	if _, _, err := ensureShellDetectionHooks(context.Background()); err != nil {
+		fmt.Fprintf(out, "Warning: Failed to enable workspace detection: %v\n", err)
+	}
+	if err := installAgentService(location.Executable, out); err != nil {
+		return fmt.Errorf("register Career Agent: %w", err)
+	}
+	fmt.Fprintln(out, "✓ Proofboard Career Agent installed and started.")
+	return nil
+}
+
+func copyExecutable(execPath string, location installLocation, out io.Writer) error {
+	if err := os.MkdirAll(location.Dir, 0o755); err != nil {
+		if os.IsPermission(err) {
+			return permissionError(location)
+		}
+		return err
+	}
+	content, err := os.ReadFile(execPath)
+	if err != nil {
+		return err
+	}
+
+	// Replacing a running executable fails on some systems, so the new one is
+	// staged next to the destination and moved into place.
+	staged := location.Executable + ".new"
+	if err := os.WriteFile(staged, content, 0o755); err != nil {
+		if os.IsPermission(err) {
+			return permissionError(location)
+		}
+		return err
+	}
+	if err := os.Rename(staged, location.Executable); err != nil {
+		_ = os.Remove(staged)
+		if os.IsPermission(err) {
+			return permissionError(location)
+		}
+		return err
+	}
+	if err := os.Chmod(location.Executable, 0o755); err != nil {
+		fmt.Fprintf(out, "Warning: Failed to mark %s executable: %v\n", location.Executable, err)
+	}
+	return nil
+}
+
+func permissionError(location installLocation) error {
+	if location.SystemWide {
+		return fmt.Errorf("permission denied writing to %s. Re-run with administrator access, or drop --system to install into your own account without it", location.Dir)
+	}
+	return fmt.Errorf("permission denied writing to %s", location.Dir)
 }
 
 func performUninstall(out io.Writer) error {
-	var destDir string
-	var destFile string
+	env, err := currentInstallEnvironment()
+	if err != nil {
+		return err
+	}
 
-	if runtime.GOOS != "windows" {
-		destFile = "/usr/local/bin/proofboard"
-		if err := uninstallAgentService(out); err != nil {
-			return fmt.Errorf("unregister Career Agent: %w", err)
-		}
+	if err := uninstallAgentService(out); err != nil {
+		return fmt.Errorf("unregister Career Agent: %w", err)
+	}
+	_ = unregisterProtocolHandler()
 
-		fmt.Fprintf(out, "Removing %s...\n", destFile)
-		err := os.Remove(destFile)
-		if err != nil && os.IsPermission(err) {
-			fmt.Fprintln(out, "Permission denied. Attempting to remove using sudo...")
-			cmd := exec.Command("sudo", "rm", "-f", destFile)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = out
-			cmd.Stderr = out
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("failed to uninstall using sudo: %w", err)
-			}
-		} else if err != nil && !os.IsNotExist(err) {
-			return err
+	removed := false
+	for _, location := range knownInstallLocations(env) {
+		if _, statErr := os.Stat(location.Executable); statErr != nil {
+			continue
 		}
-		fmt.Fprintln(out, "✓ Executable removed globally.")
-		return nil
-	} else {
-		destDir = filepath.Join(os.Getenv("ProgramFiles"), "Proofboard")
-		destFile = filepath.Join(destDir, "proofboard.exe")
-		if err := uninstallAgentService(out); err != nil {
-			return fmt.Errorf("unregister Career Agent: %w", err)
-		}
-
-		fmt.Fprintf(out, "Removing %s...\n", destFile)
-		if err := os.Remove(destFile); err != nil {
+		fmt.Fprintf(out, "Removing %s...\n", location.Executable)
+		if err := os.Remove(location.Executable); err != nil {
 			if os.IsPermission(err) {
-				return fmt.Errorf("permission denied. Please run this command as an Administrator to uninstall")
-			} else if !os.IsNotExist(err) {
+				fmt.Fprintf(out, "Warning: %s needs administrator access to remove; skipping.\n", location.Executable)
+				continue
+			}
+			if !os.IsNotExist(err) {
 				return err
 			}
+			continue
 		}
-		_ = unregisterProtocolHandler()
-		fmt.Fprintln(out, "✓ Executable removed. You may need to manually remove the Proofboard directory from your System PATH environment variable.")
+		removed = true
+		if !location.SystemWide {
+			removeDirectoryFromPath(env, location.Dir)
+		}
+	}
+
+	if !removed {
+		fmt.Fprintln(out, "No installed executable was found.")
 		return nil
+	}
+	fmt.Fprintln(out, "✓ Executable removed.")
+	return nil
+}
+
+func removeDirectoryFromPath(env installEnvironment, dir string) {
+	if env.GOOS == "windows" {
+		return
+	}
+	for _, target := range shellProfilePathTargets(env, dir) {
+		_ = removeMarkedLine(target.Path, proofboardPathHeader, target.Line)
 	}
 }

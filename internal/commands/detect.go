@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/proofboard/proofboard/internal/detection"
 	"github.com/proofboard/proofboard/internal/logging"
+	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
 )
 
@@ -47,6 +49,12 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", string(result.Action), reason, "")
 			if result.Action == detection.ActionLink {
+				// Record the prompt before showing it so a second terminal
+				// opening at the same moment cannot raise it twice.
+				if err := recordWorkspacePrompt(ctx, runtime, result.WorkspacePath); err != nil {
+					_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", "failure", "record workspace prompt", err.Error())
+					return nil
+				}
 				_ = launchWorkspaceNotification(ctx, runtime, result)
 			} else if result.Action == detection.ActionSync {
 				_ = launchWorkspaceSync(ctx, result.WorkspacePath)
@@ -68,6 +76,19 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&editor, "editor", "", "editor or IDE name")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit machine-readable detection output")
 	return cmd
+}
+
+func recordWorkspacePrompt(ctx context.Context, runtime runtimeContext, workspace string) error {
+	store := statestore.NewStore(runtime.homeDir)
+	current, err := store.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	updated, err := statestore.RecordWorkspacePrompt(current, workspace, time.Now())
+	if err != nil {
+		return fmt.Errorf("record workspace prompt: %w", err)
+	}
+	return store.Save(ctx, updated)
 }
 
 func launchWorkspaceSync(ctx context.Context, workspace string) error {
@@ -96,9 +117,16 @@ func launchWorkspaceNotification(ctx context.Context, runtime runtimeContext, re
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, execPath, "notify",
+	// The prompt outlives this command: detect exits as soon as it has handed
+	// the notification over. Binding the child to this command's context would
+	// cancel it on the way out, killing the prompt before it is ever drawn.
+	cmd := exec.Command(execPath, "notify",
 		"--kind", string(result.Action),
 		"--workspace", result.WorkspacePath,
+		"--repo-name", result.RepoName,
 	)
-	return cmd.Start()
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return startDetachedCommand(cmd)
 }

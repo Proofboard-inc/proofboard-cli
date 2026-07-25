@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/model"
@@ -73,6 +74,9 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 	}
 	if state.SuppressedWorkspaces == nil {
 		state.SuppressedWorkspaces = make([]string, 0)
+	}
+	if state.PromptedWorkspaces == nil {
+		state.PromptedWorkspaces = make(map[string]time.Time)
 	}
 	migratedSuppressions := make([]string, 0, len(state.SuppressedWorkspaces))
 	suppressionSeen := make(map[string]bool)
@@ -154,6 +158,45 @@ func AddWorkspaceSuppression(state model.State, workspace string) (model.State, 
 		}
 	}
 	state.SuppressedWorkspaces = append(state.SuppressedWorkspaces, key)
+	return state, nil
+}
+
+// WasWorkspacePrompted reports whether the workspace connection prompt has
+// already been shown for a workspace. The prompt is shown at most once per
+// workspace: opening an editor or a terminal must not re-ask on every session.
+func WasWorkspacePrompted(state model.State, workspace string) bool {
+	key, err := WorkspaceSuppressionKey(workspace)
+	if err != nil {
+		return false
+	}
+	_, prompted := state.PromptedWorkspaces[key]
+	return prompted
+}
+
+// RecordWorkspacePrompt remembers that the prompt was shown for a workspace.
+func RecordWorkspacePrompt(state model.State, workspace string, at time.Time) (model.State, error) {
+	key, err := WorkspaceSuppressionKey(workspace)
+	if err != nil {
+		return state, err
+	}
+	if state.PromptedWorkspaces == nil {
+		state.PromptedWorkspaces = make(map[string]time.Time)
+	}
+	if _, exists := state.PromptedWorkspaces[key]; exists {
+		return state, nil
+	}
+	state.PromptedWorkspaces[key] = at.UTC()
+	return state, nil
+}
+
+// ClearWorkspacePrompt forgets a recorded prompt so the workspace can be
+// offered again, which is what disconnecting a project should do.
+func ClearWorkspacePrompt(state model.State, workspace string) (model.State, error) {
+	key, err := WorkspaceSuppressionKey(workspace)
+	if err != nil {
+		return state, err
+	}
+	delete(state.PromptedWorkspaces, key)
 	return state, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/proofboard/proofboard/internal/logging"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/spf13/cobra"
 )
@@ -23,12 +24,21 @@ func newNotifyCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if kind == "" {
 				return nil
 			}
-			return notifications.ShowWorkspaceAction(ctx, notifications.WorkspaceAction{
+			err := notifications.ShowWorkspaceAction(ctx, notifications.WorkspaceAction{
 				Kind:      kind,
 				Workspace: workspace,
 				RepoName:  repoName,
 				Target:    target,
 			})
+			if err != nil {
+				// The prompt is raised by a detached process, so the sync log
+				// is the only place a failure can be seen.
+				if runtime, runtimeErr := loadRuntime(ctx); runtimeErr == nil {
+					_ = logging.WriteSyncLog(runtime.homeDir, "", "notify", "failure", "show workspace notification", err.Error())
+				}
+				return nil
+			}
+			return nil
 		},
 	}
 	cmd.SetOut(out)

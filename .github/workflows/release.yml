@@ -30,6 +30,17 @@ jobs:
         run: |
           sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_macos_pkg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh
           bash -n scripts/publish_release.sh
+      - name: Validate the Windows installer scripts
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          if (-not (Select-String -Path scripts/install.cmd -SimpleMatch -Quiet 'install.ps1')) {
+            Write-Error 'install.cmd no longer launches install.ps1'
+            exit 1
+          }
       - name: Build and test the compiled executable command surface
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/proofboard-compiled ./cmd/proofboard
@@ -207,6 +218,7 @@ jobs:
         run: |
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
+          cp scripts/install.cmd dist/install.cmd
           npm pack ./npm-package --pack-destination dist
           test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-agent-*.tgz' -print -quit)"
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
@@ -228,6 +240,7 @@ jobs:
             Proofboard-Career-Agent-windows-amd64-setup.exe \
             install.sh \
             install.ps1 \
+            install.cmd \
             proofboard-agent-*.tgz \
             latest.json > checksums.txt
       - uses: softprops/action-gh-release@v2
@@ -237,9 +250,11 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Keeps the Git hook verification hermetic so it exercises the installed wrapper against a stub agent instead of whichever Career Agent happens to be installed on the machine.
-            - Stops that verification from waiting on the background sync process that inherits the hook output descriptors, which previously stalled the suite on developer machines while passing on clean runners.
-            - Carries the v1.8.13 Career Agent behaviour forward unchanged; this release contains no functional changes to the agent itself.
+            - Installs into your own account and no longer asks for administrator access, so the Career Agent can be installed on managed machines where sudo or Windows administrator details are not handed out.
+            - Offers to connect a project once per project instead of on every terminal or editor window.
+            - Keeps the connection prompt alive after the workspace check exits, which is why the prompt never appeared on some machines.
+            - Records notification failures in the sync log instead of failing silently.
+            - Adds installers for Linux, macOS and Windows to the release, including a double-click launcher for Windows.
 
             This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |
@@ -258,6 +273,7 @@ jobs:
             dist/checksums.txt
             dist/install.sh
             dist/install.ps1
+            dist/install.cmd
             dist/proofboard-agent-*.tgz
             dist/latest.json
           fail_on_unmatched_files: true
