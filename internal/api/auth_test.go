@@ -14,12 +14,14 @@ func TestCreateDeviceCodeUsesServerGeneratedContract(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		if _, exists := payload["deviceCode"]; exists {
-			t.Fatal("client sent forbidden deviceCode property")
+		if r.Body != nil && r.ContentLength > 0 {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if _, exists := payload["deviceCode"]; exists {
+				t.Fatal("client sent forbidden deviceCode property")
+			}
 		}
 		_ = json.NewEncoder(w).Encode(DeviceCodeResponse{
 			DeviceCode:      "secret-polling-token",

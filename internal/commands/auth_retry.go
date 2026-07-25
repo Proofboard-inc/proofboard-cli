@@ -106,7 +106,12 @@ func retryAfterAuth(ctx context.Context, out io.Writer, opName string, op func()
 	if authErr := runAuthFlow(ctx, out); authErr != nil {
 		return authErr
 	}
-	return op()
+	
+	retryErr := op()
+	if isAuthFailure(retryErr) {
+		return fmt.Errorf("%w (device key may need rotation: run proofboard auth --rotate-key manually)", retryErr)
+	}
+	return retryErr
 }
 
 func retryAfterAuthForAgent(ctx context.Context, out io.Writer, runtime runtimeContext, op func() error) error {

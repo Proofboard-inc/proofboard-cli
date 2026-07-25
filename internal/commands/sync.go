@@ -258,38 +258,52 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 				signedPayload := payload
 				keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
-				deviceKey, err := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
-				if err != nil {
-					return fmt.Errorf("ensure device key: %w", err)
+				deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
+				if keyErr != nil {
+					// The device key proves a payload came from this
+					// installation. While it cannot be registered the work is
+					// still worth recording, so the payload goes unsigned and
+					// the server decides whether to accept it.
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
+						"register device key", "warning", keyErr.Error())
+				} else {
+					freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
+					if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
+						return fmt.Errorf("persist device key id: %w", err)
+					}
+					signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
 				}
-				freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
-				if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
-					return fmt.Errorf("persist device key id: %w", err)
+
+				// The signature has to cover the payload exactly as sent, so it
+				// is recomputed whenever the payload changes.
+				sign := func(candidate model.SyncPayload) (model.SyncPayload, error) {
+					candidate.DeviceSignature = ""
+					if keyErr != nil {
+						return candidate, nil
+					}
+					signingBytes, err := json.Marshal(candidate)
+					if err != nil {
+						return candidate, fmt.Errorf("marshal sync payload for signing: %w", err)
+					}
+					signature, err := keyStore.Sign(ctx, signingBytes)
+					if err != nil {
+						return candidate, fmt.Errorf("sign sync payload: %w", err)
+					}
+					candidate.DeviceSignature = signature
+					return candidate, nil
 				}
-				signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
-				signedPayload.DeviceSignature = ""
-				signingBytes, err := json.Marshal(signedPayload)
-				if err != nil {
-					return fmt.Errorf("marshal sync payload for signing: %w", err)
+
+				signedPayload, signErr := sign(signedPayload)
+				if signErr != nil {
+					return signErr
 				}
-				signature, err := keyStore.Sign(ctx, signingBytes)
-				if err != nil {
-					return fmt.Errorf("sign sync payload: %w", err)
-				}
-				signedPayload.DeviceSignature = signature
 				_, syncErr := runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
 				if syncErr != nil && strings.Contains(syncErr.Error(), "No linked project found") {
 					signedPayload.OrgHash, signedPayload.RepoHash = signedPayload.RepoHash, signedPayload.OrgHash
-					signedPayload.DeviceSignature = ""
-					signingBytes, err = json.Marshal(signedPayload)
-					if err != nil {
-						return fmt.Errorf("marshal swapped sync payload for signing: %w", err)
+					signedPayload, signErr = sign(signedPayload)
+					if signErr != nil {
+						return signErr
 					}
-					signature, err = keyStore.Sign(ctx, signingBytes)
-					if err != nil {
-						return fmt.Errorf("sign swapped sync payload: %w", err)
-					}
-					signedPayload.DeviceSignature = signature
 					_, syncErr = runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
 				}
 				return syncErr

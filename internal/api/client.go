@@ -85,6 +85,8 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	
+
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
