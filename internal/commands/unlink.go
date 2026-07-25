@@ -37,6 +37,11 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			current = statestore.RemoveLinkedRepo(current, identity.RepoHash)
+			// Disconnecting is a deliberate choice to stop tracking, so the
+			// workspace becomes eligible for the connection prompt again.
+			if current, err = statestore.ClearWorkspacePrompt(current, repo.Path); err != nil {
+				return err
+			}
 			if err := hooks.Uninstall(ctx, repo); err != nil {
 				return err
 			}

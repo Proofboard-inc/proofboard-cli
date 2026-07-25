@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
@@ -140,5 +141,66 @@ func TestInspectDetectsLinkSyncAndNone(t *testing.T) {
 	}
 	if outOfDate.Action != ActionSync {
 		t.Fatalf("expected sync action for out-of-date repo, got %q", outOfDate.Action)
+	}
+}
+
+func TestInspectOffersTheConnectionPromptOncePerWorkspace(t *testing.T) {
+	repoDir := createTempRepo(t)
+	ctx := context.Background()
+	homeDir := t.TempDir()
+	store := statestore.NewStore(homeDir)
+	if err := store.Save(ctx, statestore.Default()); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	first, err := Inspect(ctx, homeDir, repoDir, "vscode")
+	if err != nil {
+		t.Fatalf("first inspect: %v", err)
+	}
+	if first.Action != ActionLink {
+		t.Fatalf("an unconnected workspace should be offered once: %+v", first)
+	}
+
+	current, err := store.Load(ctx)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	current, err = statestore.RecordWorkspacePrompt(current, repoDir, time.Now())
+	if err != nil {
+		t.Fatalf("record prompt: %v", err)
+	}
+	if err := store.Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	// Every later terminal or editor window must stay quiet.
+	for attempt := 0; attempt < 3; attempt++ {
+		again, err := Inspect(ctx, homeDir, repoDir, "vscode")
+		if err != nil {
+			t.Fatalf("inspect %d: %v", attempt, err)
+		}
+		if again.Action != ActionNone || !again.AlreadyPrompted {
+			t.Fatalf("the workspace was offered again on attempt %d: %+v", attempt, again)
+		}
+	}
+
+	// Disconnecting makes the workspace eligible again.
+	current, err = store.Load(ctx)
+	if err != nil {
+		t.Fatalf("reload state: %v", err)
+	}
+	current, err = statestore.ClearWorkspacePrompt(current, repoDir)
+	if err != nil {
+		t.Fatalf("clear prompt: %v", err)
+	}
+	if err := store.Save(ctx, current); err != nil {
+		t.Fatalf("save cleared state: %v", err)
+	}
+	reoffered, err := Inspect(ctx, homeDir, repoDir, "vscode")
+	if err != nil {
+		t.Fatalf("inspect after clearing: %v", err)
+	}
+	if reoffered.Action != ActionLink {
+		t.Fatalf("a disconnected workspace should be offered again: %+v", reoffered)
 	}
 }
