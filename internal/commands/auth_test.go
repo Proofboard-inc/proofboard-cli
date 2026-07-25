@@ -39,12 +39,14 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/auth/device-code":
-			var payload map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode device code request: %v", err)
-			}
-			if _, exists := payload["deviceCode"]; exists {
-				t.Fatal("device-code request must not send a client-generated deviceCode")
+			if r.Body != nil && r.ContentLength > 0 {
+				var payload map[string]string
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode device code request: %v", err)
+				}
+				if _, exists := payload["deviceCode"]; exists {
+					t.Fatal("device-code request must not send a client-generated deviceCode")
+				}
 			}
 			pending <- "secret-polling-token"
 			w.Header().Set("Content-Type", "application/json")
