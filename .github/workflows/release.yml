@@ -250,11 +250,10 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Installs into your own account and no longer asks for administrator access, so the Career Agent can be installed on managed machines where sudo or Windows administrator details are not handed out.
-            - Offers to connect a project once per project instead of on every terminal or editor window.
-            - Keeps the connection prompt alive after the workspace check exits, which is why the prompt never appeared on some machines.
-            - Records notification failures in the sync log instead of failing silently.
-            - Adds installers for Linux, macOS and Windows to the release, including a double-click launcher for Windows.
+            - Connects the Career Agent to the development authorization page, which replaces the address that was returning "authorization page is unavailable".
+            - Stops a page check from rejecting a working authorization page whose framework payload contains not-found text, which blocked connecting entirely.
+            - Connects the Career Agent and runs workspace detection during installation, so opening a project is all that is left to do.
+            - Keeps an existing connection when the install script is re-run as an update.
 
             This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |

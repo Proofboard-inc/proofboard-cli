@@ -1,6 +1,6 @@
 {
   "name": "@proofboard/agent",
-  "version": "1.8.15",
+  "version": "1.8.16",
   "description": "Proofboard Career Agent installer",
   "main": "./index.js",
   "bin": {
