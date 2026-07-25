@@ -70,16 +70,18 @@ func TestCareerAgentEndToEndAuthorizesConnectsAndSyncs(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/auth/device-code":
 			recordCall("authorize")
-			var request map[string]any
-			if err := json.Unmarshal(body, &request); err != nil {
-				t.Errorf("decode device-code request: %v", err)
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			if _, exists := request["deviceCode"]; exists {
-				t.Error("device-code request sent a client-generated deviceCode")
-				http.Error(w, "forbidden field", http.StatusBadRequest)
-				return
+			if len(body) > 0 {
+				var request map[string]any
+				if err := json.Unmarshal(body, &request); err != nil {
+					t.Errorf("decode device-code request: %v", err)
+					http.Error(w, "bad request", http.StatusBadRequest)
+					return
+				}
+				if _, exists := request["deviceCode"]; exists {
+					t.Error("device-code request sent a client-generated deviceCode")
+					http.Error(w, "forbidden field", http.StatusBadRequest)
+					return
+				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"deviceCode":      "polling-token",
