@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'Proofboard-inc/proofboard-cli'
-$PinnedVersion = 'v1.8.15'
+$PinnedVersion = 'v1.8.16'
 $PublicDownloadHost = 'https://releases.proofboard.io'
 $BinaryName = 'proofboard-windows-amd64.exe'
 $SystemInstall = $env:PROOFBOARD_SYSTEM_INSTALL -eq '1'
@@ -237,5 +237,22 @@ try {
     Write-Warning "Shell completions could not be installed automatically: $_"
     Write-Warning 'Run: proofboard completion powershell'
 }
+
+# Connect the Career Agent straight away, so opening a project is all that is
+# left to do. An existing connection is kept, which is what makes re-running
+# this script an update rather than a fresh sign-in.
+$credentials = Join-Path $env:USERPROFILE '.proofboard\credentials.json'
+if (Test-Path $credentials) {
+    Write-Host 'Career Agent is already connected.' -ForegroundColor Green
+} else {
+    & $ExePath auth
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Run 'proofboard auth' when you are ready to connect your Career Agent."
+    }
+}
+
+# Pick up the project this was installed from, so a workspace that is already
+# open is detected without waiting for the next terminal.
+& $ExePath detect 2>&1 | Out-Null
 
 Write-Host 'Proofboard Career Agent installed and running. Keep building software; Proofboard will handle the rest.' -ForegroundColor Green

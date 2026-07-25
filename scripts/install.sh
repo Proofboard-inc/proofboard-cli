@@ -26,7 +26,7 @@ set -e
 #   PROOFBOARD_SYSTEM_INSTALL       install for every account (needs sudo)
 
 REPO="Proofboard-inc/proofboard-cli"
-PINNED_VERSION="v1.8.15"
+PINNED_VERSION="v1.8.16"
 PUBLIC_DOWNLOAD_HOST="https://releases.proofboard.io"
 
 log() {
@@ -234,6 +234,24 @@ fi
 if [ -x "$INSTALL_PATH" ]; then
     printf 'y\n' | "$INSTALL_PATH" completion ||
         log "Shell completions could not be installed automatically. Run: proofboard completion"
+fi
+
+# Connect the Career Agent straight away, so opening a project is all that is
+# left to do. An existing connection is kept, which is what makes re-running
+# this script an update rather than a fresh sign-in.
+if [ -x "$INSTALL_PATH" ]; then
+    if [ -f "${HOME}/.proofboard/credentials.json" ]; then
+        log "Career Agent is already connected."
+    elif [ ! -t 0 ] && ! (exec </dev/tty) 2>/dev/null; then
+        log "Run 'proofboard auth' to connect your Career Agent."
+    else
+        [ -t 0 ] || exec </dev/tty
+        "$INSTALL_PATH" auth || log "Run 'proofboard auth' when you are ready to connect your Career Agent."
+    fi
+
+    # Pick up the project this was installed from, so a workspace that is
+    # already open is detected without waiting for the next shell.
+    "$INSTALL_PATH" detect >/dev/null 2>&1 || true
 fi
 
 log "Proofboard Career Agent installed and running. Keep building software; Proofboard will handle the rest."

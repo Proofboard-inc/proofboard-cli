@@ -42,32 +42,36 @@ func TestResolveAuthorizationURLPrefersCareerAgentRoute(t *testing.T) {
 	}
 }
 
-func TestResolveAuthorizationURLFallsBackWhileCareerAgentRouteIsMissing(t *testing.T) {
-	preferredServer := httptest.NewServer(http.NotFoundHandler())
-	t.Cleanup(preferredServer.Close)
-	fallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestResolveAuthorizationURLAlwaysReturnsTheConfiguredPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Authorize Proofboard Career Agent"))
 	}))
-	t.Cleanup(fallbackServer.Close)
-	service := NewService(CredentialStore{}, api.Client{}, preferredServer.URL+"/agent/cli-auth")
-	fallbackURL := fallbackServer.URL + "/cli-auth?code=ABCD-1234"
-	got, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", fallbackURL)
+	t.Cleanup(server.Close)
+	service := NewService(CredentialStore{}, api.Client{}, server.URL+"/cli-auth")
+
+	got, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", "")
 	if err != nil {
 		t.Fatalf("resolveAuthorizationURL() error: %v", err)
 	}
-	if got != fallbackURL {
+	if got != server.URL+"/cli-auth?code=ABCD-1234" {
 		t.Fatalf("resolveAuthorizationURL() = %q", got)
 	}
 }
 
-func TestResolveAuthorizationURLRejectsSoftNotFoundPage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`<title>404: This page could not be found.</title>`))
-	}))
-	t.Cleanup(server.Close)
-	service := NewService(CredentialStore{}, api.Client{}, server.URL+"/agent/cli-auth")
-	if _, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", server.URL+"/cli-auth"); err == nil {
-		t.Fatal("expected soft 404 authorization page to be rejected")
+func TestResolveAuthorizationURLDoesNotBlockOnAnUnreachablePage(t *testing.T) {
+	// A page that cannot be reached, or one that carries not-found text in its
+	// payload, must still be handed over: refusing to open it is what stopped
+	// engineers from connecting at all.
+	unreachable := httptest.NewServer(http.NotFoundHandler())
+	unreachable.Close()
+	service := NewService(CredentialStore{}, api.Client{}, unreachable.URL+"/cli-auth")
+
+	got, err := service.resolveAuthorizationURL(context.Background(), "ABCD-1234", "")
+	if err != nil {
+		t.Fatalf("an unreachable page must not fail the connection: %v", err)
+	}
+	if got != unreachable.URL+"/cli-auth?code=ABCD-1234" {
+		t.Fatalf("resolveAuthorizationURL() = %q", got)
 	}
 }
 

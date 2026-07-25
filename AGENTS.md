@@ -13,7 +13,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard Career Agent v1.8.15
+Proofboard Career Agent v1.8.16
 
 Implementation language: Go 1.21+
 
@@ -176,6 +176,16 @@ Windows amd64 (proofboard-windows-amd64.exe)
 Static binaries only.
 
 CRITICAL DIRECTIVE: When cutting a new release, you MUST strictly build the full cross-compilation matrix (GOOS/GOARCH) for all 4 targets listed above and upload all 4 explicit binaries to the GitHub release. Do not merely upload the local environment's binary.
+
+Every release MUST carry the complete artifact set:
+
+* All 4 static binaries, each with its detached `.sig`
+* `checksums.txt` and `latest.json`
+* Native installers: `.deb` (Linux), both `.pkg` (macOS amd64 and arm64), and the Windows `-setup.exe`
+* The npm package tarball
+* The install scripts: `install.sh` (Linux and macOS), `install.ps1` and `install.cmd` (Windows)
+
+The install scripts are part of the release, not an afterthought: they resolve the latest release, verify the signature or checksum, install into the current account without administrator access, connect the Career Agent, and run workspace detection.
 
 ## Backend Repository
 https://github.com/Proofboard-inc/proofboard-backend

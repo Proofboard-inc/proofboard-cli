@@ -105,16 +105,16 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	}
 }
 
-func (s Service) resolveAuthorizationURL(ctx context.Context, userCode, fallbackURL string) (string, error) {
-	preferredURL := s.authorizationURL(userCode)
-	if authorizationPageAvailable(ctx, preferredURL) {
-		return preferredURL, nil
+// resolveAuthorizationURL returns the page the engineer is sent to. The
+// configured address is used as given: a reachability check must never stand
+// between someone and connecting their Career Agent, so an unreachable page is
+// reported and the address is still handed over.
+func (s Service) resolveAuthorizationURL(ctx context.Context, userCode, _ string) (string, error) {
+	authorizationURL := s.authorizationURL(userCode)
+	if !authorizationPageAvailable(ctx, authorizationURL) {
+		fmt.Printf("The Proofboard authorization page did not respond. Open this address to finish connecting:\n%s\n\n", authorizationURL)
 	}
-	fallbackURL = strings.TrimSpace(fallbackURL)
-	if fallbackURL != "" && fallbackURL != preferredURL && authorizationPageAvailable(ctx, fallbackURL) {
-		return fallbackURL, nil
-	}
-	return "", fmt.Errorf("proofboard authorization page is unavailable; try Reconnect again shortly")
+	return authorizationURL, nil
 }
 
 func authorizationPageAvailable(ctx context.Context, candidateURL string) bool {
@@ -135,17 +135,47 @@ func authorizationPageAvailable(ctx context.Context, candidateURL string) bool {
 	if err != nil {
 		return false
 	}
-	lowerBody := strings.ToLower(string(body))
-	for _, notFoundMarker := range []string{
+	return !pageIsNotFound(string(body))
+}
+
+// pageIsNotFound recognises a page that answered 200 but is really a "not
+// found" page. Only the document title is examined: single page applications
+// ship their not-found text inside every page they serve, so searching the
+// whole document rejects working pages.
+func pageIsNotFound(body string) bool {
+	title := documentTitle(body)
+	if title == "" {
+		return strings.Contains(strings.ToLower(body), "deployment_not_found")
+	}
+	for _, marker := range []string{
 		"this page could not be found",
-		"next_http_error_fallback;404",
+		"404",
+		"not found",
 		"deployment_not_found",
 	} {
-		if strings.Contains(lowerBody, notFoundMarker) {
-			return false
+		if strings.Contains(title, marker) {
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+func documentTitle(body string) string {
+	lower := strings.ToLower(body)
+	start := strings.Index(lower, "<title")
+	if start < 0 {
+		return ""
+	}
+	open := strings.Index(lower[start:], ">")
+	if open < 0 {
+		return ""
+	}
+	start += open + 1
+	end := strings.Index(lower[start:], "</title>")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(lower[start : start+end])
 }
 
 func (s Service) authorizationURL(deviceCode string) string {
