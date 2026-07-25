@@ -34,6 +34,7 @@ type Result struct {
 	SuggestedAction string `json:"suggestedAction,omitempty"`
 	Reason          string `json:"reason,omitempty"`
 	Suppressed      bool   `json:"suppressed"`
+	AlreadyPrompted bool   `json:"alreadyPrompted"`
 	Linked          bool   `json:"linked"`
 	OutOfDate       bool   `json:"outOfDate"`
 	MetadataChanged bool   `json:"metadataChanged"`
@@ -84,6 +85,15 @@ func Inspect(ctx context.Context, homeDir, workspacePath, editor string) (Result
 	repoState, linked := stateData.LinkedRepos[identity.RepoHash]
 	result.Linked = linked
 	if !linked {
+		// The connection prompt is offered once per workspace. Editors open a
+		// new shell for every terminal tab, so prompting on each inspection
+		// would re-ask the same question all day.
+		if statestore.WasWorkspacePrompted(stateData, absWorkspace) {
+			result.Action = ActionNone
+			result.AlreadyPrompted = true
+			result.Reason = "connection prompt already offered for this workspace"
+			return result, nil
+		}
 		result.Action = ActionLink
 		result.SuggestedAction = "Sync Project"
 		result.Reason = "project is not connected"

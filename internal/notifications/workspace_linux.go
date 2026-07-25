@@ -14,7 +14,8 @@ import (
 func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 	conn, err := dbus.SessionBus()
 	if err != nil {
-		return nil
+		// A machine without a desktop session has nowhere to show this.
+		return fmt.Errorf("connect to the desktop session bus: %w", err)
 	}
 	defer conn.Close()
 
@@ -54,7 +55,7 @@ func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 		}),
 	)
 	if err != nil {
-		return nil
+		return fmt.Errorf("create desktop notifier: %w", err)
 	}
 	defer notifier.Close()
 
@@ -66,7 +67,7 @@ func showWorkspaceAction(ctx context.Context, action WorkspaceAction) error {
 		ExpireTimeout: 30 * time.Second,
 	})
 	if err != nil {
-		return nil
+		return fmt.Errorf("send desktop notification: %w", err)
 	}
 
 	select {

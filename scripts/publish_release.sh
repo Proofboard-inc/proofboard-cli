@@ -21,6 +21,7 @@ dist/Proofboard-Career-Agent-darwin-arm64.pkg
 dist/Proofboard-Career-Agent-windows-amd64-setup.exe
 dist/install.sh
 dist/install.ps1
+dist/install.cmd
 dist/latest.json
 dist/checksums.txt
 "

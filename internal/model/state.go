@@ -8,6 +8,7 @@ type State struct {
 	AutoUpdateDictionary      bool                       `json:"autoUpdateDictionary"`
 	LastDictionaryUpdateCheck time.Time                  `json:"lastDictionaryUpdateCheck,omitempty"`
 	SuppressedWorkspaces      []string                   `json:"suppressedWorkspaces"`
+	PromptedWorkspaces        map[string]time.Time       `json:"promptedWorkspaces,omitempty"`
 	MonthlyCareerSummaryShown map[string]bool            `json:"monthlyCareerSummaryShown"`
 	DictionaryVersion         string                     `json:"dictionaryVersion,omitempty"`
 	FirstRunSetupComplete     bool                       `json:"firstRunSetupComplete"`

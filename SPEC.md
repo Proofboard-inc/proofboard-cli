@@ -1,6 +1,6 @@
 Updated spec:
 
-# Proofboard Career Agent — Product & UX Override (v1.8.14)
+# Proofboard Career Agent — Product & UX Override (v1.8.15)
 
 This section supersedes older user-facing terminology and the earlier “no persistent process” decision below. The open-source Go executable and NDA-safe eight-phase pipeline remain the implementation; the product presented to engineers is **Proofboard Career Agent**.
 
@@ -138,7 +138,7 @@ Spec
 Direct download
 Hosted at releases.proofboard.io/{version}/{binary-name}. OS-detected download link shown on CLI install screen in the web app.
 Install script
-curl -fsSL https://releases.proofboard.io/install.sh | sh — detects OS and architecture, downloads correct binary, places in /usr/local/bin.
+curl -fsSL https://releases.proofboard.io/install.sh | sh — detects OS and architecture, downloads correct binary, and installs it into the current account (~/.local/bin, or %LOCALAPPDATA%\Programs\Proofboard on Windows) so no administrator access is required. Set PROOFBOARD_SYSTEM_INSTALL=1 for a machine-wide install into /usr/local/bin.
 Homebrew (macOS)
 brew install proofboard/tap/proofboard — Phase 2.
 apt/deb (Linux)

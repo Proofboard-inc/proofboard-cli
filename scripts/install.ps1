@@ -1,81 +1,241 @@
+#Requires -Version 5.1
+<#
+    Proofboard Career Agent installation script for Windows.
+
+    Usage:
+        irm https://releases.proofboard.io/install.ps1 | iex
+
+    The script resolves the latest published release, verifies the release
+    checksum, and then hands over to the Career Agent's own installer so the
+    global executable and the background agent are registered the same way as a
+    manual `proofboard install`. The install goes into the current account, so
+    no administrator access is required. Set PROOFBOARD_SYSTEM_INSTALL=1 to
+    install for every account instead, which prompts for administrator access
+    through UAC.
+
+    Releases are read from the Git repository. While that repository is private,
+    a token is required: set PROOFBOARD_GITHUB_TOKEN (GH_TOKEN and GITHUB_TOKEN
+    are also honoured). Without a token the script falls back to the public
+    download host.
+
+    Environment overrides (used by release verification and by pinned installs):
+        PROOFBOARD_VERSION              install a specific tag instead of the latest
+        PROOFBOARD_GITHUB_TOKEN         token used to read releases from the repository
+        PROOFBOARD_LATEST_RELEASE_URL   release manifest URL
+        PROOFBOARD_DOWNLOAD_BASE_URL    directory URL holding the release artifacts
+        PROOFBOARD_INSTALL_VERIFY_ONLY  download and verify, then stop
+        PROOFBOARD_SYSTEM_INSTALL       install for every account (needs UAC)
+        PROOFBOARD_INSTALL_DIR          install into a specific directory
+#>
+
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-Write-Host "Installing Proofboard Career Agent..." -ForegroundColor Cyan
-
-$Arch = (Get-WmiObject Win32_OperatingSystem).OSArchitecture
-if ($Arch -ne "64-bit") {
-    Write-Error "Unsupported architecture: $Arch. Only 64-bit is supported."
-    exit 1
-}
-
-$BinaryName = "proofboard-windows-amd64.exe"
-$InstallDir = "$env:ProgramFiles\Proofboard"
-$ExePath = "$InstallDir\proofboard.exe"
-
-# Determine latest version
-$LatestReleaseUrl = if ($env:PROOFBOARD_LATEST_RELEASE_URL) { $env:PROOFBOARD_LATEST_RELEASE_URL } else { "https://releases.proofboard.io/latest.json" }
-$LatestVersion = ""
-$DownloadBaseUrl = ""
-
-try {
-    $ReleaseData = Invoke-RestMethod -Uri $LatestReleaseUrl -ErrorAction Stop
-    $LatestVersion = $ReleaseData.version
-    $DownloadBaseUrl = $ReleaseData.url
-} catch {
-    Write-Warning "Failed to fetch the latest release manifest, using fallback version."
-    $LatestVersion = "v1.8.14"
-}
-
-if ($LatestVersion.StartsWith("v")) {
-    $ReleaseTag = $LatestVersion
+$Repo = 'Proofboard-inc/proofboard-cli'
+$PinnedVersion = 'v1.8.15'
+$PublicDownloadHost = 'https://releases.proofboard.io'
+$BinaryName = 'proofboard-windows-amd64.exe'
+$SystemInstall = $env:PROOFBOARD_SYSTEM_INSTALL -eq '1'
+$InstallDir = if ($env:PROOFBOARD_INSTALL_DIR) {
+    $env:PROOFBOARD_INSTALL_DIR
+} elseif ($SystemInstall) {
+    Join-Path $env:ProgramFiles 'Proofboard'
 } else {
-    $ReleaseTag = "v$LatestVersion"
+    Join-Path $env:LOCALAPPDATA 'Programs\Proofboard'
 }
-if ([string]::IsNullOrWhiteSpace($DownloadBaseUrl)) {
-    $DownloadBaseUrl = if ($env:PROOFBOARD_DOWNLOAD_BASE_URL) { $env:PROOFBOARD_DOWNLOAD_BASE_URL } else { "https://releases.proofboard.io/$ReleaseTag" }
-}
-$DownloadUrl = "$DownloadBaseUrl/$BinaryName"
-$ChecksumsUrl = "$DownloadBaseUrl/checksums.txt"
+$ExePath = Join-Path $InstallDir 'proofboard.exe'
+$CompletionMarker = '# Proofboard Career Agent completions'
+$CompletionCommand = 'proofboard completion powershell | Out-String | Invoke-Expression'
 
-Write-Host "Downloading $BinaryName $LatestVersion..." -ForegroundColor Cyan
+function Test-Administrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-RepositoryToken {
+    foreach ($candidate in @($env:PROOFBOARD_GITHUB_TOKEN, $env:GH_TOKEN, $env:GITHUB_TOKEN)) {
+        if ($candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Get-RequestHeaders {
+    param([string]$Token, [string]$Accept = 'application/vnd.github+json')
+
+    $headers = @{ 'User-Agent' = 'proofboard-installer'; 'Accept' = $Accept }
+    if ($Token) { $headers['Authorization'] = "Bearer $Token" }
+    return $headers
+}
+
+Write-Host 'Installing Proofboard Career Agent...' -ForegroundColor Cyan
+
+if (-not [Environment]::Is64BitOperatingSystem) {
+    throw 'Unsupported architecture. The Proofboard Career Agent requires 64-bit Windows.'
+}
+
+# Resolve the release to install. An explicit download base short-circuits every
+# remote lookup so pinned and offline installs stay deterministic.
+$ReleaseTag = $env:PROOFBOARD_VERSION
+$Release = $null
+$ReleaseSource = 'download-host'
+$DownloadBaseUrl = $env:PROOFBOARD_DOWNLOAD_BASE_URL
+$Token = $null
+
+if (-not $DownloadBaseUrl) {
+    $Token = Get-RepositoryToken
+
+    # Primary source: the release published on the Git repository.
+    $releasePath = if ($ReleaseTag) { "tags/$ReleaseTag" } else { 'latest' }
+    try {
+        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/$releasePath" `
+            -Headers (Get-RequestHeaders -Token $Token) -ErrorAction Stop
+    } catch {
+        Write-Verbose "Could not read the release from the repository: $_"
+        $Release = $null
+    }
+
+    if ($Release -and $Release.tag_name) {
+        $ReleaseTag = $Release.tag_name
+        $ReleaseSource = 'repository'
+    } else {
+        # Secondary source: the release manifest served by the download host.
+        $manifestUrl = if ($env:PROOFBOARD_LATEST_RELEASE_URL) {
+            $env:PROOFBOARD_LATEST_RELEASE_URL
+        } else {
+            "$PublicDownloadHost/latest.json"
+        }
+        try {
+            $manifest = Invoke-RestMethod -Uri $manifestUrl -ErrorAction Stop
+            if (-not $ReleaseTag -and $manifest.version) { $ReleaseTag = $manifest.version }
+            if ($manifest.url) { $DownloadBaseUrl = $manifest.url }
+        } catch {
+            Write-Verbose "Could not read the release manifest: $_"
+        }
+    }
+}
+
+if (-not $ReleaseTag) {
+    Write-Warning "Could not resolve the latest release; falling back to $PinnedVersion."
+    $ReleaseTag = $PinnedVersion
+}
+if (-not $ReleaseTag.StartsWith('v')) {
+    $ReleaseTag = "v$ReleaseTag"
+}
+if ($ReleaseSource -ne 'repository' -and -not $DownloadBaseUrl) {
+    $DownloadBaseUrl = "$PublicDownloadHost/$ReleaseTag"
+}
+
+function Save-ReleaseAsset {
+    param([string]$Name, [string]$Destination)
+
+    if ($ReleaseSource -eq 'repository') {
+        $asset = $Release.assets | Where-Object { $_.name -eq $Name } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Release $ReleaseTag does not contain $Name."
+        }
+        Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/releases/assets/$($asset.id)" `
+            -OutFile $Destination -UseBasicParsing `
+            -Headers (Get-RequestHeaders -Token $Token -Accept 'application/octet-stream') -ErrorAction Stop
+    } else {
+        Invoke-WebRequest -Uri "$DownloadBaseUrl/$Name" -OutFile $Destination -UseBasicParsing -ErrorAction Stop
+    }
+}
+
+Write-Host "Downloading $BinaryName $ReleaseTag..." -ForegroundColor Cyan
 $TempBinary = Join-Path ([System.IO.Path]::GetTempPath()) "proofboard-$([guid]::NewGuid()).exe"
 $TempChecksums = Join-Path ([System.IO.Path]::GetTempPath()) "proofboard-$([guid]::NewGuid()).checksums"
+$Installed = $false
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempBinary -ErrorAction Stop
-    Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $TempChecksums -ErrorAction Stop
-    $ExpectedHashLine = Get-Content $TempChecksums | Where-Object { $_ -match "[ *]$([regex]::Escape($BinaryName))$" } | Select-Object -First 1
+    Save-ReleaseAsset -Name $BinaryName -Destination $TempBinary
+    Save-ReleaseAsset -Name 'checksums.txt' -Destination $TempChecksums
+
+    $ExpectedHashLine = Get-Content $TempChecksums |
+        Where-Object { $_ -match "[ *]$([regex]::Escape($BinaryName))$" } |
+        Select-Object -First 1
     if (-not $ExpectedHashLine) {
         throw "Release checksums do not contain $BinaryName."
     }
     $ExpectedHash = ($ExpectedHashLine -split '\s+')[0].ToLowerInvariant()
     $ActualHash = (Get-FileHash -Algorithm SHA256 $TempBinary).Hash.ToLowerInvariant()
     if ($ActualHash -ne $ExpectedHash) {
-        throw "Proofboard release checksum verification failed."
+        throw 'Proofboard release checksum verification failed.'
     }
-    if ($env:PROOFBOARD_INSTALL_VERIFY_ONLY -eq "1") {
-        Write-Host "Proofboard Career Agent $LatestVersion checksum verified." -ForegroundColor Green
+
+    if ($env:PROOFBOARD_INSTALL_VERIFY_ONLY -eq '1') {
+        Write-Host "Proofboard Career Agent $ReleaseTag checksum verified." -ForegroundColor Green
         return
     }
-    if (-not (Test-Path -Path $InstallDir)) {
-        New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+
+    # Install (or replace) the executable and register the background agent.
+    # This installs into the current account and needs no administrator access,
+    # which keeps the Career Agent installable on managed machines where
+    # administrator details are not handed out. A machine-wide install stays
+    # available for anyone who wants it.
+    if ($SystemInstall -and -not (Test-Administrator)) {
+        Write-Host "A machine-wide install needs administrator access." -ForegroundColor Yellow
+        try {
+            $process = Start-Process -FilePath $TempBinary -ArgumentList 'install', '--system' `
+                -Verb RunAs -Wait -PassThru -ErrorAction Stop
+        } catch {
+            throw 'Administrator access was not granted. Unset PROOFBOARD_SYSTEM_INSTALL to install into your own account instead.'
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "Proofboard Career Agent installation failed with exit code $($process.ExitCode)."
+        }
+        # The background agent belongs to the signed-in user, not to the
+        # administrator account that performed the machine-wide install.
+        & $ExePath agent enable
+    } else {
+        $arguments = @('install')
+        if ($SystemInstall) { $arguments += '--system' }
+        & $TempBinary @arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Proofboard Career Agent installation failed with exit code $LASTEXITCODE."
+        }
     }
-    Move-Item -Force $TempBinary $ExePath
+    $Installed = $true
 } finally {
     Remove-Item -Force -ErrorAction SilentlyContinue $TempBinary
     Remove-Item -Force -ErrorAction SilentlyContinue $TempChecksums
 }
 
-# Add to PATH if not already present
-$CurrentPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
-if ($CurrentPath -notmatch [regex]::Escape($InstallDir)) {
-    Write-Host "Adding $InstallDir to system PATH..." -ForegroundColor Cyan
-    $NewPath = $CurrentPath + ";$InstallDir"
-    [Environment]::SetEnvironmentVariable("Path", $NewPath, [EnvironmentVariableTarget]::Machine)
+if (-not $Installed) {
+    return
 }
 
-& $ExePath agent enable
-if ($LASTEXITCODE -ne 0) {
-    throw "Proofboard Career Agent could not be registered."
+# Make the executable resolvable in this session too, since the machine PATH
+# entry added by the installer only reaches newly started processes.
+if ($env:Path -notmatch [regex]::Escape($InstallDir)) {
+    $env:Path = "$env:Path;$InstallDir"
 }
 
-Write-Host "Proofboard Career Agent installed and running. Keep building software; Proofboard will handle the rest." -ForegroundColor Green
+# Install (or refresh) shell completions for the signed-in user. The completion
+# script is regenerated on each session start, so it always matches the
+# installed Career Agent. This is a convenience step: a failure here must not
+# fail the installation.
+try {
+    & $ExePath completion powershell | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "completion generation exited with code $LASTEXITCODE"
+    }
+
+    $profilePath = $PROFILE.CurrentUserAllHosts
+    $profileDir = Split-Path -Parent $profilePath
+    if (-not (Test-Path $profileDir)) {
+        New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+    }
+
+    $existing = if (Test-Path $profilePath) { Get-Content $profilePath -Raw } else { '' }
+    if ($existing -notmatch [regex]::Escape($CompletionMarker)) {
+        Add-Content -Path $profilePath -Value "`n$CompletionMarker`n$CompletionCommand`n"
+        Write-Host "Shell completions installed to $profilePath." -ForegroundColor Green
+    } else {
+        Write-Host "Shell completions are already installed in $profilePath." -ForegroundColor Green
+    }
+} catch {
+    Write-Warning "Shell completions could not be installed automatically: $_"
+    Write-Warning 'Run: proofboard completion powershell'
+}
+
+Write-Host 'Proofboard Career Agent installed and running. Keep building software; Proofboard will handle the rest.' -ForegroundColor Green
