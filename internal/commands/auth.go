@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -33,14 +34,18 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("auth login: %w", err)
 			}
+			// Registering this machine's signing key is what lets the service
+			// tell a real Career Agent from a replayed payload. It is not a
+			// reason to fail a connection that already succeeded: the key is
+			// registered again on the next synchronization.
 			keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
-			deviceKey, err := keyStore.Ensure(ctx, runtime.api, credentials.Token, rotateKey)
-			if err != nil {
-				return fmt.Errorf("ensure device key: %w", err)
-			}
-			credentials.DeviceKeyID = deviceKey.DeviceKeyID
-			if err := runtime.credentials.Save(ctx, credentials); err != nil {
-				return fmt.Errorf("persist device key id: %w", err)
+			if deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, credentials.Token, rotateKey); keyErr != nil {
+				_ = logging.WriteSyncLog(runtime.homeDir, "", "auth", "register device key", "warning", keyErr.Error())
+			} else {
+				credentials.DeviceKeyID = deviceKey.DeviceKeyID
+				if err := runtime.credentials.Save(ctx, credentials); err != nil {
+					return fmt.Errorf("persist device key id: %w", err)
+				}
 			}
 			if current, loadErr := runtime.state.Load(ctx); loadErr == nil {
 				current.AuthReconnectPrompted = false

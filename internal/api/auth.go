@@ -40,7 +40,7 @@ type DeviceKeyRegistrationResponse struct {
 
 func (c Client) CreateDeviceCode(ctx context.Context) (DeviceCodeResponse, error) {
 	var parsed DeviceCodeResponse
-	if err := c.requestJSON(ctx, http.MethodPost, "/api/v1/cli/auth/device-code", "", nil, map[string]string{}, &parsed); err != nil {
+	if err := c.requestJSON(ctx, http.MethodPost, "/api/v1/cli/auth/device-code", "", nil, nil, &parsed); err != nil {
 		return DeviceCodeResponse{}, err
 	}
 	return parsed, nil
