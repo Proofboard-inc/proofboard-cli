@@ -4,6 +4,10 @@ Thin npm launcher for the signed native
 [Proofboard Career Agent](https://github.com/Proofboard-inc/proofboard-cli)
 release.
 
+For installation, authentication, command reference, privacy architecture,
+local files, development, and release documentation, read the
+[full repository README](https://github.com/Proofboard-inc/proofboard-cli#readme).
+
 Every argument is forwarded unchanged to the real Go executable. The package
 does not reimplement, simulate, or mock Proofboard commands.
 
