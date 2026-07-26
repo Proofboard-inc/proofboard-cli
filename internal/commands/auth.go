@@ -69,18 +69,12 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 func newAuthLogoutCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Revoke Proofboard sessions and remove local credentials",
+		Short: "Remove local Proofboard credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("auth logout: %w", err)
-			}
-			credentials, loadErr := runtime.credentials.Load(ctx)
-			if loadErr == nil && credentials.Token != "" {
-				if err := runtime.api.RevokeCLISessions(ctx, credentials.Token); err != nil {
-					return fmt.Errorf("revoke Proofboard sessions: %w", err)
-				}
 			}
 			if err := runtime.credentials.Delete(ctx); err != nil {
 				return err
@@ -94,7 +88,7 @@ func newAuthLogoutCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("persist logged-out state: %w", err)
 				}
 			}
-			_, err = fmt.Fprintln(out, "Proofboard session revoked and local credentials removed.")
+			_, err = fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out.")
 			return err
 		},
 	}
