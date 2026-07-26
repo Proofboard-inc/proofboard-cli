@@ -33,7 +33,7 @@ for FILE in $REQUIRED_FILES; do
   fi
 done
 
-NPM_PACKAGES=(dist/proofboard-agent-*.tgz)
+NPM_PACKAGES=(dist/proofboard-cli-*.tgz)
 if [ "${#NPM_PACKAGES[@]}" -ne 1 ]; then
   echo "Expected exactly one npm release package, found ${#NPM_PACKAGES[@]}." >&2
   exit 1

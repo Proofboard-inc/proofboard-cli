@@ -134,12 +134,25 @@ function verifyBinarySignature(binaryPath, signaturePath, publicKey = RELEASE_PU
 }
 
 async function ensureBinary(options = {}) {
+    const binaryName = options.binaryName || getBinaryName(options.platform, options.arch);
+    const bundledDir = options.bundledDir || path.join(__dirname, 'vendor');
+    const bundledBinaryPath = path.join(bundledDir, binaryName);
+    const bundledSignaturePath = `${bundledBinaryPath}.sig`;
+    if (fs.existsSync(bundledBinaryPath) && fs.existsSync(bundledSignaturePath)) {
+        verifyBinarySignature(bundledBinaryPath, bundledSignaturePath, options.publicKey);
+        fs.chmodSync(bundledBinaryPath, 0o755);
+        return {
+            binaryPath: bundledBinaryPath,
+            version: options.version || DEFAULT_VERSION,
+            binaryName,
+        };
+    }
+
     const release = options.version ? {
         version: options.version,
         url: options.releaseBaseUrl || `https://proofboard.io/${options.version.startsWith('v') ? options.version : `v${options.version}`}`,
     } : await getLatestReleaseInfo(options.releasesUrl);
     const version = release.version;
-    const binaryName = options.binaryName || getBinaryName(options.platform, options.arch);
     const cacheDir = options.cacheDir || path.join(os.homedir(), '.proofboard', 'bin', version);
     const binaryPath = path.join(cacheDir, binaryName);
     const signaturePath = `${binaryPath}.sig`;
