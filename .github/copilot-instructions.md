@@ -54,6 +54,9 @@ tokens, raw emails, repository names, or shredded proprietary data.
 Keep authentication, repository setup, workspace detection, and synchronization
 automatic. Installation must register and start the background agent. Preserve
 the three workspace choices and suppression semantics documented in README.
+Keep project detection and synchronization repository-agnostic: provider
+tooling, repository visibility, and public-provider signals must never become
+user-facing requirements or block local analysis.
 
 Use `Proofboard Career Agent` as the user-facing name. Do not present `CLI`,
 `auth`, `link`, or `sync` as required product concepts.

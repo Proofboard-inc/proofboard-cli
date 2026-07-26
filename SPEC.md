@@ -28,14 +28,22 @@ The code is prefilled. After the user authorizes in the browser, the agent secur
 
 The Career Agent watches supported IDE processes and workspace arguments. A newly opened, unsuppressed Git repository surfaces:
 
-> New repository detected.
-> Would you like Proofboard to track this project?
+> Project detected.
+> Would you like to add this project to your career record?
 
 Actions:
 
 - **Sync Project** — creates a project if necessary, connects the repository, performs its first sync, installs activity hooks, and begins continuous tracking.
 - **Not Now** — dismisses for the current agent session.
 - **Never Ask Again** — stores the local workspace suppression and does not prompt again.
+
+This flow is identical for public and private repositories on GitHub, GitLab,
+and Bitbucket. The Career Agent decides visibility and enrichment internally:
+public GitHub repositories may use available GitHub contribution signals;
+private repositories and other providers use local analysis only. Provider
+tooling and provider signals are optional and never block linking or syncing.
+Local ingest requires an exact normalized match with `git config user.email`;
+the authenticated identity hash remains part of the server-validated payload.
 
 Already tracked repositories do not prompt. If their HEAD or one-way local repository-metadata fingerprint differs from the last successful sync, the agent synchronizes them automatically. The metadata fingerprint covers provider/org/repository hashes, remote refs, and the default remote branch; raw names are never persisted or transmitted. Post-commit, post-merge, and post-rewrite hooks provide additional event-driven synchronization.
 

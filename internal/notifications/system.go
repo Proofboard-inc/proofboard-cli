@@ -118,10 +118,10 @@ func notificationTypeTitle(notificationType string) string {
 	return "Proofboard notification"
 }
 
-func NewProjectDetected(projectName string) Event {
+func NewProjectDetected(_ string) Event {
 	return Event{
-		Title:           "New repository detected",
-		Body:            fmt.Sprintf("%s\nWould you like Proofboard to track this project? Processing stays local and no proprietary source code leaves your computer.", projectName),
+		Title:           "Project detected",
+		Body:            "Would you like to add this project to your career record?",
 		PrimaryAction:   "Sync Project",
 		SecondaryAction: "Not Now / Never Ask Again",
 	}

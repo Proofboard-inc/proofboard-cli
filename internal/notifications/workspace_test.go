@@ -45,7 +45,10 @@ func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 }
 
 func TestWorkspaceActionLabelsExposeThreeChoices(t *testing.T) {
-	_, _, primary, secondary, tertiary := workspaceActionLabels("link")
+	title, body, primary, secondary, tertiary := workspaceActionLabels("link")
+	if title != "Project detected" || body != "Would you like to add this project to your career record?" {
+		t.Fatalf("unexpected repository-agnostic prompt: %q / %q", title, body)
+	}
 	if primary != "Sync Project" || secondary != "Not Now" || tertiary != "Never Ask Again" {
 		t.Fatalf("unexpected choices: %q, %q, %q", primary, secondary, tertiary)
 	}

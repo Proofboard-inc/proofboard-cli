@@ -52,19 +52,6 @@ func loadRuntime(ctx context.Context) (runtimeContext, error) {
 	}, nil
 }
 
-func requiresProviderVerification(apiBaseURL string) bool {
-	parsed, err := url.Parse(apiBaseURL)
-	if err != nil || parsed.Scheme != "https" {
-		return false
-	}
-	switch strings.ToLower(parsed.Hostname()) {
-	case "api-dev.proofboard.io", "api.proofboard.io":
-		return true
-	default:
-		return false
-	}
-}
-
 func logPath(home string) string {
 	return filepath.Join(home, ".proofboard", "sync.log")
 }

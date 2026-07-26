@@ -55,19 +55,33 @@ func ParseRemote(raw string) (model.RemoteIdentity, error) {
 
 func parseRemoteParts(raw string) (string, string, string, error) {
 	if strings.HasPrefix(raw, "git@") {
-		re := regexp.MustCompile(`^git@([^:]+):([^/]+)/(.+)$`)
+		re := regexp.MustCompile(`^git@([^:]+):(.+)$`)
 		matches := re.FindStringSubmatch(raw)
-		if len(matches) == 4 {
-			return matches[1], matches[2], matches[3], nil
+		if len(matches) == 3 {
+			if org, repo, ok := splitRemotePath(matches[2]); ok {
+				return matches[1], org, repo, nil
+			}
 		}
 	}
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" {
 		cleaned := strings.TrimPrefix(path.Clean(parsed.Path), "/")
-		parts := strings.Split(cleaned, "/")
-		if len(parts) >= 2 {
-			return parsed.Host, parts[0], parts[1], nil
+		if org, repo, ok := splitRemotePath(cleaned); ok {
+			return parsed.Host, org, repo, nil
 		}
 	}
 	return "", "", "", fmt.Errorf("unsupported git remote URL")
+}
+
+func splitRemotePath(raw string) (string, string, bool) {
+	parts := strings.Split(strings.Trim(raw, "/"), "/")
+	if len(parts) < 2 {
+		return "", "", false
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return "", "", false
+		}
+	}
+	return strings.Join(parts[:len(parts)-1], "/"), parts[len(parts)-1], true
 }

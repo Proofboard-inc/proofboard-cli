@@ -93,7 +93,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
 			}
-			credentials, err := loadOrAuthCredentials(ctx, out, runtime)
+			_, err = loadOrAuthCredentials(ctx, out, runtime)
 			if err != nil {
 				return fmt.Errorf("authenticate: %w", err)
 			}
@@ -110,12 +110,6 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if requiresProviderVerification(runtime.config.APIBaseURL) {
-				if _, err := pbgit.VerifyProviderContribution(ctx, identity, credentials.Username); err != nil {
-					return fmt.Errorf("verify repository ownership or contribution: %w", err)
-				}
-			}
-
 			// Check if already linked locally and on backend
 			current, err := runtime.state.Load(ctx)
 			if err == nil {

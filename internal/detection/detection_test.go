@@ -75,6 +75,10 @@ func TestInspectDetectsLinkSyncAndNone(t *testing.T) {
 	if linkedRepo.SuggestedAction != "Sync Project" {
 		t.Fatalf("suggested action = %q, want Sync Project", linkedRepo.SuggestedAction)
 	}
+	wantPrompt := "Proofboard Career Agent: Project detected.\nWould you like to add this project to your career record?\nChoose Sync Project to continue."
+	if got := linkedRepo.HumanMessage(); got != wantPrompt {
+		t.Fatalf("HumanMessage() = %q, want %q", got, wantPrompt)
+	}
 
 	store := statestore.NewStore(homeDir)
 	stateData, err := store.Load(ctx)
