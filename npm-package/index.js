@@ -5,7 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const DEFAULT_VERSION = 'v1.9.2';
+const DEFAULT_VERSION = 'v1.9.3';
 const DEFAULT_RELEASES_URL = 'https://proofboard.io/latest.json';
 const GITHUB_LATEST_RELEASE_URL = 'https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download/latest.json';
 const RELEASE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----

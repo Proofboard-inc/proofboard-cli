@@ -26,7 +26,7 @@ set -e
 #   PROOFBOARD_SYSTEM_INSTALL       install for every account (needs sudo)
 
 REPO="Proofboard-inc/proofboard-cli"
-PINNED_VERSION="v1.9.2"
+PINNED_VERSION="v1.9.3"
 PUBLIC_DOWNLOAD_HOST="https://proofboard.io"
 
 log() {

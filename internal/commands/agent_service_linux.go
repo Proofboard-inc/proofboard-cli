@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 func installAgentService(executable string, out io.Writer) error {
@@ -24,10 +26,21 @@ func installAgentService(executable string, out io.Writer) error {
 	if err := os.WriteFile(servicePath, []byte(unit), 0o600); err != nil {
 		return fmt.Errorf("write systemd user service: %w", err)
 	}
-	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err == nil {
-		if err := exec.Command("systemctl", "--user", "enable", "--now", "proofboard-career-agent.service").Run(); err == nil {
-			_, _ = fmt.Fprintln(out, "Proofboard Career Agent registered to start when you sign in.")
-			return nil
+	if userSystemdAvailable() && exec.Command("systemctl", "--user", "daemon-reload").Run() == nil {
+		// An already-active unit keeps executing the old inode when the
+		// installed binary is atomically replaced. Stop it explicitly and
+		// restart the unit so installation always activates the new binary.
+		_ = exec.Command("systemctl", "--user", "stop", "proofboard-career-agent.service").Run()
+		if err := stopAgent(io.Discard); err != nil {
+			return fmt.Errorf("stop existing Career Agent: %w", err)
+		}
+		if err := exec.Command("systemctl", "--user", "enable", "proofboard-career-agent.service").Run(); err == nil {
+			if err := exec.Command("systemctl", "--user", "restart", "proofboard-career-agent.service").Run(); err == nil {
+				if waitForAgentStart(homeDir, 5*time.Second) {
+					_, _ = fmt.Fprintln(out, "Proofboard Career Agent registered to start when you sign in.")
+					return nil
+				}
+			}
 		}
 	}
 
@@ -39,6 +52,12 @@ func installAgentService(executable string, out io.Writer) error {
 	if err := os.WriteFile(filepath.Join(autostartDir, "proofboard-career-agent.desktop"), []byte(desktopEntry), 0o600); err != nil {
 		return fmt.Errorf("write desktop autostart entry: %w", err)
 	}
+	// Desktop autostart has no service manager to replace a running process.
+	// Stop the PID-managed instance before launching the freshly installed
+	// executable, otherwise it continues running the deleted old inode.
+	if err := stopAgent(io.Discard); err != nil {
+		return fmt.Errorf("stop existing Career Agent: %w", err)
+	}
 	cmd := exec.Command(executable, "agent", "run")
 	cmd.Stdin = nil
 	cmd.Stdout = nil
@@ -46,8 +65,33 @@ func installAgentService(executable string, out io.Writer) error {
 	if err := startDetachedCommand(cmd); err != nil {
 		return fmt.Errorf("start Career Agent: %w", err)
 	}
+	if !waitForAgentStart(homeDir, 5*time.Second) {
+		return fmt.Errorf("start Career Agent: process did not become active")
+	}
 	_, _ = fmt.Fprintln(out, "Proofboard Career Agent registered with desktop autostart.")
 	return nil
+}
+
+func userSystemdAvailable() bool {
+	output, err := exec.Command("systemctl", "--user", "show-environment").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	message := strings.ToLower(string(output))
+	return !strings.Contains(message, "systemd") || !strings.Contains(message, "not running")
+}
+
+func waitForAgentStart(homeDir string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if running, _ := agentRunning(homeDir); running {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func uninstallAgentService(out io.Writer) error {

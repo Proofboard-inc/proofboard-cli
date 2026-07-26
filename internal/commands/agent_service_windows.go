@@ -14,6 +14,10 @@ func installAgentService(executable string, out io.Writer) error {
 	if err := registerProtocolHandler(executable); err != nil {
 		return fmt.Errorf("register Career Agent notification actions: %w", err)
 	}
+	_ = exec.Command("schtasks", "/End", "/TN", agentTaskName).Run()
+	if err := stopAgent(io.Discard); err != nil {
+		return fmt.Errorf("stop existing Career Agent: %w", err)
+	}
 	command := fmt.Sprintf(`"%s" agent run`, executable)
 	if output, err := exec.Command("schtasks", "/Create", "/TN", agentTaskName, "/TR", command, "/SC", "ONLOGON", "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("register Career Agent scheduled task: %w: %s", err, output)

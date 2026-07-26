@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -132,7 +133,7 @@ func launchActionNotification(ctx context.Context, kind string) error {
 }
 
 func launchTargetActionNotification(ctx context.Context, kind, target, title string) error {
-	if os.Getenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS") == "1" {
+	if os.Getenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS") == "1" || !desktopNotificationsAvailable() {
 		return nil
 	}
 	execPath, err := os.Executable()
@@ -151,6 +152,15 @@ func launchTargetActionNotification(ctx context.Context, kind, target, title str
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return startDetachedCommand(cmd)
+}
+
+func desktopNotificationsAvailable() bool {
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("DBUS_SESSION_BUS_ADDRESS")) != "" ||
+		strings.TrimSpace(os.Getenv("DISPLAY")) != "" ||
+		strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")) != ""
 }
 
 func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runtimeContext) {

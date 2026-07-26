@@ -22,7 +22,7 @@ type updateCommandOptions struct {
 
 const (
 	proofboardReleaseBaseURL = "https://proofboard.io"
-	githubLatestReleaseURL   = "https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download"
+	proofboardGitHubRepo     = "Proofboard-inc/proofboard-cli"
 )
 
 func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
@@ -49,22 +49,34 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			}
 			releases := api.NewReleaseClient(runtimeContext.config.ReleaseBaseURL)
 			latest, err := releases.Latest(ctx, runtimeContext.config.LatestVersionPath)
+			var githubRelease api.GitHubRelease
 			if err != nil && strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/") == proofboardReleaseBaseURL {
 				// Keep proofboard.io as the canonical release origin, but allow
 				// updates to continue from the directly published GitHub assets
 				// when the root-domain manifest is temporarily unavailable.
-				githubReleases := api.NewReleaseClient(githubLatestReleaseURL)
-				latest, err = githubReleases.Latest(ctx, "latest.json")
+				githubRelease, err = api.LatestGitHubRelease(ctx, proofboardGitHubRepo)
 				if err == nil {
-					latest.URL = githubLatestReleaseURL
-					releases = githubReleases
+					manifestURL, found := githubRelease.AssetURL("latest.json")
+					if !found {
+						err = fmt.Errorf("GitHub latest release does not contain latest.json")
+					} else {
+						githubReleases := api.NewReleaseClient("https://api.github.com")
+						latest, err = githubReleases.Latest(ctx, manifestURL)
+						if err == nil {
+							releases = githubReleases
+						}
+					}
 				}
 			}
 			if err != nil {
 				return err
 			}
 			latestVersion := strings.TrimPrefix(latest.Version, "v")
-			if latestVersion == "" || latestVersion == version.Version {
+			versionComparison, err := compareDictionaryVersions(latestVersion, version.Version)
+			if err != nil {
+				return fmt.Errorf("compare Career Agent versions: %w", err)
+			}
+			if versionComparison <= 0 {
 				_, err := fmt.Fprintf(out, "Proofboard Career Agent is up to date (%s).\n", version.Version)
 				return err
 			}
@@ -78,10 +90,24 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 
 			// Clean/build download URL
 			downloadURL := strings.TrimSpace(latest.URL)
-			if downloadURL == "" {
+			signatureURL := ""
+			if len(githubRelease.Assets) > 0 {
+				var found bool
+				downloadURL, found = githubRelease.AssetURL(binaryName)
+				if !found {
+					return fmt.Errorf("GitHub latest release does not contain %s", binaryName)
+				}
+				signatureURL, found = githubRelease.AssetURL(binaryName + ".sig")
+				if !found {
+					return fmt.Errorf("GitHub latest release does not contain %s.sig", binaryName)
+				}
+			} else if downloadURL == "" {
 				downloadURL = fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/"), latest.Version, binaryName)
 			} else if !strings.HasSuffix(downloadURL, "/"+binaryName) {
 				downloadURL = strings.TrimSuffix(downloadURL, "/") + "/" + binaryName
+			}
+			if signatureURL == "" {
+				signatureURL = downloadURL + ".sig"
 			}
 
 			// Get current running executable path
@@ -113,7 +139,7 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 				return fmt.Errorf("create temp sig file: %w", err)
 			}
 			sigPath := sigFile.Name()
-			err = releases.Download(ctx, downloadURL+".sig", sigFile)
+			err = releases.Download(ctx, signatureURL, sigFile)
 			sigFile.Close()
 			if err != nil {
 				_ = os.Remove(tempPath)
