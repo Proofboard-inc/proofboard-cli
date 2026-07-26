@@ -55,3 +55,17 @@ func TestDiscoverIDEWorkspacesFromRunningProcess(t *testing.T) {
 		time.Sleep(25 * time.Millisecond)
 	}
 }
+
+func TestDesktopNotificationsRequireLinuxDesktopSession(t *testing.T) {
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	if desktopNotificationsAvailable() {
+		t.Fatal("desktop notifications reported available without a Linux desktop session")
+	}
+
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/tmp/proofboard-test-session-bus")
+	if !desktopNotificationsAvailable() {
+		t.Fatal("desktop notifications reported unavailable with a session bus")
+	}
+}
