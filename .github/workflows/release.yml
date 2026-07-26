@@ -220,8 +220,19 @@ jobs:
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
           cp scripts/install.cmd dist/install.cmd
+          mkdir -p npm-package/vendor
+          cp \
+            dist/proofboard-linux-amd64 \
+            dist/proofboard-linux-amd64.sig \
+            dist/proofboard-darwin-amd64 \
+            dist/proofboard-darwin-amd64.sig \
+            dist/proofboard-darwin-arm64 \
+            dist/proofboard-darwin-arm64.sig \
+            dist/proofboard-windows-amd64.exe \
+            dist/proofboard-windows-amd64.exe.sig \
+            npm-package/vendor/
           npm pack ./npm-package --pack-destination dist
-          test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-agent-*.tgz' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-cli-*.tgz' -print -quit)"
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
           printf '{"version":"%s","url":"https://proofboard.io/%s"}\n' \
             "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
@@ -242,7 +253,7 @@ jobs:
             install.sh \
             install.ps1 \
             install.cmd \
-            proofboard-agent-*.tgz \
+            proofboard-cli-*.tgz \
             latest.json > checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
@@ -277,7 +288,7 @@ jobs:
             dist/install.sh
             dist/install.ps1
             dist/install.cmd
-            dist/proofboard-agent-*.tgz
+            dist/proofboard-cli-*.tgz
             dist/latest.json
           fail_on_unmatched_files: true
 
@@ -295,7 +306,22 @@ jobs:
           PACKAGE_VERSION=$(node -p "require('./npm-package/package.json').version")
           test "v${PACKAGE_VERSION}" = "${GITHUB_REF_NAME}"
       - run: npm --prefix npm-package test
-      - name: Publish @proofboard/agent
+      - name: Stage signed release binaries in npm package
+        run: |
+          mkdir -p npm-package/vendor
+          gh release download "${GITHUB_REF_NAME}" \
+            --pattern 'proofboard-linux-amd64' \
+            --pattern 'proofboard-linux-amd64.sig' \
+            --pattern 'proofboard-darwin-amd64' \
+            --pattern 'proofboard-darwin-amd64.sig' \
+            --pattern 'proofboard-darwin-arm64' \
+            --pattern 'proofboard-darwin-arm64.sig' \
+            --pattern 'proofboard-windows-amd64.exe' \
+            --pattern 'proofboard-windows-amd64.exe.sig' \
+            --dir npm-package/vendor
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Publish proofboard-cli
         working-directory: npm-package
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
