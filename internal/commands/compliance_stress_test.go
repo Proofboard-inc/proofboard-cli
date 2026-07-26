@@ -203,6 +203,7 @@ func TestStatusPendingStates(t *testing.T) {
 		LastHeadSHA:       initialHead,
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 		ProjectID:         "proj-123",
+		EmailHashKey:      testEmailHashKey,
 		DictionaryVersion: "1.0.0",
 		MetadataHash:      metadataHash,
 	}

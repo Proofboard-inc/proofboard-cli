@@ -63,3 +63,13 @@ func (s CredentialStore) Load(ctx context.Context) (model.Credentials, error) {
 	}
 	return credentials, nil
 }
+
+func (s CredentialStore) Delete(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("delete credentials: %w", err)
+	}
+	if err := os.Remove(s.Path()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete credentials: %w", err)
+	}
+	return nil
+}

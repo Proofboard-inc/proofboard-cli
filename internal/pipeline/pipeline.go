@@ -22,14 +22,15 @@ func New(dictionary model.Dictionary) Pipeline {
 }
 
 type RunInput struct {
-	Raw             []model.RawCommit
-	OrgHash         string
-	RepoHash        string
-	EmailHash       string
-	Provider        string
-	ExpectedOrgHash string
-	MergeTimestamps []int64
-	PreviousHead    string
+	Raw               []model.RawCommit
+	OrgHash           string
+	RepoHash          string
+	EmailHash         string
+	IdentityEmailHash string
+	Provider          string
+	ExpectedOrgHash   string
+	MergeTimestamps   []int64
+	PreviousHead      string
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -46,6 +47,7 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 		OrgHash:           input.OrgHash,
 		RepoHash:          input.RepoHash,
 		EmailHash:         input.EmailHash,
+		IdentityEmailHash: input.IdentityEmailHash,
 		Provider:          input.Provider,
 		CLIVersion:        version.Version,
 		DictionaryVersion: p.dictionary.Version,

@@ -3,18 +3,20 @@ module github.com/proofboard/proofboard
 go 1.21.5
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast v1.1.2
+	github.com/esiqveland/notify v0.13.3
+	github.com/gen2brain/beeep v0.11.2
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
+	github.com/zalando/go-keyring v0.2.8
 	go.uber.org/zap v1.27.0
 )
 
 require (
-	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
-	github.com/esiqveland/notify v0.13.3 // indirect
+	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
-	github.com/gen2brain/beeep v0.11.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackmordaunt/icns/v3 v3.0.1 // indirect

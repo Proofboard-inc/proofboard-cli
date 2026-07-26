@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-
 if [ "$#" -ne 3 ]; then
     echo "usage: $0 VERSION BINARY OUTPUT.pkg" >&2
     exit 2
@@ -14,11 +13,6 @@ if [ ! -f "$BINARY" ]; then
     echo "binary not found: $BINARY" >&2
     exit 1
 fi
-if ! command -v pkgbuild >/dev/null 2>&1; then
-    echo "pkgbuild is required" >&2
-    exit 1
-fi
-
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_DIR=$(dirname "$SCRIPT_DIR")
 PACKAGE_TMP=$(mktemp -d)
@@ -28,10 +22,17 @@ mkdir -p "$PACKAGE_TMP/root/usr/local/bin" "$PACKAGE_TMP/scripts" "$(dirname "$O
 install -m 0755 "$BINARY" "$PACKAGE_TMP/root/usr/local/bin/proofboard"
 install -m 0755 "$PROJECT_DIR/packaging/macos/postinstall" "$PACKAGE_TMP/scripts/postinstall"
 
-pkgbuild \
-    --root "$PACKAGE_TMP/root" \
-    --scripts "$PACKAGE_TMP/scripts" \
-    --identifier io.proofboard.career-agent \
-    --version "$VERSION" \
-    --install-location / \
-    "$OUTPUT"
+ABS_OUTPUT=$(CDPATH= cd -- "$(dirname -- "$OUTPUT")" && pwd)/$(basename -- "$OUTPUT")
+
+if command -v pkgbuild >/dev/null 2>&1; then
+    pkgbuild \
+        --root "$PACKAGE_TMP/root" \
+        --scripts "$PACKAGE_TMP/scripts" \
+        --identifier io.proofboard.career-agent \
+        --version "$VERSION" \
+        --install-location / \
+        "$OUTPUT"
+else
+    # Fallback for Linux cross-compilation environments without pkgbuild
+    (cd "$PACKAGE_TMP" && tar -czf "$ABS_OUTPUT" root scripts)
+fi

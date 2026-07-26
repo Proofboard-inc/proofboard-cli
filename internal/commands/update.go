@@ -20,6 +20,11 @@ type updateCommandOptions struct {
 	install        func(io.Writer) error
 }
 
+const (
+	proofboardReleaseBaseURL = "https://proofboard.io"
+	githubLatestReleaseURL   = "https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download"
+)
+
 func newUpdateCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return newUpdateCommandWithOptions(ctx, out, updateCommandOptions{
 		executablePath: os.Executable,
@@ -44,6 +49,17 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			}
 			releases := api.NewReleaseClient(runtimeContext.config.ReleaseBaseURL)
 			latest, err := releases.Latest(ctx, runtimeContext.config.LatestVersionPath)
+			if err != nil && strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/") == proofboardReleaseBaseURL {
+				// Keep proofboard.io as the canonical release origin, but allow
+				// updates to continue from the directly published GitHub assets
+				// when the root-domain manifest is temporarily unavailable.
+				githubReleases := api.NewReleaseClient(githubLatestReleaseURL)
+				latest, err = githubReleases.Latest(ctx, "latest.json")
+				if err == nil {
+					latest.URL = githubLatestReleaseURL
+					releases = githubReleases
+				}
+			}
 			if err != nil {
 				return err
 			}

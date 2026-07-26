@@ -3,7 +3,6 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proofboard/proofboard/internal/api"
 	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
@@ -60,6 +61,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var providerVerification *pbgit.ProviderVerification
 
 			triggerSource := "manual"
 			if fromAgent {
@@ -109,6 +111,37 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("project connection did not complete")
 				}
 			}
+			if repoState.EmailHashKey == "" {
+				// Legacy state predates per-project email HMAC keys. Recover it
+				// through the same documented handshake as `proofboard link`;
+				// sending the stale project ID as the initial request can return
+				// 404 after the backend's repository mapping has changed.
+				linkCmd := newLinkCommand(ctx, out)
+				linkCmd.SetArgs([]string{"--non-interactive"})
+				if err := linkCmd.ExecuteContext(ctx); err != nil {
+					return fmt.Errorf("refresh project security keys: %w", err)
+				}
+				current, err = runtime.state.Load(ctx)
+				if err != nil {
+					return fmt.Errorf("reload project security keys: %w", err)
+				}
+				var refreshed bool
+				repoState, refreshed = current.LinkedRepos[identity.RepoHash]
+				if !refreshed || repoState.EmailHashKey == "" {
+					return fmt.Errorf("refresh project security keys: link response did not include emailHashKey")
+				}
+			}
+			if requiresProviderVerification(runtime.config.APIBaseURL) {
+				verified, verifyErr := pbgit.VerifyProviderContribution(
+					ctx,
+					identity,
+					credentials.Username,
+				)
+				if verifyErr != nil {
+					return fmt.Errorf("verify repository ownership or contribution: %w", verifyErr)
+				}
+				providerVerification = &verified
+			}
 			metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "repository metadata", "failure", err.Error())
@@ -155,6 +188,21 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "failure", err.Error())
 				return err
+			}
+			if providerVerification != nil {
+				raw = pbgit.FilterProviderVerifiedCommits(raw, *providerVerification)
+				if len(raw) == 0 {
+					_, err := fmt.Fprintln(out, "No provider-verified commits to sync.")
+					_ = logging.WriteSyncLog(
+						runtime.homeDir,
+						identity.RepoHash,
+						triggerSource,
+						"Phase 1: Ingest",
+						"skipped",
+						"no provider-verified commits to sync",
+					)
+					return err
+				}
 			}
 			if len(raw) == 0 && !metadataChanged {
 				_, err := fmt.Fprintln(out, "No commits to sync.")
@@ -217,19 +265,34 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			previousHead := repoState.LastHeadSHA
+			payloadEmailHash := credentials.EmailHash
+			identityEmailHash := credentials.EmailHash
+			if repoState.EmailHashKey != "" {
+				gitEmail, emailErr := pbgit.UserEmail(ctx, repo)
+				if emailErr != nil {
+					return fmt.Errorf("read local git identity: %w", emailErr)
+				}
+				identityEmailHash = crypto.NormalizedSHA256(gitEmail)
+				payloadEmailHash, emailErr = crypto.NormalizedHMACSHA256(repoState.EmailHashKey, gitEmail)
+				gitEmail = ""
+				if emailErr != nil {
+					return fmt.Errorf("hash local git identity: %w", emailErr)
+				}
+			}
 
 			if verbose {
 				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
 			}
 			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
-				Raw:             raw,
-				OrgHash:         identity.OrgHash,
-				RepoHash:        identity.RepoHash,
-				EmailHash:       credentials.EmailHash,
-				Provider:        identity.Provider,
-				ExpectedOrgHash: repoState.OrgHash,
-				MergeTimestamps: mergeTimestamps,
-				PreviousHead:    previousHead,
+				Raw:               raw,
+				OrgHash:           identity.OrgHash,
+				RepoHash:          identity.RepoHash,
+				EmailHash:         payloadEmailHash,
+				IdentityEmailHash: identityEmailHash,
+				Provider:          identity.Provider,
+				ExpectedOrgHash:   repoState.OrgHash,
+				MergeTimestamps:   mergeTimestamps,
+				PreviousHead:      previousHead,
 			})
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
@@ -257,16 +320,15 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("missing authentication token")
 				}
 				signedPayload := payload
-				keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
-				deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
-				if keyErr != nil {
-					// The device key proves a payload came from this
-					// installation. While it cannot be registered the work is
-					// still worth recording, so the payload goes unsigned and
-					// the server decides whether to accept it.
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
-						"register device key", "warning", keyErr.Error())
-				} else {
+				var keyStore pbauth.DeviceKeyStore
+				if runtime.config.DeviceSigningMode == "required" {
+					keyStore = pbauth.NewDeviceKeyStore(runtime.homeDir)
+					deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
+					if keyErr != nil {
+						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
+							"register device key", "warning", keyErr.Error())
+						return fmt.Errorf("register device signing key: %w", keyErr)
+					}
 					freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
 					if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
 						return fmt.Errorf("persist device key id: %w", err)
@@ -278,10 +340,11 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				// is recomputed whenever the payload changes.
 				sign := func(candidate model.SyncPayload) (model.SyncPayload, error) {
 					candidate.DeviceSignature = ""
-					if keyErr != nil {
+					if runtime.config.DeviceSigningMode == "disabled" {
+						candidate.DeviceKeyID = ""
 						return candidate, nil
 					}
-					signingBytes, err := json.Marshal(candidate)
+					signingBytes, err := crypto.CanonicalJSON(candidate)
 					if err != nil {
 						return candidate, fmt.Errorf("marshal sync payload for signing: %w", err)
 					}
@@ -298,7 +361,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return signErr
 				}
 				_, syncErr := runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
-				if syncErr != nil && strings.Contains(syncErr.Error(), "No linked project found") {
+				if isNoLinkedProjectError(syncErr) {
 					signedPayload.OrgHash, signedPayload.RepoHash = signedPayload.RepoHash, signedPayload.OrgHash
 					signedPayload, signErr = sign(signedPayload)
 					if signErr != nil {
@@ -368,7 +431,18 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return cmd
 }
 
+func isNoLinkedProjectError(err error) bool {
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) {
+		return strings.Contains(strings.ToLower(apiErr.Message), "no linked project")
+	}
+	return false
+}
+
 func deferExpiredAgentSession(ctx context.Context, runtime runtimeContext, out io.Writer) (bool, error) {
+	if current, err := runtime.state.Load(ctx); err == nil && current.AuthLoggedOut {
+		return true, nil
+	}
 	credentials, err := runtime.credentials.Load(ctx)
 	if err != nil {
 		return false, nil

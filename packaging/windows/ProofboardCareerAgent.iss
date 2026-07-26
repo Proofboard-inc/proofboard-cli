@@ -3,7 +3,7 @@
 #endif
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.8.18"
+  #define MyAppVersion "1.9.2"
 #endif
 
 #ifndef InstallerOutputDir

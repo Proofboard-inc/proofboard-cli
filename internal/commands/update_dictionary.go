@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/dictionary"
@@ -31,9 +33,19 @@ func newUpdateDictionaryCommand(ctx context.Context, out io.Writer) *cobra.Comma
 			if err != nil {
 				return err
 			}
-			if latest.Version == "" || latest.Version == local.Version {
+			comparison, err := compareDictionaryVersions(latest.Version, local.Version)
+			if err != nil {
+				return fmt.Errorf("compare dictionary versions: %w", err)
+			}
+			if latest.Version == "" || comparison <= 0 {
 				_, err := fmt.Fprintf(out, "Dictionary is up to date (%s).\n", local.Version)
 				return err
+			}
+			if strings.TrimSpace(latest.URL) == "" {
+				return fmt.Errorf(
+					"dictionary %s is available but the API did not provide a download URL",
+					latest.Version,
+				)
 			}
 
 			// New version is available!
@@ -94,4 +106,51 @@ func newUpdateDictionaryCommand(ctx context.Context, out io.Writer) *cobra.Comma
 			return err
 		},
 	}
+}
+
+func compareDictionaryVersions(left, right string) (int, error) {
+	parse := func(value string) ([]int, error) {
+		value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+		if value == "" {
+			return nil, nil
+		}
+		parts := strings.Split(value, ".")
+		numbers := make([]int, len(parts))
+		for index, part := range parts {
+			number, err := strconv.Atoi(part)
+			if err != nil || number < 0 {
+				return nil, fmt.Errorf("invalid version %q", value)
+			}
+			numbers[index] = number
+		}
+		return numbers, nil
+	}
+	leftParts, err := parse(left)
+	if err != nil {
+		return 0, err
+	}
+	rightParts, err := parse(right)
+	if err != nil {
+		return 0, err
+	}
+	width := len(leftParts)
+	if len(rightParts) > width {
+		width = len(rightParts)
+	}
+	for index := 0; index < width; index++ {
+		var leftNumber, rightNumber int
+		if index < len(leftParts) {
+			leftNumber = leftParts[index]
+		}
+		if index < len(rightParts) {
+			rightNumber = rightParts[index]
+		}
+		if leftNumber < rightNumber {
+			return -1, nil
+		}
+		if leftNumber > rightNumber {
+			return 1, nil
+		}
+	}
+	return 0, nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -47,5 +48,47 @@ func newLogsCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&lines, "lines", 100, "number of log lines to print")
+	cmd.AddCommand(newLogsClearCommand(ctx, out))
 	return cmd
+}
+
+func newLogsClearCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear",
+		Short: "Purge local Proofboard logs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("clear logs: %w", err)
+			}
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("clear logs: %w", err)
+			}
+			logDir := filepath.Dir(logPath(runtime.homeDir))
+			if err := os.MkdirAll(logDir, 0o700); err != nil {
+				return fmt.Errorf("create log directory: %w", err)
+			}
+			if err := os.Chmod(logDir, 0o700); err != nil {
+				return fmt.Errorf("secure log directory: %w", err)
+			}
+			backupPath := logPath(runtime.homeDir) + ".1"
+			if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove rotated logs: %w", err)
+			}
+			file, err := os.OpenFile(logPath(runtime.homeDir), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+			if err != nil {
+				return fmt.Errorf("reset logs: %w", err)
+			}
+			if err := file.Chmod(0o600); err != nil {
+				_ = file.Close()
+				return fmt.Errorf("secure reset log: %w", err)
+			}
+			if err := file.Close(); err != nil {
+				return fmt.Errorf("close reset log: %w", err)
+			}
+			_, err = fmt.Fprintln(out, "Proofboard logs cleared.")
+			return err
+		},
+	}
 }

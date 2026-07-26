@@ -22,6 +22,8 @@ import (
 	"github.com/proofboard/proofboard/internal/version"
 )
 
+const testEmailHashKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
@@ -70,6 +72,7 @@ func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
 		LastHeadSHA:       head,
 		MetadataHash:      metadataHash,
 		ProjectID:         "project-1",
+		EmailHashKey:      testEmailHashKey,
 		LastSyncAt:        time.Now().Add(-time.Hour),
 		DictionaryVersion: version.Version,
 	}
@@ -108,6 +111,7 @@ func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 	repoDir := createTempGitRepo(t)
 	t.Setenv("HOME", homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 
 	secretSubject := "feat: Secret Payments Infrastructure"
 	secretPath := "internal/secret-payments/processor.go"
@@ -123,7 +127,9 @@ func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 	runGit(t, repoDir, "update-ref", "refs/remotes/origin/main", head)
 	runGit(t, repoDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
+	const emailHashKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	var calls []string
+	var syncPayload model.SyncPayload
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -156,18 +162,18 @@ func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 				"isNewProject":      false,
 				"projectId":         "project-first-sync",
 				"dictionaryVersion": version.Version,
+				"emailHashKey":      emailHashKey,
 			})
 		case "/api/v1/cli/auth/device-key":
 			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-first-sync"})
 		case "/api/v1/cli/sync":
-			var payload model.SyncPayload
-			if err := json.Unmarshal(body, &payload); err != nil {
+			if err := json.Unmarshal(body, &syncPayload); err != nil {
 				t.Errorf("decode sync payload: %v", err)
 				http.Error(w, "bad sync payload", http.StatusBadRequest)
 				return
 			}
-			if len(payload.SHAs) != 1 || payload.SHAs[0] != head {
-				t.Errorf("first sync SHAs = %#v, want %s", payload.SHAs, head)
+			if len(syncPayload.SHAs) != 1 || syncPayload.SHAs[0] != head {
+				t.Errorf("first sync SHAs = %#v, want %s", syncPayload.SHAs, head)
 				http.Error(w, "incorrect sync SHAs", http.StatusBadRequest)
 				return
 			}
@@ -211,13 +217,21 @@ func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 	if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("Sync Project API sequence = %#v, want %#v", calls, wantCalls)
 	}
+	expectedEmailHash, err := crypto.NormalizedHMACSHA256(emailHashKey, "test@example.com")
+	if err != nil {
+		t.Fatalf("compute expected email hash: %v", err)
+	}
+	if syncPayload.EmailHash != expectedEmailHash {
+		t.Fatalf("sync emailHash = %q, want per-project HMAC %q", syncPayload.EmailHash, expectedEmailHash)
+	}
 	persisted, err := state.NewStore(homeDir).Load(ctx)
 	if err != nil {
 		t.Fatalf("load first-sync state: %v", err)
 	}
 	repoHash := crypto.SHA256("github:org/repo")
 	repoState, linked := persisted.LinkedRepos[repoHash]
-	if !linked || repoState.ProjectID != "project-first-sync" || repoState.LastHeadSHA != head || repoState.LastSyncAt.IsZero() {
+	if !linked || repoState.ProjectID != "project-first-sync" || repoState.EmailHashKey != emailHashKey ||
+		repoState.LastHeadSHA != head || repoState.LastSyncAt.IsZero() {
 		t.Fatalf("first-sync state = %+v, linked=%v", repoState, linked)
 	}
 	for _, hook := range []string{"post-commit", "post-merge", "post-rewrite"} {
@@ -356,10 +370,11 @@ func TestSyncPipelineOrdering(t *testing.T) {
 
 	repoHash := crypto.SHA256("github:org/repo")
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
-		RepoHash:  repoHash,
-		OrgHash:   crypto.SHA256("github:org"),
-		PathHash:  "path-hash",
-		ProjectID: "project-pipeline",
+		RepoHash:     repoHash,
+		OrgHash:      crypto.SHA256("github:org"),
+		PathHash:     "path-hash",
+		ProjectID:    "project-pipeline",
+		EmailHashKey: testEmailHashKey,
 	}
 	st.AutoUpdateDictionary = false
 	if err := stateStore.Save(ctx, st); err != nil {
@@ -490,6 +505,7 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 		LastHeadSHA:       "",
 		ProjectID:         "proj-1",
 		PublicKey:         "pub-1",
+		EmailHashKey:      testEmailHashKey,
 		DictionaryVersion: version.Version,
 	}
 	st.AutoUpdateDictionary = false

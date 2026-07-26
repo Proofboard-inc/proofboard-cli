@@ -136,9 +136,9 @@ proofboard-windows-amd64.exe
 Channel
 Spec
 Direct download
-Hosted at releases.proofboard.io/{version}/{binary-name}. OS-detected download link shown on CLI install screen in the web app.
+Hosted at proofboard.io/{version}/{binary-name}. OS-detected download link shown on CLI install screen in the web app.
 Install script
-curl -fsSL https://releases.proofboard.io/install.sh | sh — detects OS and architecture, downloads correct binary, and installs it into the current account (~/.local/bin, or %LOCALAPPDATA%\Programs\Proofboard on Windows) so no administrator access is required. Set PROOFBOARD_SYSTEM_INSTALL=1 for a machine-wide install into /usr/local/bin.
+curl -fsSL https://proofboard.io/install.sh | sh — detects OS and architecture, downloads correct binary, and installs it into the current account (~/.local/bin, or %LOCALAPPDATA%\Programs\Proofboard on Windows) so no administrator access is required. Set PROOFBOARD_SYSTEM_INSTALL=1 for a machine-wide install into /usr/local/bin.
 Homebrew (macOS)
 brew install proofboard/tap/proofboard — Phase 2.
 apt/deb (Linux)
@@ -159,7 +159,7 @@ No OS-level signing requirement. SHA256 checksums published alongside each relea
 
 
 2.4  Update Mechanism
-The CLI checks for a newer version on startup by calling GET https://releases.proofboard.io/latest.json. If a newer version exists, it prints a non-blocking notice: 'A new version of the Proofboard CLI is available. Run: proofboard update'. Auto-update without user confirmation is not implemented.
+The CLI checks for a newer version on startup by calling GET https://proofboard.io/latest.json. If a newer version exists, it prints a non-blocking notice: 'A new version of the Proofboard CLI is available. Run: proofboard update'. Auto-update without user confirmation is not implemented.
 
 3.  Commands
 Command
@@ -765,9 +765,9 @@ Every payload transmitted in Phase 7 is signed with the stored JWT as a Bearer t
 Property
 Spec
 Distribution
-Hosted at releases.proofboard.io/dictionary/{version}/dictionary.json
+Hosted at proofboard.io/dictionary/{version}/dictionary.json
 Version check
-On CLI startup, GET releases.proofboard.io/dictionary/latest.json returns the current version string. Compared against locally stored version in ~/.proofboard/dictionary-version.
+On CLI startup, GET proofboard.io/dictionary/latest.json returns the current version string. Compared against locally stored version in ~/.proofboard/dictionary-version.
 Update behaviour
 If newer version exists, downloads to temp file, validates JSON schema, then atomically replaces ~/.proofboard/dictionary.json.
 High-security opt-out
@@ -893,7 +893,7 @@ The category dictionary JSON file must be in the repository and versioned with t
 CI/CD transparency
 GitHub Actions workflow files must be public so engineers can verify the build pipeline for distributed binaries
 Checksums
-SHA256 checksums for all distributed binaries published alongside each release in releases.proofboard.io/{version}/checksums.txt
+SHA256 checksums for all distributed binaries published alongside each release in proofboard.io/{version}/checksums.txt
 
 
 15.  Implementation Priorities
@@ -904,7 +904,7 @@ Sprint 1 — Core Pipeline
 Phase 1: git log ingest with author filter. Phase 2: classification engine — both layers. Phase 3: scoring matrix and Contribution Areas. Phase 4: milestone cluster detection. Phase 5: The Shredder — all destruction in correct order. Phase 6: git ls-remote handshake + --skip-handshake fallback. Phase 7: clean payload assembly and JWT signing. Phase 7A: outcome summary generation. Phase 8: API transmission and receipt handling. proofboard auth command. proofboard link command. proofboard sync command.
 
 Sprint 2 — Hooks & Distribution
-Post-merge hook and post-pull hook. Branch filter gate. Pre-classification trivial commit filter. Incremental sync. Last-successful-handshake timestamp storage. New project detection prompt (three-option terminal output). Proof-of-Ship terminal echo. proofboard status, logs, unlink commands. Binary builds for all four targets — macOS arm64, macOS amd64, Linux amd64, Windows amd64. Code signing — macOS notarization, Windows Authenticode. Install script at releases.proofboard.io/install.sh. GitHub Actions pipeline for automated cross-platform builds on tag push.
+Post-merge hook and post-pull hook. Branch filter gate. Pre-classification trivial commit filter. Incremental sync. Last-successful-handshake timestamp storage. New project detection prompt (three-option terminal output). Proof-of-Ship terminal echo. proofboard status, logs, unlink commands. Binary builds for all four targets — macOS arm64, macOS amd64, Linux amd64, Windows amd64. Code signing — macOS notarization, Windows Authenticode. Install script at proofboard.io/install.sh. GitHub Actions pipeline for automated cross-platform builds on tag push.
 
 Sprint 3 — Polish & Audit
 proofboard update command. Dictionary update mechanism — CDN check, atomic replace, opt-out config. Monthly Career Summary terminal trigger — surfaces once per month on first linked project open after summary generation. SHREDDER.md documentation. Proxy configuration guide in README. SHA256 checksums published alongside releases. Anti-fraud signals: orgHashMismatch, identityMismatch, aiNoiseScore. Logging to ~/.proofboard/sync.log with rotation.

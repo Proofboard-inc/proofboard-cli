@@ -47,8 +47,21 @@ func loadRuntime(ctx context.Context) (runtimeContext, error) {
 		workingDir:  wd,
 		credentials: pbauth.NewCredentialStore(home),
 		state:       state.NewStore(home),
-		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.CheckPath, cfg.SyncPath, cfg.DeviceKeyRegistrationPath, cfg.RefreshPath),
+		api:         api.NewClient(cfg.APIBaseURL, cfg.LinkPath, cfg.CheckPath, cfg.SyncPath, cfg.DeviceKeyRegistrationPath, cfg.RefreshPath, cfg.RevokePath),
 	}, nil
+}
+
+func requiresProviderVerification(apiBaseURL string) bool {
+	parsed, err := url.Parse(apiBaseURL)
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "api-dev.proofboard.io", "api.proofboard.io":
+		return true
+	default:
+		return false
+	}
 }
 
 func logPath(home string) string {
@@ -143,6 +156,12 @@ func launchTargetActionNotification(ctx context.Context, kind, target, title str
 func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runtimeContext) {
 	credentials, err := runtime.credentials.Load(ctx)
 	if err != nil || credentials.Token == "" {
+		return
+	}
+	// The notifications route belongs to the web application API and does not
+	// accept CLI-scoped JWTs. Avoid a guaranteed 401 (and a misleading auth
+	// log entry) until the backend exposes a CLI notifications endpoint.
+	if scope, scopeErr := crypto.JWTScope(credentials.Token); scopeErr == nil && scope == "cli" {
 		return
 	}
 	query := url.Values{}
