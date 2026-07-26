@@ -24,13 +24,54 @@ func Log(ctx context.Context, repo Repo, lastSHA string) ([]model.RawCommit, err
 	if lastSHA != "" {
 		args = append(args, lastSHA+"..HEAD")
 	}
-	args = append(args, "--format=%x1e%H%x1f%ae%x1f%at%x1f%G?%x1f%s", "--numstat", "--no-merges", "--author="+email)
+	args = append(
+		args,
+		"--format=%x1e%H%x1f%ae%x1f%at%x1f%G?%x1f%s",
+		"--numstat",
+		"--no-merges",
+		"--regexp-ignore-case",
+		"--author="+quoteGitBasicRegexp(email),
+	)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log: %w", err)
 	}
-	return ParseLog(out)
+	commits, err := ParseLog(out)
+	if err != nil {
+		return nil, err
+	}
+	return FilterCommitsByAuthorEmail(commits, email), nil
+}
+
+func quoteGitBasicRegexp(value string) string {
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`.`, `\.`,
+		`[`, `\[`,
+		`*`, `\*`,
+		`^`, `\^`,
+		`$`, `\$`,
+	)
+	return replacer.Replace(value)
+}
+
+// FilterCommitsByAuthorEmail enforces exact local identity attribution after
+// Git's regex-based --author pre-filter. This keeps repositories
+// provider-agnostic without allowing another contributor's commits into the
+// local career record.
+func FilterCommitsByAuthorEmail(commits []model.RawCommit, email string) []model.RawCommit {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	filtered := make([]model.RawCommit, 0, len(commits))
+	for _, commit := range commits {
+		if strings.EqualFold(strings.TrimSpace(commit.AuthorEmail), email) {
+			filtered = append(filtered, commit)
+		}
+	}
+	return filtered
 }
 
 func ParseLog(out []byte) ([]model.RawCommit, error) {

@@ -61,8 +61,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var providerVerification *pbgit.ProviderVerification
-
 			triggerSource := "manual"
 			if fromAgent {
 				triggerSource = "agent"
@@ -131,17 +129,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("refresh project security keys: link response did not include emailHashKey")
 				}
 			}
-			if requiresProviderVerification(runtime.config.APIBaseURL) {
-				verified, verifyErr := pbgit.VerifyProviderContribution(
-					ctx,
-					identity,
-					credentials.Username,
-				)
-				if verifyErr != nil {
-					return fmt.Errorf("verify repository ownership or contribution: %w", verifyErr)
-				}
-				providerVerification = &verified
-			}
 			metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "repository metadata", "failure", err.Error())
@@ -189,19 +176,49 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "failure", err.Error())
 				return err
 			}
-			if providerVerification != nil {
-				raw = pbgit.FilterProviderVerifiedCommits(raw, *providerVerification)
-				if len(raw) == 0 {
-					_, err := fmt.Fprintln(out, "No provider-verified commits to sync.")
+			if identity.Provider == "github" && len(raw) > 0 {
+				verified, verifyErr := pbgit.VerifyProviderContribution(ctx, identity, credentials.Username)
+				switch {
+				case verifyErr != nil:
 					_ = logging.WriteSyncLog(
 						runtime.homeDir,
 						identity.RepoHash,
 						triggerSource,
-						"Phase 1: Ingest",
+						"public provider enrichment",
 						"skipped",
-						"no provider-verified commits to sync",
+						"provider signals unavailable; exact local identity attribution retained",
 					)
-					return err
+				case verified.Private:
+					_ = logging.WriteSyncLog(
+						runtime.homeDir,
+						identity.RepoHash,
+						triggerSource,
+						"public provider enrichment",
+						"skipped",
+						"private repository; local analysis only",
+					)
+				default:
+					enriched, applied := pbgit.ApplyPublicGitHubSignals(raw, verified)
+					if applied {
+						raw = enriched
+						_ = logging.WriteSyncLog(
+							runtime.homeDir,
+							identity.RepoHash,
+							triggerSource,
+							"public provider enrichment",
+							"success",
+							"public GitHub contribution signals applied",
+						)
+					} else {
+						_ = logging.WriteSyncLog(
+							runtime.homeDir,
+							identity.RepoHash,
+							triggerSource,
+							"public provider enrichment",
+							"skipped",
+							"no matching provider signal; exact local identity attribution retained",
+						)
+					}
 				}
 			}
 			if len(raw) == 0 && !metadataChanged {

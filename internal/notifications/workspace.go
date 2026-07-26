@@ -155,7 +155,7 @@ func workspaceActionLabels(kind string) (title string, body string, primary stri
 	case "sync":
 		return "Project needs sync", "Proofboard can capture the latest work privately on this machine.", "Sync Project", "Not Now", "Never Ask Again"
 	case "link":
-		return "New repository detected", "Would you like Proofboard to track this project? No proprietary source code leaves your computer.", "Sync Project", "Not Now", "Never Ask Again"
+		return "Project detected", "Would you like to add this project to your career record?", "Sync Project", "Not Now", "Never Ask Again"
 	case "reconnect":
 		return "Your Proofboard session has expired", "Reconnect to resume private background synchronization.", "Reconnect", "", ""
 	case "milestone":

@@ -108,6 +108,27 @@ file contents, and diffs must not survive Phase 5.
 
 Before any network transmission, the local pipeline destroys commit messages and file paths and reduces activity to anonymized metadata.
 
+## Repository-Agnostic Projects
+
+The Career Agent presents one flow for every Git repository, regardless of
+whether it is public or private or hosted by GitHub, GitLab, or Bitbucket:
+
+> Project detected.
+> Would you like to add this project to your career record?
+
+**Sync Project** connects the project and runs the same local NDA-safe
+pipeline. Visibility and provider handling are internal implementation details:
+public GitHub repositories can be augmented with available GitHub contribution
+signals, while private repositories and other providers use exact local
+identity attribution and local analysis. Missing provider tooling or signals
+never blocks project setup or synchronization.
+
+Only commits whose author email exactly matches the repository's configured
+local Git identity are eligible. The payload's identity hash is still checked
+against the authenticated Proofboard account, so opening another person's
+repository does not add their commits to your career record. Your own genuine
+commits in a shared repository remain eligible.
+
 The Career Agent may transmit only:
 
 - commit SHA hashes and timestamps;
