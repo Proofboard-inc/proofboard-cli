@@ -28,7 +28,7 @@ jobs:
         run: npm --prefix npm-package test
       - name: Validate installer and release scripts
         run: |
-          sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_macos_pkg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh
+          sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_macos_pkg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh scripts/test_agent_reinstall.sh
           bash -n scripts/publish_release.sh
       - name: Validate the Windows installer scripts
         shell: pwsh
@@ -46,6 +46,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/proofboard-compiled ./cmd/proofboard
           EXPECTED_VERSION=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
           scripts/test_compiled_cli.sh /tmp/proofboard-compiled "$EXPECTED_VERSION"
+          scripts/test_agent_reinstall.sh /tmp/proofboard-compiled
 
   build:
     needs: test
@@ -256,6 +257,7 @@ jobs:
             - Adds `proofboard auth logout` for local credential removal without a backend dependency.
             - Adds `proofboard logs clear` and prevents dictionary downgrades.
             - Uses the development backend and frontend as independent configurable service URLs.
+            - Restarts the installed Career Agent onto the new executable, suppresses unavailable headless notifications, and prevents updater downgrades.
 
             This release passed live development-service auth/link/sync validation, uncached regression tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |

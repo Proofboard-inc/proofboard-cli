@@ -37,6 +37,9 @@ func installAgentService(executable string, out io.Writer) error {
 	}
 	domain := "gui/" + strconv.Itoa(os.Getuid())
 	_ = exec.Command("launchctl", "bootout", domain+"/"+agentLaunchdLabel).Run()
+	if err := stopAgent(io.Discard); err != nil {
+		return fmt.Errorf("stop existing Career Agent: %w", err)
+	}
 	if err := exec.Command("launchctl", "bootstrap", domain, path).Run(); err != nil {
 		return fmt.Errorf("start LaunchAgent: %w", err)
 	}

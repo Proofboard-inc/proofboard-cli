@@ -171,11 +171,11 @@ func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 		switch r.URL.Path {
 		case "/latest.json":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version": "1.3.0", "url": "/1.3.0/` + binaryName + `"}`))
-		case "/1.3.0/" + binaryName:
+			_, _ = w.Write([]byte(`{"version": "9.9.9", "url": "/9.9.9/` + binaryName + `"}`))
+		case "/9.9.9/" + binaryName:
 			w.Header().Set("Content-Type", "application/octet-stream")
 			_, _ = w.Write([]byte("mock binary content payload"))
-		case "/1.3.0/" + binaryName + ".sig":
+		case "/9.9.9/" + binaryName + ".sig":
 			w.Header().Set("Content-Type", "application/octet-stream")
 			// Signature for "mock binary content payload" using proofboard_private.pem
 			sigBytes, _ := hex.DecodeString("3045022100cb978a826f9edb1f110438413354edcfa054fdba1fee628b1861442c31d86d1c0220009e5eebf0397421c09999e59d632826cc3234168154f9f8cd2b35f7765a2cd2")
@@ -209,7 +209,7 @@ func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 		t.Fatal("expected updater to invoke installation after replacement")
 	}
 
-	expectedMsg := "Proofboard Career Agent updated successfully to version 1.3.0.\n"
+	expectedMsg := "Proofboard Career Agent updated successfully to version 9.9.9.\n"
 	if !strings.Contains(out.String(), expectedMsg) {
 		t.Errorf("expected message to contain %q, got %q", expectedMsg, out.String())
 	}

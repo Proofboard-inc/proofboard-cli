@@ -38,6 +38,7 @@ func (c ReleaseClient) Latest(ctx context.Context, route string) (LatestVersion,
 	if err != nil {
 		return LatestVersion{}, fmt.Errorf("create latest request: %w", err)
 	}
+	authorizeGitHubRequest(req, strings.Contains(req.URL.Path, "/releases/assets/"))
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return LatestVersion{}, fmt.Errorf("fetch latest version: %w", err)
@@ -73,6 +74,7 @@ func (c ReleaseClient) Download(ctx context.Context, route string, w io.Writer) 
 	if err != nil {
 		return fmt.Errorf("create download request: %w", err)
 	}
+	authorizeGitHubRequest(req, strings.Contains(req.URL.Path, "/releases/assets/"))
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download file: %w", err)
