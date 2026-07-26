@@ -52,7 +52,21 @@ cp scripts/install.ps1 dist/install.ps1
 cp scripts/install.cmd dist/install.cmd
 
 echo "[6/7] Building npm package tarball..."
-npm pack ./npm-package --pack-destination dist
+NPM_STAGE=$(mktemp -d)
+trap 'rm -rf "$NPM_STAGE"' EXIT
+cp -R npm-package/. "$NPM_STAGE/"
+mkdir -p "$NPM_STAGE/vendor"
+cp \
+  dist/proofboard-linux-amd64 \
+  dist/proofboard-linux-amd64.sig \
+  dist/proofboard-darwin-amd64 \
+  dist/proofboard-darwin-amd64.sig \
+  dist/proofboard-darwin-arm64 \
+  dist/proofboard-darwin-arm64.sig \
+  dist/proofboard-windows-amd64.exe \
+  dist/proofboard-windows-amd64.exe.sig \
+  "$NPM_STAGE/vendor/"
+npm pack "$NPM_STAGE" --pack-destination dist
 
 echo "[7/7] Generating metadata and checksums..."
 printf '{"version":"%s","url":"https://proofboard.io/v%s"}\n' "$VERSION" "$VERSION" > dist/latest.json
@@ -75,7 +89,7 @@ printf '{"version":"%s","url":"https://proofboard.io/v%s"}\n' "$VERSION" "$VERSI
     install.sh \
     install.ps1 \
     install.cmd \
-    proofboard-agent-*.tgz \
+    proofboard-cli-*.tgz \
     latest.json > checksums.txt
 )
 
@@ -107,7 +121,7 @@ for file in "${REQUIRED_FILES[@]}"; do
   fi
 done
 
-NPM_TARBALLS=(dist/proofboard-agent-*.tgz)
+NPM_TARBALLS=(dist/proofboard-cli-*.tgz)
 if [ "${#NPM_TARBALLS[@]}" -lt 1 ] || [ ! -f "${NPM_TARBALLS[0]}" ]; then
   echo "Error: Missing npm tarball in dist/" >&2
   exit 1

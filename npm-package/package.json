@@ -1,18 +1,22 @@
 {
-  "name": "@proofboard/agent",
+  "name": "proofboard-cli",
   "version": "1.9.3",
-  "description": "Proofboard Career Agent installer",
+  "description": "Thin npm launcher for the signed Proofboard Career Agent release",
   "main": "./index.js",
   "bin": {
-    "proofboard": "./bin/proofboard.js"
+    "proofboard": "./bin/proofboard.js",
+    "proofboard-cli": "./bin/proofboard.js"
   },
+  "files": [
+    "bin/",
+    "index.js",
+    "vendor/"
+  ],
   "exports": {
     ".": "./index.js"
   },
   "scripts": {
-    "postinstall": "node install-agent.js",
-    "preuninstall": "node uninstall-agent.js",
-    "test": "node --check index.js && node --check install-agent.js && node --check uninstall-agent.js && node test.js"
+    "test": "node --check index.js && node --check bin/proofboard.js && node test.js"
   },
   "keywords": ["proofboard", "career-agent", "developer-tools"],
   "author": "Proofboard-inc",

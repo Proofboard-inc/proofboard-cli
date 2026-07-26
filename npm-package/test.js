@@ -9,7 +9,6 @@ const {
     GITHUB_LATEST_RELEASE_URL,
     ensureBinary,
     getBinaryName,
-    getLatestReleaseInfo,
     verifyBinarySignature,
 } = require('./index');
 
@@ -43,28 +42,25 @@ try {
 }
 
 (async () => {
-    const fallback = await getLatestReleaseInfo('http://example.com/latest.json');
-    assert.strictEqual(fallback.version, DEFAULT_VERSION);
-
-    const invalidCache = fs.mkdtempSync(path.join(os.tmpdir(), 'proofboard-npm-cache-test-'));
+    const bundledDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'proofboard-npm-bundle-test-'));
     try {
         const binaryName = 'proofboard-linux-amd64';
-        const binaryPath = path.join(invalidCache, binaryName);
-        fs.writeFileSync(binaryPath, Buffer.from('tampered cache'));
-        fs.writeFileSync(`${binaryPath}.sig`, Buffer.from('invalid signature'));
-        await assert.rejects(
-            ensureBinary({
-                version: DEFAULT_VERSION,
-                binaryName,
-                cacheDir: invalidCache,
-                downloadUrl: 'http://example.com/proofboard',
-            }),
-            /Failed to download binary/,
-        );
-        assert.strictEqual(fs.existsSync(binaryPath), false);
-        assert.strictEqual(fs.existsSync(`${binaryPath}.sig`), false);
+        const binaryPath = path.join(bundledDirectory, binaryName);
+        const payload = Buffer.from('bundled signed Career Agent');
+        const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+        fs.writeFileSync(binaryPath, payload);
+        fs.writeFileSync(`${binaryPath}.sig`, crypto.sign('sha256', payload, privateKey));
+        const bundled = await ensureBinary({
+            version: DEFAULT_VERSION,
+            binaryName,
+            bundledDir: bundledDirectory,
+            publicKey,
+        });
+        assert.strictEqual(bundled.binaryPath, binaryPath);
+        assert.strictEqual(bundled.version, DEFAULT_VERSION);
+        assert.strictEqual(fs.statSync(binaryPath).mode & 0o777, 0o755);
     } finally {
-        fs.rmSync(invalidCache, { recursive: true, force: true });
+        fs.rmSync(bundledDirectory, { recursive: true, force: true });
     }
 })().catch((err) => {
     console.error(err);

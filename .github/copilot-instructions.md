@@ -9,31 +9,14 @@ Sync changes here across the following locations:
 - (project root)/.windsurfrules
 - (project root)/.github/copilot-instructions.md
 
-Spec at - (project root)/SPEC.md
+Read the product and architecture documentation in `(project root)/README.md`
+before changing behavior. The normative specification is
+`(project root)/SPEC.md`.
 
-## Product
+## Privacy Constraints
 
-Proofboard Career Agent v1.9.3
-
-Implementation language: Go 1.21+
-
-Agent executable and advanced CLI entrypoint:
-
-```bash
-proofboard
-```
-
-## Mission
-
-Proofboard is a local-first Career Agent that builds structured engineering proof while developers focus on building software.
-
-The Career Agent reads local Git history, classifies work locally, destroys proprietary information before network transmission, and sends only anonymized metadata to the Proofboard API. Authentication, repository setup, and synchronization should be automatic; commands remain available for advanced users, automation, debugging, scripting, and CI/CD.
-
-The NDA-safe architecture is non-negotiable.
-
-## Hard Constraints
-
-Never store:
+Preserve the NDA-safe, local-first architecture. After pipeline Phase 5, never
+store:
 
 * Commit messages
 * File contents
@@ -41,8 +24,6 @@ Never store:
 * Repository names
 * Organization names
 * Author emails
-
-after Phase 5.
 
 Never transmit:
 
@@ -64,69 +45,22 @@ Only transmit:
 * orgHash
 * emailHash
 
-## Commands
+Use SHA256 for hashes, HTTPS for API calls, JWT authentication for payloads,
+and `0600` permissions for credentials. Never log or print private keys,
+tokens, raw emails, repository names, or shredded proprietary data.
 
-Required advanced commands:
+## Product Behavior
 
-* auth (Supports headless fallback via CLI output)
-* link
-* unlink
-* sync
-* status
-* logs
-* update
-* config
-* install (Global system-wide installer)
-* uninstall (Global uninstaller)
-* completion (Interactive auto-completion setup)
-* agent (Background Career Agent lifecycle and status)
+Keep authentication, repository setup, workspace detection, and synchronization
+automatic. Installation must register and start the background agent. Preserve
+the three workspace choices and suppression semantics documented in README.
 
-## Desktop Detection
-
-When an engineer opens a Git workspace in an IDE, the Career Agent must detect the workspace even if the engineer never runs `link` or `sync` manually. The watcher must treat both untracked repositories and tracked-but-unsynced repositories as actionable. Tracked repositories sync automatically without another prompt.
-
-Use the same three-option surface as the terminal prompt:
-
-* `Sync Project` connects or re-syncs the repo and continues.
-* `Not Now` dismisses for the current session.
-* `Never Ask Again` suppresses the workspace permanently.
-
-The watcher must compare the active workspace against Proofboard state, ignore already-suppressed workspaces, and surface the prompt as soon as the IDE opens the project.
-
-## Career Agent UX
-
-Installation must register and start the background agent. When synchronization requires authentication, the agent opens `https://proofboard.io/agent/cli-auth?code=<generated_code>` with the temporary code prefilled, stores access and refresh tokens securely, and resumes synchronization. Valid refresh tokens are used silently.
-
-The user-facing product name is `Proofboard Career Agent`. Avoid presenting `CLI`, `auth`, `link`, or `sync` as required user concepts. The primary promise is: `Proofboard builds your career while you focus on building software.`
-
-## Pipeline
-
-Phase 1
-Local Git ingest
-
-Phase 2
-Classification
-
-Phase 3
-Scoring
-
-Phase 4
-Milestone detection
-
-Phase 5
-Shredder
-
-Phase 6
-Handshake
-
-Phase 7
-Payload assembly
-
-Phase 8
-Transmission
+Use `Proofboard Career Agent` as the user-facing name. Do not present `CLI`,
+`auth`, `link`, or `sync` as required product concepts.
 
 ## Coding Rules
 
+* Go 1.21+
 * No global mutable state
 * Context everywhere
 * Unit tests required
@@ -138,65 +72,33 @@ Transmission
 
 ## Testing Integrity
 
-Never use mocks, fake servers, simulated API responses, or mock syncs. Authentication, linking, synchronization, and other network-dependent acceptance tests must run against the real configured development services. Never claim end-to-end success unless the real dev backend and frontend flow succeeds.
+Never use mocks, fake servers, simulated API responses, or mock syncs.
+Authentication, linking, synchronization, and other network-dependent
+acceptance tests must run against the real configured development services.
+Never claim end-to-end success unless the real dev backend and frontend flow
+succeeds.
 
-## Security Rules
+Tests must isolate their filesystem state and must not alter real credentials,
+repository state, shell profiles, logs, installed binaries, or background
+services unless the test is explicitly exercising that real behavior and
+restores or deliberately replaces it.
 
-All hashes:
+## Release Policy
 
-SHA256
-
-All API calls:
-
-HTTPS only
-
-All payloads:
-
-JWT authenticated
-
-Credentials:
-
-~/.proofboard/credentials.json
-0600 permissions
-
-State:
-
-~/.proofboard/state.json
-
-Logs:
-
-~/.proofboard/sync.log
-
-## Release Requirements
-
-Linux amd64 (proofboard-linux-amd64)
-
-macOS amd64 (proofboard-darwin-amd64)
-
-macOS arm64 (proofboard-darwin-arm64)
-
-Windows amd64 (proofboard-windows-amd64.exe)
-
-Static binaries only.
-
-CRITICAL DIRECTIVE: When cutting a new release, you MUST strictly build the full cross-compilation matrix (GOOS/GOARCH) for all 4 targets listed above and upload all 4 explicit binaries to the GitHub release. Do not merely upload the local environment's binary.
-
-Every release MUST carry the complete artifact set:
-
-* All 4 static binaries, each with its detached `.sig`
-* `checksums.txt` and `latest.json`
-* Native installers: `.deb` (Linux), both `.pkg` (macOS amd64 and arm64), and the Windows `-setup.exe`
-* The npm package tarball
-* The install scripts: `install.sh` (Linux and macOS), `install.ps1` and `install.cmd` (Windows)
-
-The install scripts are part of the release, not an afterthought: they resolve the latest release, verify the signature or checksum, install into the current account without administrator access, connect the Career Agent, and run workspace detection.
+Every release must satisfy the complete release matrix documented in README.
+Never publish a partial release or only the local platform binary. Build all
+four static targets, sign each binary, attach every native installer, metadata
+file, install script, and npm tarball, and verify the attached assets before
+claiming success.
 
 ## Backend Repository
+
 https://github.com/Proofboard-inc/proofboard-backend
 
 Local Clone Path: `/tmp/proofboard-backend`
-*(Note: If missing, reclone the repository to this path to perform backend changes.)*
 
 ### Backend Change Policy
 
-Never commit or push changes directly to the backend repository's `main` branch. All backend changes must be made on a dedicated branch and submitted as a pull request for review. Do not merge a backend pull request unless the user explicitly authorizes the merge.
+Never commit or push changes directly to the backend repository's `main`
+branch. All backend changes must use a dedicated branch and pull request. Do
+not merge a backend pull request unless the user explicitly authorizes it.
