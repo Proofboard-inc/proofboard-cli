@@ -12,8 +12,9 @@ import (
 
 func newCompletionCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
-		Short: "Generate the autocompletion script or auto-install it",
+		Use:     "completion [bash|zsh|fish|powershell]",
+		Aliases: []string{"completions"},
+		Short:   "Generate the autocompletion script or auto-install it",
 		Long: `Generate the autocompletion script for proofboard for the specified shell.
 If no shell is specified, it will attempt to auto-detect your shell and offer to install it automatically.`,
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},

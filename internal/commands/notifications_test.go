@@ -46,7 +46,7 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 		switch r.URL.Path {
 		case "/latest.json":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"version": %q, "url": "https://releases.proofboard.io/%s"}`, version.Version, version.Version)))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"version": %q, "url": "https://proofboard.io/%s"}`, version.Version, version.Version)))
 		case "/api/v1/notifications":
 			if got := r.URL.Query().Get("isRead"); got != "false" {
 				t.Fatalf("expected isRead=false, got %q", got)
@@ -100,6 +100,61 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	}
 	if !strings.Contains(output, "New opportunity match") {
 		t.Fatalf("expected inbound opportunity notification, got: %q", output)
+	}
+}
+
+func TestStartupUpdateChecksSkipsWebNotificationsForCLIToken(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
+	payload, _ := json.Marshal(map[string]any{
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"scope": "cli",
+	})
+	token := base64.RawURLEncoding.EncodeToString(header) + "." +
+		base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+	credStore := pbauth.NewCredentialStore(tempHome)
+	if err := credStore.Save(context.Background(), model.Credentials{Token: token}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+
+	stateStore := state.NewStore(tempHome)
+	st := state.Default()
+	st.AutoUpdateDictionary = false
+	if err := stateStore.Save(context.Background(), st); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	notificationCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest.json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"version": %q, "url": "https://proofboard.io/%s"}`, version.Version, version.Version)))
+		case "/api/v1/notifications":
+			notificationCalls++
+			http.Error(w, "CLI tokens must not call this route", http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", srv.URL)
+	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
+	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
+
+	cmd := &cobra.Command{Use: "status"}
+	parent := &cobra.Command{Use: "proofboard"}
+	parent.AddCommand(cmd)
+	cmd.SetOut(&bytes.Buffer{})
+	if err := runStartupUpdateChecks(context.Background(), cmd); err != nil {
+		t.Fatalf("runStartupUpdateChecks: %v", err)
+	}
+	if notificationCalls != 0 {
+		t.Fatalf("notification endpoint called %d times with a CLI-scoped token", notificationCalls)
 	}
 }
 

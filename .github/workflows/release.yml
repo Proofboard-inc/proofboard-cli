@@ -222,7 +222,7 @@ jobs:
           npm pack ./npm-package --pack-destination dist
           test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-agent-*.tgz' -print -quit)"
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
-          printf '{"version":"%s","url":"https://releases.proofboard.io/%s"}\n' \
+          printf '{"version":"%s","url":"https://proofboard.io/%s"}\n' \
             "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
           cd dist
           sha256sum \
@@ -250,12 +250,14 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Connects the Career Agent to the development authorization page, which replaces the address that was returning "authorization page is unavailable".
-            - Stops a page check from rejecting a working authorization page whose framework payload contains not-found text, which blocked connecting entirely.
-            - Connects the Career Agent and runs workspace detection during installation, so opening a project is all that is left to do.
-            - Keeps an existing connection when the install script is re-run as an update.
+            - Fixes the device-auth handoff so a successful browser login is reused by sync without a second login loop.
+            - Verifies GitHub ownership or real provider-attributed contributions before linking or syncing, including private-repository access checks.
+            - Adds device payload signing, signed-commit ratio, and previous-HEAD history-rewrite signals.
+            - Adds `proofboard auth logout` for server-side session revocation and local credential removal.
+            - Adds `proofboard logs clear` and prevents dictionary downgrades.
+            - Uses the development backend and frontend as independent configurable service URLs.
 
-            This release passed uncached unit/integration tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
+            This release passed live development-service auth/link/sync validation, uncached regression tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
           files: |
             dist/proofboard-linux-amd64
             dist/proofboard-linux-amd64.sig

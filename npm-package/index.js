@@ -5,8 +5,9 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const DEFAULT_VERSION = 'v1.8.18';
-const DEFAULT_RELEASES_URL = 'https://releases.proofboard.io/latest.json';
+const DEFAULT_VERSION = 'v1.9.2';
+const DEFAULT_RELEASES_URL = 'https://proofboard.io/latest.json';
+const GITHUB_LATEST_RELEASE_URL = 'https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download/latest.json';
 const RELEASE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdYPsxqaryQ9bQI3G3hQpsmyrTGs0
 nKxvQXQC+nAK+EsNF6VEofCYuX42bTeooKLR1Ol+Eh3NhWErh4tfSkH1mA==
@@ -74,23 +75,37 @@ function fetchBuffer(url, redirectsRemaining = 5) {
 }
 
 async function getLatestReleaseInfo(releasesUrl = DEFAULT_RELEASES_URL) {
-    const response = await fetchBuffer(releasesUrl);
-    if (response.statusCode === 200) {
+    const releaseFrom = async (url) => {
+        const response = await fetchBuffer(url);
+        if (response.statusCode !== 200) {
+            return null;
+        }
         try {
             const parsed = JSON.parse(response.data.toString('utf8'));
             const version = parsed.version || DEFAULT_VERSION;
             const releaseTag = version.startsWith('v') ? version : `v${version}`;
             return {
                 version,
-                url: parsed.url || `https://releases.proofboard.io/${releaseTag}`,
+                url: parsed.url || `https://proofboard.io/${releaseTag}`,
             };
         } catch (err) {
-            // Fall through to the pinned release.
+            return null;
+        }
+    };
+
+    const primary = await releaseFrom(releasesUrl);
+    if (primary) {
+        return primary;
+    }
+    if (releasesUrl === DEFAULT_RELEASES_URL) {
+        const github = await releaseFrom(GITHUB_LATEST_RELEASE_URL);
+        if (github) {
+            return github;
         }
     }
     return {
         version: DEFAULT_VERSION,
-        url: `https://releases.proofboard.io/${DEFAULT_VERSION}`,
+        url: `https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download`,
     };
 }
 
@@ -121,7 +136,7 @@ function verifyBinarySignature(binaryPath, signaturePath, publicKey = RELEASE_PU
 async function ensureBinary(options = {}) {
     const release = options.version ? {
         version: options.version,
-        url: options.releaseBaseUrl || `https://releases.proofboard.io/${options.version.startsWith('v') ? options.version : `v${options.version}`}`,
+        url: options.releaseBaseUrl || `https://proofboard.io/${options.version.startsWith('v') ? options.version : `v${options.version}`}`,
     } : await getLatestReleaseInfo(options.releasesUrl);
     const version = release.version;
     const binaryName = options.binaryName || getBinaryName(options.platform, options.arch);
@@ -130,6 +145,8 @@ async function ensureBinary(options = {}) {
     const signaturePath = `${binaryPath}.sig`;
     const downloadUrl = options.downloadUrl || `${release.url.replace(/\/$/, '')}/${binaryName}`;
     const signatureUrl = options.signatureUrl || `${downloadUrl}.sig`;
+    const releaseTag = version.startsWith('v') ? version : `v${version}`;
+    const githubDownloadUrl = `https://github.com/Proofboard-inc/proofboard-cli/releases/download/${releaseTag}/${binaryName}`;
 
     if (!fs.existsSync(cacheDir)) {
         fs.mkdirSync(cacheDir, { recursive: true });
@@ -154,7 +171,12 @@ async function ensureBinary(options = {}) {
         } catch (err) {
             fs.rmSync(binaryPath, { force: true });
             fs.rmSync(signaturePath, { force: true });
-            throw err;
+            if (options.downloadUrl || downloadUrl.startsWith('https://github.com/')) {
+                throw err;
+            }
+            await downloadBinary(githubDownloadUrl, binaryPath);
+            await downloadBinary(`${githubDownloadUrl}.sig`, signaturePath);
+            verifyBinarySignature(binaryPath, signaturePath, options.publicKey);
         }
         fs.chmodSync(binaryPath, 0o755);
     }
@@ -176,6 +198,8 @@ function run(args = [], options = {}) {
 
 module.exports = {
     DEFAULT_VERSION,
+    DEFAULT_RELEASES_URL,
+    GITHUB_LATEST_RELEASE_URL,
     getBinaryName,
     getLatestRelease,
     getLatestReleaseInfo,

@@ -269,10 +269,11 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	}
 	repoHash := crypto.SHA256("github:org/repo")
 	st.LinkedRepos[repoHash] = model.LinkedRepoState{
-		RepoHash:  repoHash,
-		OrgHash:   crypto.SHA256("github:org"),
-		PathHash:  crypto.SHA256(repoPath),
-		ProjectID: "project-log",
+		RepoHash:     repoHash,
+		OrgHash:      crypto.SHA256("github:org"),
+		PathHash:     crypto.SHA256(repoPath),
+		ProjectID:    "project-log",
+		EmailHashKey: testEmailHashKey,
 	}
 	st.AutoUpdateDictionary = false
 	if err := stateStore.Save(ctx, st); err != nil {

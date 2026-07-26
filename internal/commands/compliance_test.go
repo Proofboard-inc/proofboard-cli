@@ -82,6 +82,7 @@ func TestStatusPendingCheck(t *testing.T) {
 		LastHeadSHA:       initialHead,
 		LastSyncAt:        time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 		ProjectID:         "proj-123",
+		EmailHashKey:      testEmailHashKey,
 		DictionaryVersion: "1.0.0",
 		MetadataHash:      metadataHash,
 	}
@@ -202,7 +203,7 @@ func TestStartupUpdateChecks(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"version": %q, "url": "https://releases.proofboard.io/9.9.9"}`, latestCLIVersion)
+		fmt.Fprintf(w, `{"version": %q, "url": "https://proofboard.io/9.9.9"}`, latestCLIVersion)
 	})
 	mux.HandleFunc("/dictionary/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -456,7 +457,7 @@ func TestStartupUpdateChecks_InvalidDictionarySchema(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"version": %q, "url": "https://releases.proofboard.io/1.4.0"}`, latestCLIVersion)
+		fmt.Fprintf(w, `{"version": %q, "url": "https://proofboard.io/1.4.0"}`, latestCLIVersion)
 	})
 	mux.HandleFunc("/dictionary/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -13,7 +13,7 @@ Spec at - (project root)/SPEC.md
 
 ## Product
 
-Proofboard Career Agent v1.8.18
+Proofboard Career Agent v1.9.2
 
 Implementation language: Go 1.21+
 
@@ -136,6 +136,10 @@ Transmission
 * No panic in command handlers
 * Explicit error wrapping
 
+## Testing Integrity
+
+Never use mocks, fake servers, simulated API responses, or mock syncs. Authentication, linking, synchronization, and other network-dependent acceptance tests must run against the real configured development services. Never claim end-to-end success unless the real dev backend and frontend flow succeeds.
+
 ## Security Rules
 
 All hashes:
@@ -192,3 +196,7 @@ https://github.com/Proofboard-inc/proofboard-backend
 
 Local Clone Path: `/tmp/proofboard-backend`
 *(Note: If missing, reclone the repository to this path to perform backend changes.)*
+
+### Backend Change Policy
+
+Never commit or push changes directly to the backend repository's `main` branch. All backend changes must be made on a dedicated branch and submitted as a pull request for review. Do not merge a backend pull request unless the user explicitly authorizes the merge.

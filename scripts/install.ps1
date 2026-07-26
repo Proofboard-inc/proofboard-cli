@@ -3,7 +3,7 @@
     Proofboard Career Agent installation script for Windows.
 
     Usage:
-        irm https://releases.proofboard.io/install.ps1 | iex
+        irm https://proofboard.io/install.ps1 | iex
 
     The script resolves the latest published release, verifies the release
     checksum, and then hands over to the Career Agent's own installer so the
@@ -13,10 +13,10 @@
     install for every account instead, which prompts for administrator access
     through UAC.
 
-    Releases are read from the Git repository. While that repository is private,
-    a token is required: set PROOFBOARD_GITHUB_TOKEN (GH_TOKEN and GITHUB_TOKEN
-    are also honoured). Without a token the script falls back to the public
-    download host.
+    Releases are read from proofboard.io first. If that distribution origin is
+    unavailable, the script falls back to the latest release published directly
+    on GitHub. Private-repository fallback can use PROOFBOARD_GITHUB_TOKEN
+    (GH_TOKEN and GITHUB_TOKEN are also honoured).
 
     Environment overrides (used by release verification and by pinned installs):
         PROOFBOARD_VERSION              install a specific tag instead of the latest
@@ -32,8 +32,8 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'Proofboard-inc/proofboard-cli'
-$PinnedVersion = 'v1.8.18'
-$PublicDownloadHost = 'https://releases.proofboard.io'
+$PinnedVersion = 'v1.9.2'
+$PublicDownloadHost = 'https://proofboard.io'
 $BinaryName = 'proofboard-windows-amd64.exe'
 $SystemInstall = $env:PROOFBOARD_SYSTEM_INSTALL -eq '1'
 $InstallDir = if ($env:PROOFBOARD_INSTALL_DIR) {
@@ -85,21 +85,8 @@ $Token = $null
 if (-not $DownloadBaseUrl) {
     $Token = Get-RepositoryToken
 
-    # Primary source: the release published on the Git repository.
-    $releasePath = if ($ReleaseTag) { "tags/$ReleaseTag" } else { 'latest' }
-    try {
-        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/$releasePath" `
-            -Headers (Get-RequestHeaders -Token $Token) -ErrorAction Stop
-    } catch {
-        Write-Verbose "Could not read the release from the repository: $_"
-        $Release = $null
-    }
-
-    if ($Release -and $Release.tag_name) {
-        $ReleaseTag = $Release.tag_name
-        $ReleaseSource = 'repository'
-    } else {
-        # Secondary source: the release manifest served by the download host.
+    # Primary source: the root-domain release manifest.
+    if (-not $ReleaseTag) {
         $manifestUrl = if ($env:PROOFBOARD_LATEST_RELEASE_URL) {
             $env:PROOFBOARD_LATEST_RELEASE_URL
         } else {
@@ -107,10 +94,24 @@ if (-not $DownloadBaseUrl) {
         }
         try {
             $manifest = Invoke-RestMethod -Uri $manifestUrl -ErrorAction Stop
-            if (-not $ReleaseTag -and $manifest.version) { $ReleaseTag = $manifest.version }
+            if ($manifest.version) { $ReleaseTag = $manifest.version }
             if ($manifest.url) { $DownloadBaseUrl = $manifest.url }
         } catch {
-            Write-Verbose "Could not read the release manifest: $_"
+            Write-Verbose "Could not read the release manifest from proofboard.io: $_"
+        }
+    }
+
+    if (-not $ReleaseTag) {
+        # Fallback source: the latest release published directly on GitHub.
+        try {
+            $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+                -Headers (Get-RequestHeaders -Token $Token) -ErrorAction Stop
+            if ($Release.tag_name) {
+                $ReleaseTag = $Release.tag_name
+                $ReleaseSource = 'repository'
+            }
+        } catch {
+            Write-Verbose "Could not read the latest GitHub release: $_"
         }
     }
 }
@@ -129,17 +130,29 @@ if ($ReleaseSource -ne 'repository' -and -not $DownloadBaseUrl) {
 function Save-ReleaseAsset {
     param([string]$Name, [string]$Destination)
 
-    if ($ReleaseSource -eq 'repository') {
-        $asset = $Release.assets | Where-Object { $_.name -eq $Name } | Select-Object -First 1
-        if (-not $asset) {
-            throw "Release $ReleaseTag does not contain $Name."
+    if ($ReleaseSource -ne 'repository') {
+        try {
+            Invoke-WebRequest -Uri "$DownloadBaseUrl/$Name" -OutFile $Destination -UseBasicParsing -ErrorAction Stop
+            return
+        } catch {
+            Write-Verbose "Could not download $Name from proofboard.io: $_"
         }
-        Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/releases/assets/$($asset.id)" `
-            -OutFile $Destination -UseBasicParsing `
-            -Headers (Get-RequestHeaders -Token $Token -Accept 'application/octet-stream') -ErrorAction Stop
-    } else {
-        Invoke-WebRequest -Uri "$DownloadBaseUrl/$Name" -OutFile $Destination -UseBasicParsing -ErrorAction Stop
     }
+
+    # Root-domain asset fallback: resolve the matching GitHub release and
+    # download the asset directly from GitHub.
+    if (-not $Release) {
+        $releasePath = if ($ReleaseTag) { "tags/$ReleaseTag" } else { 'latest' }
+        $Release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/$releasePath" `
+            -Headers (Get-RequestHeaders -Token $Token) -ErrorAction Stop
+    }
+    $asset = $Release.assets | Where-Object { $_.name -eq $Name } | Select-Object -First 1
+    if (-not $asset) {
+        throw "Neither proofboard.io nor the GitHub release $ReleaseTag contains $Name."
+    }
+    Invoke-WebRequest -Uri "https://api.github.com/repos/$Repo/releases/assets/$($asset.id)" `
+        -OutFile $Destination -UseBasicParsing `
+        -Headers (Get-RequestHeaders -Token $Token -Accept 'application/octet-stream') -ErrorAction Stop
 }
 
 Write-Host "Downloading $BinaryName $ReleaseTag..." -ForegroundColor Cyan

@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/logging"
 	"github.com/proofboard/proofboard/internal/model"
 	statestore "github.com/proofboard/proofboard/internal/state"
 )
@@ -51,6 +53,7 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 			"isNewProject":      false,
 			"projectId":         "project-123",
 			"dictionaryVersion": "1.0.0",
+			"emailHashKey":      testEmailHashKey,
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -76,6 +79,11 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	if len(current.LinkedRepos) != 1 {
 		t.Fatalf("linked repositories = %d, want 1", len(current.LinkedRepos))
 	}
+	for _, linked := range current.LinkedRepos {
+		if linked.EmailHashKey != testEmailHashKey {
+			t.Fatalf("linked repository did not retain emailHashKey")
+		}
+	}
 	for _, hook := range []string{"post-commit", "post-merge", "post-rewrite"} {
 		if _, err := os.Stat(filepath.Join(repoDir, ".git", "hooks", hook)); err != nil {
 			t.Fatalf("%s hook not installed: %v", hook, err)
@@ -100,6 +108,87 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	}
 }
 
+func TestLinkMigratesLegacyStateWithHandshakeBeforeProjectSelection(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	const legacyProjectID = "legacy-project-123"
+	repoHash := crypto.SHA256("github:org/repo")
+	orgHash := crypto.SHA256("github:org")
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/cli/repos/link" {
+			http.NotFound(w, r)
+			return
+		}
+		requestCount++
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode link request: %v", err)
+		}
+		if requestCount == 1 {
+			if request["existingProjectId"] != nil {
+				http.Error(w, `{"message":"legacy project mapping not found"}`, http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"isNewProject": true,
+				"existingProjectOptions": []map[string]string{{
+					"id": legacyProjectID,
+				}},
+			})
+			return
+		}
+		if request["existingProjectId"] != legacyProjectID || request["createNew"] == true {
+			t.Fatalf("legacy selection request = %#v", request)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"isNewProject":      false,
+			"projectId":         legacyProjectID,
+			"dictionaryVersion": "1.2.0",
+			"emailHashKey":      testEmailHashKey,
+		})
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "test-token"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	current := statestore.Default()
+	current.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:  repoHash,
+		OrgHash:   orgHash,
+		Provider:  "github",
+		ProjectID: legacyProjectID,
+	}
+	if err := statestore.NewStore(homeDir).Save(ctx, current); err != nil {
+		t.Fatalf("save legacy state: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var out bytes.Buffer
+	command := newLinkCommand(ctx, &out)
+	command.SetArgs([]string{"--non-interactive"})
+	if err := command.ExecuteContext(ctx); err != nil {
+		t.Fatalf("migrate legacy link: %v\n%s", err, out.String())
+	}
+	if requestCount != 2 {
+		t.Fatalf("link request count = %d, want handshake plus selection", requestCount)
+	}
+	persisted, err := statestore.NewStore(homeDir).Load(ctx)
+	if err != nil {
+		t.Fatalf("load migrated state: %v", err)
+	}
+	linked := persisted.LinkedRepos[repoHash]
+	if linked.ProjectID != legacyProjectID || linked.EmailHashKey != testEmailHashKey {
+		t.Fatalf("migrated state = %+v", linked)
+	}
+}
+
 func TestLogsCommandPrintsRequestedTail(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
@@ -118,6 +207,57 @@ func TestLogsCommandPrintsRequestedTail(t *testing.T) {
 	}
 	if out.String() != "second\nthird\n" {
 		t.Fatalf("logs output = %q", out.String())
+	}
+}
+
+func TestLogsClearPurgesCurrentAndRotatedLogs(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	path := filepath.Join(homeDir, ".proofboard", "sync.log")
+	backupPath := path + ".1"
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create log directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("current private log\n"), 0o600); err != nil {
+		t.Fatalf("write current log: %v", err)
+	}
+	if err := os.WriteFile(backupPath, []byte("rotated private log\n"), 0o600); err != nil {
+		t.Fatalf("write rotated log: %v", err)
+	}
+
+	var out bytes.Buffer
+	command := newLogsCommand(context.Background(), &out)
+	command.SetArgs([]string{"clear"})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("logs clear command: %v", err)
+	}
+	if out.String() != "Proofboard logs cleared.\n" {
+		t.Fatalf("logs clear output = %q", out.String())
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat reset log: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("reset log size = %d, want 0", info.Size())
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("reset log mode = %o, want 600", info.Mode().Perm())
+	}
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Fatalf("rotated log still exists or stat failed: %v", err)
+	}
+	if err := logging.WriteSyncLog(homeDir, "repo-hash", "test", "after clear", "success", ""); err != nil {
+		t.Fatalf("write fresh log entry: %v", err)
+	}
+	fresh, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fresh log: %v", err)
+	}
+	if !bytes.Contains(fresh, []byte("after clear")) ||
+		bytes.Contains(fresh, []byte("current private log")) ||
+		bytes.Contains(fresh, []byte("rotated private log")) {
+		t.Fatalf("fresh log contents = %q", fresh)
 	}
 }
 

@@ -4,7 +4,7 @@ set -e
 # Proofboard Career Agent installation script for Linux and macOS.
 #
 # Usage:
-#   curl -fsSL https://releases.proofboard.io/install.sh | sh
+#   curl -fsSL https://proofboard.io/install.sh | sh
 #
 # The script resolves the latest published release, verifies the release
 # signature, and then hands over to the Career Agent's own installer so the
@@ -12,10 +12,10 @@ set -e
 # `proofboard install`. The install goes into the current account, so no
 # administrator access is required.
 #
-# Releases are read from the Git repository. While that repository is private,
-# a token is required: set PROOFBOARD_GITHUB_TOKEN (GH_TOKEN and GITHUB_TOKEN
-# are also honoured), or sign in with the GitHub CLI. Without a token the
-# script falls back to the public download host.
+# Releases are read from proofboard.io first. If that distribution origin is
+# unavailable, the script falls back to the latest release published directly
+# on GitHub. Private-repository fallback can use PROOFBOARD_GITHUB_TOKEN
+# (GH_TOKEN and GITHUB_TOKEN are also honoured), or an authenticated GitHub CLI.
 #
 # Environment overrides (used by release verification and by pinned installs):
 #   PROOFBOARD_VERSION              install a specific tag instead of the latest
@@ -26,8 +26,8 @@ set -e
 #   PROOFBOARD_SYSTEM_INSTALL       install for every account (needs sudo)
 
 REPO="Proofboard-inc/proofboard-cli"
-PINNED_VERSION="v1.8.18"
-PUBLIC_DOWNLOAD_HOST="https://releases.proofboard.io"
+PINNED_VERSION="v1.9.2"
+PUBLIC_DOWNLOAD_HOST="https://proofboard.io"
 
 log() {
     printf '%s\n' "$*"
@@ -75,23 +75,37 @@ release_asset_id() {
 download_asset() {
     asset_name="$1"
     destination="$2"
-    if [ "$RELEASE_SOURCE" = "repository" ]; then
-        asset_id=$(release_asset_id "$asset_name")
-        [ -n "$asset_id" ] || fail "Release ${RELEASE_TAG} does not contain ${asset_name}."
-        if [ -n "$REPOSITORY_TOKEN" ]; then
-            curl -fsSL -o "$destination" -H "Authorization: Bearer ${REPOSITORY_TOKEN}" \
-                -H "Accept: application/octet-stream" -H "User-Agent: proofboard-installer" \
-                "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" ||
-                fail "Could not download ${asset_name} from the ${RELEASE_TAG} release."
+    if [ "$RELEASE_SOURCE" != "repository" ] &&
+        curl -fsSL -o "$destination" "${DOWNLOAD_BASE_URL}/${asset_name}"; then
+        return 0
+    fi
+
+    # The root-domain distribution is primary. Resolve and download the same
+    # asset directly from the matching GitHub release when it is unavailable.
+    if [ -z "$RELEASE_JSON" ]; then
+        if [ -n "$RELEASE_TAG" ]; then
+            RELEASE_JSON=$(repository_api_get "https://api.github.com/repos/${REPO}/releases/tags/${RELEASE_TAG}")
         else
-            curl -fsSL -o "$destination" -H "Accept: application/octet-stream" \
-                -H "User-Agent: proofboard-installer" \
-                "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" ||
-                fail "Could not download ${asset_name} from the ${RELEASE_TAG} release."
+            RELEASE_JSON=$(repository_api_get "https://api.github.com/repos/${REPO}/releases/latest")
         fi
+    fi
+    resolved_repository_tag=$(read_json_string "$RELEASE_JSON" tag_name)
+    if [ -n "$resolved_repository_tag" ]; then
+        RELEASE_TAG="$resolved_repository_tag"
+    fi
+    asset_id=$(release_asset_id "$asset_name")
+    [ -n "$asset_id" ] ||
+        fail "Neither proofboard.io nor the GitHub release ${RELEASE_TAG} contains ${asset_name}."
+    if [ -n "$REPOSITORY_TOKEN" ]; then
+        curl -fsSL -o "$destination" -H "Authorization: Bearer ${REPOSITORY_TOKEN}" \
+            -H "Accept: application/octet-stream" -H "User-Agent: proofboard-installer" \
+            "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" ||
+            fail "Could not download ${asset_name} from proofboard.io or GitHub."
     else
-        curl -fsSL -o "$destination" "${DOWNLOAD_BASE_URL}/${asset_name}" ||
-            fail "Could not download ${DOWNLOAD_BASE_URL}/${asset_name}"
+        curl -fsSL -o "$destination" -H "Accept: application/octet-stream" \
+            -H "User-Agent: proofboard-installer" \
+            "https://api.github.com/repos/${REPO}/releases/assets/${asset_id}" ||
+            fail "Could not download ${asset_name} from proofboard.io or GitHub."
     fi
 }
 
@@ -136,27 +150,22 @@ REPOSITORY_TOKEN=""
 if [ -z "$DOWNLOAD_BASE_URL" ]; then
     REPOSITORY_TOKEN=$(resolve_repository_token)
 
-    # Primary source: the release published on the Git repository.
-    if [ -n "$RELEASE_TAG" ]; then
-        RELEASE_JSON=$(repository_api_get "https://api.github.com/repos/${REPO}/releases/tags/${RELEASE_TAG}")
-    else
-        RELEASE_JSON=$(repository_api_get "https://api.github.com/repos/${REPO}/releases/latest")
+    # Primary source: the root-domain release manifest.
+    if [ -z "$RELEASE_TAG" ]; then
+        LATEST_JSON=$(curl -fsSL "${PROOFBOARD_LATEST_RELEASE_URL:-${PUBLIC_DOWNLOAD_HOST}/latest.json}" 2>/dev/null || true)
+        RELEASE_TAG=$(read_json_string "$LATEST_JSON" version)
+        DOWNLOAD_BASE_URL=$(read_json_string "$LATEST_JSON" url)
     fi
 
-    RESOLVED_TAG=$(read_json_string "$RELEASE_JSON" tag_name)
-    if [ -n "$RESOLVED_TAG" ]; then
-        RELEASE_TAG="$RESOLVED_TAG"
-        RELEASE_SOURCE="repository"
+    if [ -n "$RELEASE_TAG" ]; then
+        RELEASE_SOURCE="download-host"
     else
-        # Secondary source: the release manifest served by the download host.
-        LATEST_JSON=$(curl -fsSL "${PROOFBOARD_LATEST_RELEASE_URL:-${PUBLIC_DOWNLOAD_HOST}/latest.json}" 2>/dev/null || true)
-        if [ -z "$RELEASE_TAG" ]; then
-            RELEASE_TAG=$(read_json_string "$LATEST_JSON" version)
-        fi
-        MANIFEST_BASE_URL=$(read_json_string "$LATEST_JSON" url)
-        if [ -n "$MANIFEST_BASE_URL" ]; then
-            DOWNLOAD_BASE_URL="$MANIFEST_BASE_URL"
-        fi
+        # Fallback source: the release published directly on GitHub.
+        RELEASE_JSON=$(repository_api_get "https://api.github.com/repos/${REPO}/releases/latest")
+        RELEASE_TAG=$(read_json_string "$RELEASE_JSON" tag_name)
+    fi
+    if [ -n "$RELEASE_JSON" ]; then
+        RELEASE_SOURCE="repository"
     fi
 fi
 

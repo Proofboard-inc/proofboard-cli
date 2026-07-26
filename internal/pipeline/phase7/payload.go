@@ -7,12 +7,18 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
+const (
+	maxPayloadCommits  = 5000
+	maxPayloadClusters = 50
+)
+
 type AssemblyInput struct {
 	Commits           []model.SafeCommit
 	Clusters          []model.Cluster
 	OrgHash           string
 	RepoHash          string
 	EmailHash         string
+	IdentityEmailHash string
 	Provider          string
 	CLIVersion        string
 	DictionaryVersion string
@@ -21,15 +27,25 @@ type AssemblyInput struct {
 }
 
 func Assemble(input AssemblyInput) model.SyncPayload {
+	commits := input.Commits
+	if len(commits) > maxPayloadCommits {
+		commits = commits[:maxPayloadCommits]
+	}
+	clusters := input.Clusters
+	if len(clusters) > maxPayloadClusters {
+		clusters = clusters[:maxPayloadClusters]
+	}
+	clusters = append([]model.Cluster(nil), clusters...)
+
 	payload := model.SyncPayload{
-		SHAs:              make([]string, 0, len(input.Commits)),
-		Timestamps:        make([]int64, 0, len(input.Commits)),
-		Additions:         make([]int, 0, len(input.Commits)),
-		Deletions:         make([]int, 0, len(input.Commits)),
-		FilesChanged:      make([]int, 0, len(input.Commits)),
-		Categories:        make([]string, 0, len(input.Commits)),
+		SHAs:              make([]string, 0, len(commits)),
+		Timestamps:        make([]int64, 0, len(commits)),
+		Additions:         make([]int, 0, len(commits)),
+		Deletions:         make([]int, 0, len(commits)),
+		FilesChanged:      make([]int, 0, len(commits)),
+		Categories:        make([]string, 0, len(commits)),
 		ImpactScores:      model.ImpactScores{},
-		MilestoneClusters: input.Clusters,
+		MilestoneClusters: clusters,
 		OrgHash:           input.OrgHash,
 		RepoHash:          input.RepoHash,
 		EmailHash:         input.EmailHash,
@@ -40,7 +56,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		PreviousHead:      input.PreviousHead,
 		NotifyPush:        false,
 		AntiFraudSignals: model.AntiFraudSignals{
-			LowCommitCount:      len(input.Commits) < 5,
+			LowCommitCount:      len(commits) < 3,
 			OrgHashMismatch:     input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,
 			SingleCommitRepoCap: false,
 		},
@@ -50,8 +66,13 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	totalNoise := 0.0
 	identityMismatch := 0
 	signedCount := 0
+	identityEmailHash := input.IdentityEmailHash
+	if identityEmailHash == "" {
+		identityEmailHash = input.EmailHash
+	}
 
-	for _, commit := range input.Commits {
+	var capturedAt int64
+	for _, commit := range commits {
 		payload.SHAs = append(payload.SHAs, commit.SHA)
 		payload.Timestamps = append(payload.Timestamps, commit.TimestampUnix)
 		payload.Additions = append(payload.Additions, commit.Additions)
@@ -59,12 +80,15 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		payload.FilesChanged = append(payload.FilesChanged, commit.FilesChanged)
 		cat := normalizeCategory(commit.Category)
 		payload.Categories = append(payload.Categories, cat)
+		if commit.TimestampUnix > capturedAt {
+			capturedAt = commit.TimestampUnix
+		}
 		impactCounts[normalizeImpact(commit.ImpactType)]++
 		totalNoise += commit.NoiseScore
 		if commit.SignatureValid {
 			signedCount++
 		}
-		if input.EmailHash != "" && commit.AuthorEmailHash != "" && commit.AuthorEmailHash != input.EmailHash {
+		if identityEmailHash != "" && commit.AuthorEmailHash != "" && commit.AuthorEmailHash != identityEmailHash {
 			identityMismatch++
 		}
 	}
@@ -76,13 +100,16 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	}
 
 	payload.AntiFraudSignals.IdentityMismatch = identityMismatch
-	if len(input.Commits) > 0 {
-		payload.AntiFraudSignals.SignedCommitRatio = float64(signedCount) / float64(len(input.Commits))
+	if capturedAt > 0 {
+		payload.CapturedAt = time.Unix(capturedAt, 0).UTC().Format(time.RFC3339)
+	}
+	if len(commits) > 0 {
+		payload.AntiFraudSignals.SignedCommitRatio = float64(signedCount) / float64(len(commits))
 	}
 
-	if len(input.Commits) > 0 {
-		payload.AntiFraudSignals.AINoiseScore = totalNoise / float64(len(input.Commits))
-		total := float64(len(input.Commits))
+	if len(commits) > 0 {
+		payload.AntiFraudSignals.AINoiseScore = totalNoise / float64(len(commits))
+		total := float64(len(commits))
 		payload.ImpactScores.Feature = float64(impactCounts["feature"]) / total
 		payload.ImpactScores.Bugfix = float64(impactCounts["bugfix"]) / total
 		payload.ImpactScores.Refactor = float64(impactCounts["refactor"]) / total

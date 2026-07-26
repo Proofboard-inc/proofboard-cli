@@ -4,13 +4,20 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+    DEFAULT_RELEASES_URL,
     DEFAULT_VERSION,
+    GITHUB_LATEST_RELEASE_URL,
     ensureBinary,
     getBinaryName,
     getLatestReleaseInfo,
     verifyBinarySignature,
 } = require('./index');
 
+assert.strictEqual(DEFAULT_RELEASES_URL, 'https://proofboard.io/latest.json');
+assert.strictEqual(
+    GITHUB_LATEST_RELEASE_URL,
+    'https://github.com/Proofboard-inc/proofboard-cli/releases/latest/download/latest.json',
+);
 assert.strictEqual(getBinaryName('Linux', 'x64'), 'proofboard-linux-amd64');
 assert.strictEqual(getBinaryName('Darwin', 'x64'), 'proofboard-darwin-amd64');
 assert.strictEqual(getBinaryName('Darwin', 'arm64'), 'proofboard-darwin-arm64');

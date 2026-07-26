@@ -6,12 +6,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proofboard/proofboard/internal/api"
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/model"
 )
@@ -68,6 +70,121 @@ func TestRetryAfterAuthUsesRefreshTokenSilently(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("silent refresh wrote user-facing output: %q", out.String())
+	}
+}
+
+func TestRetryAfterAuthDoesNotStartLoginWhenFreshTokenIsRejected(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	var deviceCodeCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/refresh":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"token":        retryTestJWT(time.Now().Add(7 * 24 * time.Hour)),
+				"refreshToken": "rotated-refresh",
+			})
+		case "/api/v1/cli/auth/device-code":
+			deviceCodeCalls++
+			http.Error(w, "interactive login must not run", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+	t.Setenv("PROOFBOARD_API_REFRESH_PATH", "/refresh")
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{
+		Token:        "old-access-token",
+		RefreshToken: "refresh-token",
+	}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	var out bytes.Buffer
+	var calls int
+	err := retryAfterAuth(ctx, &out, "project synchronization", func() error {
+		calls++
+		return &api.Error{StatusCode: http.StatusUnauthorized, Code: "SYNC_REJECTED"}
+	})
+	if err == nil || !strings.Contains(err.Error(), "rejected refreshed credentials") {
+		t.Fatalf("retry error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("operation calls = %d, want initial plus refreshed retry", calls)
+	}
+	if deviceCodeCalls != 0 || out.Len() != 0 {
+		t.Fatalf("fresh-token rejection started login: device calls=%d output=%q", deviceCodeCalls, out.String())
+	}
+}
+
+func TestRetryAfterAuthRotatesRevokedDeviceKeyWithoutInteractiveLogin(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	var registrations int
+	var deviceCodeCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/auth/device-key":
+			registrations++
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"deviceKeyId": fmt.Sprintf("device-%d", registrations),
+			})
+		case "/api/v1/cli/auth/device-code":
+			deviceCodeCalls++
+			http.Error(w, "interactive login must not run", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	ctx := context.Background()
+	credentialStore := pbauth.NewCredentialStore(homeDir)
+	if err := credentialStore.Save(ctx, model.Credentials{Token: "valid-access-token"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	runtime, err := loadRuntime(ctx)
+	if err != nil {
+		t.Fatalf("load runtime: %v", err)
+	}
+	keyStore := pbauth.NewDeviceKeyStore(homeDir)
+	if _, err := keyStore.Ensure(ctx, runtime.api, "valid-access-token", false); err != nil {
+		t.Fatalf("seed device key: %v", err)
+	}
+
+	var operationCalls int
+	var out bytes.Buffer
+	err = retryAfterAuth(ctx, &out, "project synchronization", func() error {
+		operationCalls++
+		record, loadErr := keyStore.Load(ctx)
+		if loadErr != nil {
+			return loadErr
+		}
+		if record.DeviceKeyID == "device-1" {
+			return &api.Error{
+				StatusCode: http.StatusUnauthorized,
+				Code:       "DEVICE_KEY_REVOKED",
+				Message:    "Unknown or revoked device key",
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retryAfterAuth: %v", err)
+	}
+	if operationCalls != 2 || registrations != 2 {
+		t.Fatalf("operation calls = %d, registrations = %d; want 2, 2", operationCalls, registrations)
+	}
+	if deviceCodeCalls != 0 || out.Len() != 0 {
+		t.Fatalf("unexpected interactive login: device-code calls=%d output=%q", deviceCodeCalls, out.String())
 	}
 }
 

@@ -111,6 +111,7 @@ func TestCareerAgentEndToEndAuthorizesConnectsAndSyncs(t *testing.T) {
 				"isNewProject":      false,
 				"projectId":         "project-e2e",
 				"dictionaryVersion": version.Version,
+				"emailHashKey":      testEmailHashKey,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/sync":
 			recordCall("sync")
@@ -173,7 +174,8 @@ func TestCareerAgentEndToEndAuthorizesConnectsAndSyncs(t *testing.T) {
 	}
 	repoHash := crypto.SHA256("github:org/repo")
 	repoState, linked := persisted.LinkedRepos[repoHash]
-	if !linked || repoState.ProjectID != "project-e2e" || repoState.LastHeadSHA != head || repoState.LastSyncAt.IsZero() {
+	if !linked || repoState.ProjectID != "project-e2e" || repoState.EmailHashKey != testEmailHashKey ||
+		repoState.LastHeadSHA != head || repoState.LastSyncAt.IsZero() {
 		t.Fatalf("tracked project state = %+v, linked=%v", repoState, linked)
 	}
 }

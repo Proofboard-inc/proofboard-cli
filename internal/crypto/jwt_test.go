@@ -22,3 +22,17 @@ func TestJWTExpiry(t *testing.T) {
 		t.Fatalf("JWTExpiry = %v, want %v", expiry, expected)
 	}
 }
+
+func TestJWTScope(t *testing.T) {
+	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
+	payload, _ := json.Marshal(map[string]any{"exp": 1719500000, "scope": "cli"})
+	token := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+
+	scope, err := JWTScope(token)
+	if err != nil {
+		t.Fatalf("JWTScope returned error: %v", err)
+	}
+	if scope != "cli" {
+		t.Fatalf("JWTScope = %q, want cli", scope)
+	}
+}

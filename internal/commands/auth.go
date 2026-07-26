@@ -34,13 +34,13 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("auth login: %w", err)
 			}
-			// Registering this machine's signing key is what lets the service
-			// tell a real Career Agent from a replayed payload. It is not a
-			// reason to fail a connection that already succeeded: the key is
-			// registered again on the next synchronization.
+			// Authentication is not complete until this installation can
+			// prove ownership of a registered signing key. Never report a
+			// connected state that can only produce unsigned payloads.
 			keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
 			if deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, credentials.Token, rotateKey); keyErr != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, "", "auth", "register device key", "warning", keyErr.Error())
+				return fmt.Errorf("register device signing key: %w", keyErr)
 			} else {
 				credentials.DeviceKeyID = deviceKey.DeviceKeyID
 				if err := runtime.credentials.Save(ctx, credentials); err != nil {
@@ -50,6 +50,7 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if current, loadErr := runtime.state.Load(ctx); loadErr == nil {
 				current.AuthReconnectPrompted = false
 				current.AuthReconnectPromptedAt = time.Time{}
+				current.AuthLoggedOut = false
 				_ = runtime.state.Save(ctx, current)
 			}
 			name := credentials.Username
@@ -61,5 +62,40 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&rotateKey, "rotate-key", false, "generate a new device signing key")
+	cmd.AddCommand(newAuthLogoutCommand(ctx, out))
 	return cmd
+}
+
+func newAuthLogoutCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout",
+		Short: "Revoke Proofboard sessions and remove local credentials",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime, err := loadRuntime(ctx)
+			if err != nil {
+				return fmt.Errorf("auth logout: %w", err)
+			}
+			credentials, loadErr := runtime.credentials.Load(ctx)
+			if loadErr == nil && credentials.Token != "" {
+				if err := runtime.api.RevokeCLISessions(ctx, credentials.Token); err != nil {
+					return fmt.Errorf("revoke Proofboard sessions: %w", err)
+				}
+			}
+			if err := runtime.credentials.Delete(ctx); err != nil {
+				return err
+			}
+			current, stateErr := runtime.state.Load(ctx)
+			if stateErr == nil {
+				current.AuthLoggedOut = true
+				current.AuthReconnectPrompted = false
+				current.AuthReconnectPromptedAt = time.Time{}
+				if err := runtime.state.Save(ctx, current); err != nil {
+					return fmt.Errorf("persist logged-out state: %w", err)
+				}
+			}
+			_, err = fmt.Fprintln(out, "Proofboard session revoked and local credentials removed.")
+			return err
+		},
+	}
 }

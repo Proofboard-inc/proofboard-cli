@@ -4,12 +4,66 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
+
+// Error is the structured form of a non-2xx API response. Error deliberately
+// omits Message from its string representation: callers can make decisions
+// from the typed fields without accidentally writing server-provided details
+// (which may contain proprietary project data) to logs.
+type Error struct {
+	StatusCode int
+	Code       string
+	Message    string
+	RetryAfter time.Duration
+}
+
+func (e *Error) Error() string {
+	if e == nil {
+		return "API request failed"
+	}
+	if strings.TrimSpace(e.Code) != "" {
+		return fmt.Sprintf("API returned %d (%s)", e.StatusCode, e.Code)
+	}
+	return fmt.Sprintf("API returned %d", e.StatusCode)
+}
+
+func IsStatus(err error, statusCode int) bool {
+	var apiErr *Error
+	return errors.As(err, &apiErr) && apiErr.StatusCode == statusCode
+}
+
+func parseAPIError(statusCode int, header http.Header, body []byte) *Error {
+	apiErr := &Error{StatusCode: statusCode}
+	var response struct {
+		Code    string `json:"code"`
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &response) == nil {
+		apiErr.Code = strings.TrimSpace(response.Code)
+		if apiErr.Code == "" {
+			apiErr.Code = strings.TrimSpace(response.Error)
+		}
+		apiErr.Message = strings.TrimSpace(response.Message)
+	}
+	if retryAfter := strings.TrimSpace(header.Get("Retry-After")); retryAfter != "" {
+		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
+			apiErr.RetryAfter = time.Duration(seconds) * time.Second
+			if seconds == 0 {
+				apiErr.RetryAfter = time.Nanosecond
+			}
+		}
+	}
+	return apiErr
+}
 
 type Client struct {
 	baseURL                   string
@@ -19,6 +73,7 @@ type Client struct {
 	syncPath                  string
 	deviceKeyRegistrationPath string
 	refreshPath               string
+	revokePath                string
 }
 
 func NewClient(baseURL string, linkPath string, checkPath string, syncPath string, optionalPaths ...string) Client {
@@ -30,6 +85,10 @@ func NewClient(baseURL string, linkPath string, checkPath string, syncPath strin
 	if len(optionalPaths) > 1 {
 		refreshPath = optionalPaths[1]
 	}
+	revokePath := "/api/v1/cli/auth/revoke"
+	if len(optionalPaths) > 2 && strings.TrimSpace(optionalPaths[2]) != "" {
+		revokePath = optionalPaths[2]
+	}
 	return Client{
 		baseURL:                   baseURL,
 		linkPath:                  linkPath,
@@ -37,6 +96,7 @@ func NewClient(baseURL string, linkPath string, checkPath string, syncPath strin
 		syncPath:                  syncPath,
 		deviceKeyRegistrationPath: deviceKeyPath,
 		refreshPath:               refreshPath,
+		revokePath:                revokePath,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -85,7 +145,6 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
@@ -96,7 +155,7 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 	bodyBytes, _ := io.ReadAll(io.LimitReader(res.Body, 1024*1024))
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("API returned %s: %s", res.Status, redactJSONForLog(bodyBytes))
+		return parseAPIError(res.StatusCode, res.Header, bodyBytes)
 	}
 	if response == nil || res.StatusCode == http.StatusNoContent {
 		return nil
@@ -138,6 +197,23 @@ func (c Client) getJSON(ctx context.Context, path string, token string, query ur
 
 func (c Client) patchJSON(ctx context.Context, path string, token string, request any, response any) error {
 	return c.requestJSON(ctx, http.MethodPatch, path, token, nil, request, response)
+}
+
+func (c Client) deleteJSON(ctx context.Context, path string, token string, response any) error {
+	return c.requestJSON(ctx, http.MethodDelete, path, token, nil, nil, response)
+}
+
+func (c Client) RevokeCLISessions(ctx context.Context, token string) error {
+	var response struct {
+		Success bool `json:"success"`
+	}
+	if err := c.deleteJSON(ctx, c.revokePath, token, &response); err != nil {
+		return err
+	}
+	if !response.Success {
+		return errors.New("API did not confirm CLI session revocation")
+	}
+	return nil
 }
 
 func (c Client) endpoint(route string) (string, error) {
