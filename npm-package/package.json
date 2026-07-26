@@ -1,6 +1,6 @@
 {
   "name": "proofboard-cli",
-  "version": "1.9.3",
+  "version": "1.9.3-1",
   "description": "Thin npm launcher for the signed Proofboard Career Agent release",
   "main": "./index.js",
   "bin": {
@@ -25,5 +25,6 @@
     "type": "git",
     "url": "https://github.com/Proofboard-inc/proofboard-cli"
   },
+  "homepage": "https://github.com/Proofboard-inc/proofboard-cli#readme",
   "dependencies": {}
 }
