@@ -82,7 +82,7 @@ func TestAutomaticAuthFailureDoesNotExposeAuthCommandUsage(t *testing.T) {
 	t.Setenv("PROOFBOARD_AGENT_AUTH_URL", server.URL+"/agent/cli-auth")
 
 	var out bytes.Buffer
-	err := runAuthFlow(context.Background(), &out)
+	err := runAuthFlow(context.Background(), &out, false)
 	if err == nil {
 		t.Fatal("expected automatic authentication failure")
 	}
