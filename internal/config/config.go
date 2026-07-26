@@ -24,7 +24,6 @@ type Config struct {
 	SyncPath                  string
 	DeviceKeyRegistrationPath string
 	RefreshPath               string
-	RevokePath                string
 	AgentAuthURL              string
 	DictionaryPath            string
 	LatestVersionPath         string
@@ -49,7 +48,6 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
 	v.SetDefault("api.device_key_registration_path", "/api/v1/cli/auth/device-key")
 	v.SetDefault("api.refresh_path", "/api/v1/cli/auth/refresh")
-	v.SetDefault("api.revoke_path", "/api/v1/cli/auth/revoke")
 	v.SetDefault("agent.auth_url", DefaultAgentAuthURL)
 	v.SetDefault("api.dictionary_path", "/api/v1/cli/dictionary")
 	v.SetDefault("release.latest_version_path", "/latest.json")
@@ -80,7 +78,6 @@ func Load(ctx context.Context) (Config, error) {
 		SyncPath:                  v.GetString("api.sync_path"),
 		DeviceKeyRegistrationPath: v.GetString("api.device_key_registration_path"),
 		RefreshPath:               v.GetString("api.refresh_path"),
-		RevokePath:                v.GetString("api.revoke_path"),
 		AgentAuthURL:              v.GetString("agent.auth_url"),
 		DictionaryPath:            v.GetString("api.dictionary_path"),
 		LatestVersionPath:         v.GetString("release.latest_version_path"),
