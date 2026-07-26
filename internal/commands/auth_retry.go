@@ -26,12 +26,23 @@ func isAuthFailure(err error) bool {
 	return strings.Contains(msg, "api returned 401") || strings.Contains(msg, "unauthorized") || strings.Contains(msg, "authentication required")
 }
 
-func runAuthFlow(ctx context.Context, out io.Writer) error {
+func isRevokedDeviceKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "unknown or revoked device key")
+}
+
+func runAuthFlow(ctx context.Context, out io.Writer, rotateKey bool) error {
 	cmd := newAuthCommand(ctx, out)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	cmd.SetErr(out)
-	cmd.SetArgs([]string{})
+	args := []string{}
+	if rotateKey {
+		args = append(args, "--rotate-key")
+	}
+	cmd.SetArgs(args)
 	if err := cmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("connect Career Agent: %w", err)
 	}
@@ -49,7 +60,7 @@ func loadOrAuthCredentials(ctx context.Context, out io.Writer, runtime runtimeCo
 			return refreshed, nil
 		}
 	}
-	if authErr := runAuthFlow(ctx, out); authErr != nil {
+	if authErr := runAuthFlow(ctx, out, false); authErr != nil {
 		return model.Credentials{}, authErr
 	}
 	credentials, err = runtime.credentials.Load(ctx)
@@ -92,18 +103,25 @@ func retryAfterAuth(ctx context.Context, out io.Writer, opName string, op func()
 	if !isAuthFailure(err) {
 		return err
 	}
-	if runtime, runtimeErr := loadRuntime(ctx); runtimeErr == nil {
-		if credentials, loadErr := runtime.credentials.Load(ctx); loadErr == nil && credentials.RefreshToken != "" {
-			service := pbauth.NewService(runtime.credentials, runtime.api, runtime.config.AgentAuthURL)
-			if _, refreshErr := service.Refresh(ctx, credentials); refreshErr == nil {
-				if retryErr := op(); !isAuthFailure(retryErr) {
-					return retryErr
+	rotate := isRevokedDeviceKey(err)
+	if !rotate {
+		if runtime, runtimeErr := loadRuntime(ctx); runtimeErr == nil {
+			if credentials, loadErr := runtime.credentials.Load(ctx); loadErr == nil && credentials.RefreshToken != "" {
+				service := pbauth.NewService(runtime.credentials, runtime.api, runtime.config.AgentAuthURL)
+				if _, refreshErr := service.Refresh(ctx, credentials); refreshErr == nil {
+					retryErr := op()
+					if !isAuthFailure(retryErr) {
+						return retryErr
+					}
+					if isRevokedDeviceKey(retryErr) {
+						rotate = true
+					}
 				}
 			}
 		}
 	}
 	fmt.Fprintf(out, "Your Proofboard session has expired. Reconnecting to continue %s...\n", opName)
-	if authErr := runAuthFlow(ctx, out); authErr != nil {
+	if authErr := runAuthFlow(ctx, out, rotate); authErr != nil {
 		return authErr
 	}
 	
