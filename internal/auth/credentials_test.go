@@ -46,3 +46,22 @@ func TestCredentialStoreRepairsExistingPermissions(t *testing.T) {
 		t.Fatalf("credentials file mode = %v, want 0600", fileInfo.Mode().Perm())
 	}
 }
+
+func TestCredentialStoreDeleteRemovesCredentialsAndIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := NewCredentialStore(t.TempDir())
+	if err := store.Save(ctx, model.Credentials{Token: "access-token"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.Delete(ctx); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(store.Path()); !os.IsNotExist(err) {
+		t.Fatalf("credential file still exists after Delete: %v", err)
+	}
+	if err := store.Delete(ctx); err != nil {
+		t.Fatalf("second Delete: %v", err)
+	}
+}

@@ -2,9 +2,13 @@ package auth
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +20,7 @@ import (
 )
 
 func TestDeviceKeyStoreEnsureRegistersReusesAndSigns(t *testing.T) {
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	tempHome := t.TempDir()
 	ctx := context.Background()
 	var calls int
@@ -38,6 +43,24 @@ func TestDeviceKeyStoreEnsureRegistersReusesAndSigns(t *testing.T) {
 		if req.PublicKey == "" {
 			errCh <- context.Canceled
 			http.Error(w, "missing public key", http.StatusBadRequest)
+			return
+		}
+		block, _ := pem.Decode([]byte(req.PublicKey))
+		if block == nil || block.Type != "PUBLIC KEY" {
+			errCh <- context.Canceled
+			http.Error(w, "public key is not PEM", http.StatusBadRequest)
+			return
+		}
+		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			errCh <- err
+			http.Error(w, "public key is not SPKI", http.StatusBadRequest)
+			return
+		}
+		publicKey, ok := parsed.(*ecdsa.PublicKey)
+		if !ok || publicKey.Curve != elliptic.P256() {
+			errCh <- context.Canceled
+			http.Error(w, "public key is not ECDSA P-256", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -87,11 +110,20 @@ func TestDeviceKeyStoreEnsureRegistersReusesAndSigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	publicBytes, err := base64.StdEncoding.DecodeString(loaded.PublicKey)
-	if err != nil {
-		t.Fatalf("decode public key: %v", err)
+	block, _ := pem.Decode([]byte(loaded.PublicKey))
+	if block == nil {
+		t.Fatal("stored public key is not PEM")
 	}
-	if !ed25519.Verify(ed25519.PublicKey(publicBytes), []byte("payload-bytes"), sigBytes) {
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse public key: %v", err)
+	}
+	publicKey, ok := parsed.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatalf("stored public key type = %T", parsed)
+	}
+	digest := sha256.Sum256([]byte("payload-bytes"))
+	if !ecdsa.VerifyASN1(publicKey, digest[:], sigBytes) {
 		t.Fatalf("signature did not verify with stored public key")
 	}
 
@@ -109,6 +141,7 @@ func TestDeviceKeyStoreRepairsExistingPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not report POSIX permission bits")
 	}
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	homeDir := t.TempDir()
 	store := NewDeviceKeyStore(homeDir)
 	directory := filepath.Dir(store.Path())
@@ -139,5 +172,48 @@ func TestDeviceKeyStoreRepairsExistingPermissions(t *testing.T) {
 	}
 	if fileInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("key file mode = %v, want 0600", fileInfo.Mode().Perm())
+	}
+}
+
+type memoryDeviceKeySecretStore struct {
+	value string
+}
+
+func (s *memoryDeviceKeySecretStore) Get(_, _ string) (string, error) {
+	if s.value == "" {
+		return "", os.ErrNotExist
+	}
+	return s.value, nil
+}
+
+func (s *memoryDeviceKeySecretStore) Set(_, _, value string) error {
+	s.value = value
+	return nil
+}
+
+func TestDeviceKeyStorePrefersOSKeychainAndRemovesFallback(t *testing.T) {
+	homeDir := t.TempDir()
+	secrets := &memoryDeviceKeySecretStore{}
+	store := DeviceKeyStore{homeDir: homeDir, secretStore: secrets}
+	record := DeviceKeyRecord{
+		DeviceKeyID: "device-keychain",
+		PublicKey:   "public",
+		PrivateKey:  "private",
+	}
+	if err := store.Save(context.Background(), record); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if secrets.value == "" {
+		t.Fatal("device key was not written to the OS keychain")
+	}
+	if _, err := os.Stat(store.Path()); !os.IsNotExist(err) {
+		t.Fatalf("file fallback exists after keychain save: %v", err)
+	}
+	loaded, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded != record {
+		t.Fatalf("loaded record = %#v, want %#v", loaded, record)
 	}
 }

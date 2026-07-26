@@ -29,6 +29,8 @@ type LinkResponse struct {
 	ExistingProjectOptions []ExistingProjectOption `json:"existingProjectOptions"`
 	DictionaryVersion      string                  `json:"dictionaryVersion"`
 	PublicKey              string                  `json:"publicKey"`
+	EmailHashKey           string                  `json:"emailHashKey"`
+	Message                string                  `json:"message"`
 }
 
 func (c Client) Link(ctx context.Context, token string, req LinkRequest) (LinkResponse, error) {

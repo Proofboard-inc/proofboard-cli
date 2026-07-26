@@ -37,11 +37,13 @@ type SyncPayload struct {
 	NotifyPush        bool             `json:"notifyPush"`
 	PreviousHead      string           `json:"previousHead,omitempty"`
 	DeviceKeyID       string           `json:"deviceKeyId,omitempty"`
-	DeviceSignature   string           `json:"deviceSignature"`
+	DeviceSignature   string           `json:"deviceSignature,omitempty"`
 }
 
 type SyncReceipt struct {
-	ID     string `json:"id"`
-	Tier   string `json:"tier"`
-	Status string `json:"status"`
+	ID      string `json:"id"`
+	SyncID  string `json:"syncId,omitempty"`
+	Tier    string `json:"tier"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
 }

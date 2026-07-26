@@ -15,6 +15,7 @@ type State struct {
 	IDEProcesses              []string                   `json:"ideProcesses,omitempty"`
 	AuthReconnectPrompted     bool                       `json:"authReconnectPrompted,omitempty"`
 	AuthReconnectPromptedAt   time.Time                  `json:"authReconnectPromptedAt,omitempty"`
+	AuthLoggedOut             bool                       `json:"authLoggedOut,omitempty"`
 }
 
 type LinkedRepo struct {
@@ -32,6 +33,7 @@ type LinkedRepoState struct {
 	LastHandshake      time.Time `json:"lastHandshake,omitempty"`
 	ProjectID          string    `json:"projectId"`
 	PublicKey          string    `json:"publicKey"`
+	EmailHashKey       string    `json:"emailHashKey,omitempty"`
 	DictionaryVersion  string    `json:"dictionaryVersion"`
 	ProductionBranches []string  `json:"productionBranches"`
 	MetadataHash       string    `json:"metadataHash,omitempty"`

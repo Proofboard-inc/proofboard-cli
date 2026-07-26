@@ -54,7 +54,7 @@ func TestReleaseClientAllowsLocalHTTPDownload(t *testing.T) {
 }
 
 func TestReleaseClientRejectsInsecureRedirect(t *testing.T) {
-	client := NewReleaseClient("https://releases.proofboard.io")
+	client := NewReleaseClient("https://proofboard.io")
 	redirectRequest, err := http.NewRequest(http.MethodGet, "http://example.com/proofboard", nil)
 	if err != nil {
 		t.Fatalf("create redirect request: %v", err)

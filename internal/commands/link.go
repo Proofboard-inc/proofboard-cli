@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/crypto"
@@ -94,7 +93,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
 			}
-			_, err = loadOrAuthCredentials(ctx, out, runtime)
+			credentials, err := loadOrAuthCredentials(ctx, out, runtime)
 			if err != nil {
 				return fmt.Errorf("authenticate: %w", err)
 			}
@@ -111,11 +110,16 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if requiresProviderVerification(runtime.config.APIBaseURL) {
+				if _, err := pbgit.VerifyProviderContribution(ctx, identity, credentials.Username); err != nil {
+					return fmt.Errorf("verify repository ownership or contribution: %w", err)
+				}
+			}
 
 			// Check if already linked locally and on backend
 			current, err := runtime.state.Load(ctx)
 			if err == nil {
-				if _, ok := current.LinkedRepos[identity.RepoHash]; ok {
+				if linkedRepo, ok := current.LinkedRepos[identity.RepoHash]; ok && linkedRepo.EmailHashKey != "" {
 					// Verify with backend
 					var checkRes api.CheckResponse
 					checkErr := retryAfterAuth(ctx, out, "project setup", func() error {
@@ -166,7 +170,16 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 
 			if response.IsNewProject && len(response.ExistingProjectOptions) > 0 {
 				if nonInteractive {
-					req.CreateNew = true
+					existingProjectID := current.LinkedRepos[identity.RepoHash].ProjectID
+					for _, option := range response.ExistingProjectOptions {
+						if existingProjectID != "" && option.ID == existingProjectID {
+							req.ExistingProjectID = existingProjectID
+							break
+						}
+					}
+					if req.ExistingProjectID == "" {
+						req.CreateNew = true
+					}
 				} else {
 					fmt.Fprintf(out, "Detected organisation: %s\n", identity.Org)
 					existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
@@ -223,18 +236,35 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintf(out, "Tracking branch: %s. Add others with: proofboard config add-branch <name>\n", branch)
 			}
 
-			current = statestore.AddLinkedRepo(current, model.LinkedRepoState{
+			existingRepoState := current.LinkedRepos[identity.RepoHash]
+			linkedRepoState := model.LinkedRepoState{
 				RepoHash:           identity.RepoHash,
 				OrgHash:            identity.OrgHash,
 				PathHash:           crypto.SHA256(repo.Path),
 				Provider:           identity.Provider,
-				LastHeadSHA:        "",
-				LastSyncAt:         time.Time{},
 				ProjectID:          response.ProjectID,
 				PublicKey:          response.PublicKey,
+				EmailHashKey:       response.EmailHashKey,
 				DictionaryVersion:  response.DictionaryVersion,
 				ProductionBranches: []string{branch},
-			})
+				LastHeadSHA:        existingRepoState.LastHeadSHA,
+				LastSyncAt:         existingRepoState.LastSyncAt,
+				LastHandshake:      existingRepoState.LastHandshake,
+				MetadataHash:       existingRepoState.MetadataHash,
+			}
+			if linkedRepoState.ProjectID == "" {
+				linkedRepoState.ProjectID = existingRepoState.ProjectID
+			}
+			if linkedRepoState.PublicKey == "" {
+				linkedRepoState.PublicKey = existingRepoState.PublicKey
+			}
+			if linkedRepoState.EmailHashKey == "" {
+				linkedRepoState.EmailHashKey = existingRepoState.EmailHashKey
+			}
+			if linkedRepoState.DictionaryVersion == "" {
+				linkedRepoState.DictionaryVersion = existingRepoState.DictionaryVersion
+			}
+			current = statestore.AddLinkedRepo(current, linkedRepoState)
 			metadataHash, metadataErr := pbgit.MetadataFingerprint(ctx, repo)
 			if metadataErr == nil {
 				repoState := current.LinkedRepos[identity.RepoHash]

@@ -14,6 +14,12 @@ if [ ! -x "$COMPILED_BINARY" ]; then
     exit 1
 fi
 
+# The test changes into an isolated temporary directory for one command. Make
+# the executable path absolute up front so callers can pass e.g.
+# `dist/proofboard-linux-amd64` without that later directory change breaking
+# the test.
+COMPILED_BINARY=$(CDPATH= cd -- "$(dirname -- "$COMPILED_BINARY")" && pwd)/$(basename -- "$COMPILED_BINARY")
+
 export PROOFBOARD_DISABLE_STARTUP_CHECKS=1
 export PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS=1
 export NO_BROWSER=1
@@ -36,6 +42,9 @@ do
     "$COMPILED_BINARY" "$command_name" --help > "$TEST_ARTIFACT_DIR/$command_name-help.txt"
     grep -q 'Usage:' "$TEST_ARTIFACT_DIR/$command_name-help.txt"
 done
+
+"$COMPILED_BINARY" auth logout --help > "$TEST_ARTIFACT_DIR/auth-logout-help.txt"
+grep -q 'Usage:' "$TEST_ARTIFACT_DIR/auth-logout-help.txt"
 
 for internal_command in hook-maintain milestone-action notify notify-activate; do
     "$COMPILED_BINARY" "$internal_command" --help > "$TEST_ARTIFACT_DIR/$internal_command-help.txt"
@@ -79,6 +88,15 @@ grep -q '^Proofboard Career Agent is not running.$' "$TEST_ARTIFACT_DIR/agent-st
 
 "$COMPILED_BINARY" logs --lines 10 > "$TEST_ARTIFACT_DIR/logs.txt"
 grep -q '^No Proofboard logs found.$' "$TEST_ARTIFACT_DIR/logs.txt"
+mkdir -p "$HOME/.proofboard"
+printf '%s\n' 'current log entry' > "$HOME/.proofboard/sync.log"
+printf '%s\n' 'rotated log entry' > "$HOME/.proofboard/sync.log.1"
+chmod 600 "$HOME/.proofboard/sync.log" "$HOME/.proofboard/sync.log.1"
+"$COMPILED_BINARY" logs clear > "$TEST_ARTIFACT_DIR/logs-clear.txt"
+grep -q '^Proofboard logs cleared.$' "$TEST_ARTIFACT_DIR/logs-clear.txt"
+test ! -s "$HOME/.proofboard/sync.log"
+test ! -e "$HOME/.proofboard/sync.log.1"
+test "$(stat -c '%a' "$HOME/.proofboard/sync.log")" = 600
 
 "$COMPILED_BINARY" config set auto-update-dictionary false > "$TEST_ARTIFACT_DIR/config-set.txt"
 grep -q '^auto-update-dictionary=false$' "$TEST_ARTIFACT_DIR/config-set.txt"

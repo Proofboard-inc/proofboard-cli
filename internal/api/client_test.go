@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEndpointRejectsNonHTTPSOutsideLocalhost(t *testing.T) {
@@ -84,7 +86,33 @@ func TestAPIErrorNeverIncludesProprietaryResponseText(t *testing.T) {
 			t.Fatalf("API error retained proprietary response text %q: %v", secret, err)
 		}
 	}
-	if !strings.Contains(err.Error(), `"statusCode":400`) {
-		t.Fatalf("API error lost safe status metadata: %v", err)
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("API error lost typed status metadata: %v", err)
+	}
+}
+
+func TestAPIErrorRetainsStructuredReasonWithoutExposingItInErrorString(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":"DEVICE_KEY_REVOKED","message":"Unknown or revoked device key"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "/link", "/check", "/sync")
+	err := client.requestJSON(context.Background(), http.MethodPost, "/sync", "token", nil, map[string]string{}, nil)
+	var apiErr *Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *api.Error", err)
+	}
+	if apiErr.StatusCode != http.StatusUnauthorized ||
+		apiErr.Code != "DEVICE_KEY_REVOKED" ||
+		apiErr.Message != "Unknown or revoked device key" ||
+		apiErr.RetryAfter != 2*time.Second {
+		t.Fatalf("unexpected structured API error: %#v", apiErr)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "device key") {
+		t.Fatalf("public error exposed server detail: %v", err)
 	}
 }
