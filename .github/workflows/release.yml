@@ -253,7 +253,7 @@ jobs:
             - Fixes the device-auth handoff so a successful browser login is reused by sync without a second login loop.
             - Verifies GitHub ownership or real provider-attributed contributions before linking or syncing, including private-repository access checks.
             - Adds device payload signing, signed-commit ratio, and previous-HEAD history-rewrite signals.
-            - Adds `proofboard auth logout` for server-side session revocation and local credential removal.
+            - Adds `proofboard auth logout` for local credential removal without a backend dependency.
             - Adds `proofboard logs clear` and prevents dictionary downgrades.
             - Uses the development backend and frontend as independent configurable service URLs.
 

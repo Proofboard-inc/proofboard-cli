@@ -73,7 +73,6 @@ type Client struct {
 	syncPath                  string
 	deviceKeyRegistrationPath string
 	refreshPath               string
-	revokePath                string
 }
 
 func NewClient(baseURL string, linkPath string, checkPath string, syncPath string, optionalPaths ...string) Client {
@@ -85,10 +84,6 @@ func NewClient(baseURL string, linkPath string, checkPath string, syncPath strin
 	if len(optionalPaths) > 1 {
 		refreshPath = optionalPaths[1]
 	}
-	revokePath := "/api/v1/cli/auth/revoke"
-	if len(optionalPaths) > 2 && strings.TrimSpace(optionalPaths[2]) != "" {
-		revokePath = optionalPaths[2]
-	}
 	return Client{
 		baseURL:                   baseURL,
 		linkPath:                  linkPath,
@@ -96,7 +91,6 @@ func NewClient(baseURL string, linkPath string, checkPath string, syncPath strin
 		syncPath:                  syncPath,
 		deviceKeyRegistrationPath: deviceKeyPath,
 		refreshPath:               refreshPath,
-		revokePath:                revokePath,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
@@ -197,23 +191,6 @@ func (c Client) getJSON(ctx context.Context, path string, token string, query ur
 
 func (c Client) patchJSON(ctx context.Context, path string, token string, request any, response any) error {
 	return c.requestJSON(ctx, http.MethodPatch, path, token, nil, request, response)
-}
-
-func (c Client) deleteJSON(ctx context.Context, path string, token string, response any) error {
-	return c.requestJSON(ctx, http.MethodDelete, path, token, nil, nil, response)
-}
-
-func (c Client) RevokeCLISessions(ctx context.Context, token string) error {
-	var response struct {
-		Success bool `json:"success"`
-	}
-	if err := c.deleteJSON(ctx, c.revokePath, token, &response); err != nil {
-		return err
-	}
-	if !response.Success {
-		return errors.New("API did not confirm CLI session revocation")
-	}
-	return nil
 }
 
 func (c Client) endpoint(route string) (string, error) {

@@ -26,9 +26,6 @@ func TestLoadUsesDevelopmentServiceDefaults(t *testing.T) {
 	if cfg.DeviceSigningMode != "disabled" {
 		t.Fatalf("DeviceSigningMode = %q, want disabled for current dev-backend rollout", cfg.DeviceSigningMode)
 	}
-	if cfg.RevokePath != "/api/v1/cli/auth/revoke" {
-		t.Fatalf("RevokePath = %q, want CLI revoke route", cfg.RevokePath)
-	}
 }
 
 func TestLoadAllowsIndependentServiceOverrides(t *testing.T) {
