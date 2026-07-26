@@ -14,7 +14,7 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-const providerVerificationTimeout = 45 * time.Second
+const providerVerificationTimeout = 10 * time.Second
 
 type ProviderVerification struct {
 	Login      string
@@ -55,8 +55,7 @@ func VerifyProviderContribution(
 	}
 	if proofboardUsername == "" || !strings.EqualFold(viewer.Login, proofboardUsername) {
 		return ProviderVerification{}, fmt.Errorf(
-			"GitHub account %q does not match the authenticated Proofboard account; use the same account in gh auth login and proofboard auth",
-			viewer.Login,
+			"authenticated GitHub and Proofboard accounts do not match",
 		)
 	}
 
@@ -73,6 +72,19 @@ func VerifyProviderContribution(
 			"verify current GitHub repository access: %w",
 			err,
 		)
+	}
+
+	result := ProviderVerification{
+		Login:      viewer.Login,
+		Repository: repository.FullName,
+		Private:    repository.Private,
+		Admin:      repository.Permissions.Admin,
+		CommitSHAs: make(map[string]struct{}),
+	}
+	if repository.Private {
+		// Private repositories always use local analysis. Visibility is the
+		// only provider datum needed to make that internal decision.
+		return result, nil
 	}
 
 	commitOutput, err := ghAPI(
@@ -99,19 +111,8 @@ func VerifyProviderContribution(
 			commitSHAs[sha] = struct{}{}
 		}
 	}
-	if !repository.Permissions.Admin && len(commitSHAs) == 0 {
-		return ProviderVerification{}, errors.New(
-			"repository rejected: the authenticated GitHub account is not an administrator and GitHub attributes no commits in its default history to that account",
-		)
-	}
-
-	return ProviderVerification{
-		Login:      viewer.Login,
-		Repository: repository.FullName,
-		Private:    repository.Private,
-		Admin:      repository.Permissions.Admin,
-		CommitSHAs: commitSHAs,
-	}, nil
+	result.CommitSHAs = commitSHAs
+	return result, nil
 }
 
 func FilterProviderVerifiedCommits(
@@ -125,6 +126,24 @@ func FilterProviderVerifiedCommits(
 		}
 	}
 	return filtered
+}
+
+// ApplyPublicGitHubSignals narrows locally attributed commits when GitHub
+// provides matching public contribution evidence. Provider data is additive:
+// private repositories, unavailable signals, and empty/non-matching results
+// retain the exact local identity result.
+func ApplyPublicGitHubSignals(
+	commits []model.RawCommit,
+	verified ProviderVerification,
+) ([]model.RawCommit, bool) {
+	if verified.Private || len(verified.CommitSHAs) == 0 {
+		return commits, false
+	}
+	filtered := FilterProviderVerifiedCommits(commits, verified)
+	if len(filtered) == 0 {
+		return commits, false
+	}
+	return filtered, true
 }
 
 func ghAPIJSON(ctx context.Context, route []string, target any) error {

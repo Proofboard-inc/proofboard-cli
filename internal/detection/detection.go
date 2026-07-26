@@ -136,7 +136,7 @@ func (r Result) Marshal() ([]byte, error) {
 func (r Result) HumanMessage() string {
 	switch r.Action {
 	case ActionLink:
-		return fmt.Sprintf("Proofboard Career Agent: New repository detected\n%s\nChoose Sync Project to begin private local tracking.", r.RepoName)
+		return "Proofboard Career Agent: Project detected.\nWould you like to add this project to your career record?\nChoose Sync Project to continue."
 	case ActionSync:
 		return fmt.Sprintf("Proofboard Career Agent: Syncing %s in the background.", r.RepoName)
 	case ActionSuppressed:

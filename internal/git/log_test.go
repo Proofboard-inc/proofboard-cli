@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/proofboard/proofboard/internal/model"
 )
 
 func TestParseLogParsesNumstatWithoutDiffs(t *testing.T) {
@@ -24,6 +26,80 @@ func TestParseLogParsesNumstatWithoutDiffs(t *testing.T) {
 	}
 	if commit.Additions != 10 || commit.Deletions != 2 || commit.FilesChanged != 2 {
 		t.Fatalf("unexpected numstat totals: additions=%d deletions=%d files=%d", commit.Additions, commit.Deletions, commit.FilesChanged)
+	}
+}
+
+func TestFilterCommitsByAuthorEmailRequiresExactNormalizedIdentity(t *testing.T) {
+	t.Parallel()
+	commits := []model.RawCommit{
+		{SHA: "own-lower", AuthorEmail: "dev@example.com"},
+		{SHA: "own-case", AuthorEmail: " Dev@Example.com "},
+		{SHA: "lookalike-prefix", AuthorEmail: "dev@example.com.attacker.test"},
+		{SHA: "lookalike-suffix", AuthorEmail: "other+dev@example.com"},
+		{SHA: "other", AuthorEmail: "other@example.com"},
+	}
+
+	filtered := FilterCommitsByAuthorEmail(commits, " DEV@example.com ")
+	if len(filtered) != 2 {
+		t.Fatalf("filtered commits = %#v, want exactly two local-identity commits", filtered)
+	}
+	if filtered[0].SHA != "own-lower" || filtered[1].SHA != "own-case" {
+		t.Fatalf("filtered SHAs = %q, %q", filtered[0].SHA, filtered[1].SHA)
+	}
+	if got := FilterCommitsByAuthorEmail(commits, " "); got != nil {
+		t.Fatalf("empty identity returned commits: %#v", got)
+	}
+}
+
+func TestQuoteGitBasicRegexpKeepsCommonEmailCharactersLiteral(t *testing.T) {
+	t.Parallel()
+	got := quoteGitBasicRegexp(`dev+mobile[ci]@example.com`)
+	want := `dev+mobile\[ci]@example\.com`
+	if got != want {
+		t.Fatalf("quoteGitBasicRegexp() = %q, want %q", got, want)
+	}
+}
+
+func TestLogReturnsOnlyExactConfiguredIdentityCommits(t *testing.T) {
+	repoDir := t.TempDir()
+	ctx := context.Background()
+	run := func(args ...string) {
+		t.Helper()
+		command := exec.CommandContext(ctx, "git", append([]string{"-C", repoDir}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	run("init", "--initial-branch=main")
+	run("config", "user.name", "Local Engineer")
+	run("config", "user.email", "dev+mobile@example.com")
+	run("config", "commit.gpgsign", "false")
+
+	if err := os.WriteFile(filepath.Join(repoDir, "own.txt"), []byte("own\n"), 0o600); err != nil {
+		t.Fatalf("write own file: %v", err)
+	}
+	run("add", "own.txt")
+	run(
+		"-c", "user.email=Dev+Mobile@Example.com",
+		"commit", "-m", "own commit",
+	)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "other.txt"), []byte("other\n"), 0o600); err != nil {
+		t.Fatalf("write other file: %v", err)
+	}
+	run("add", "other.txt")
+	run(
+		"-c", "user.name=Other Engineer",
+		"-c", "user.email=dev+mobile@example.com.attacker.test",
+		"commit", "-m", "other commit",
+	)
+
+	commits, err := Log(ctx, Repo{Path: repoDir}, "")
+	if err != nil {
+		t.Fatalf("Log() error: %v", err)
+	}
+	if len(commits) != 1 || commits[0].AuthorEmail != "Dev+Mobile@Example.com" {
+		t.Fatalf("Log() returned non-local commits: %#v", commits)
 	}
 }
 
