@@ -19,16 +19,13 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:   "set auto-update-dictionary true|false",
-		Short: "Set dictionary auto-update behaviour",
+		Use:   "set key true|false",
+		Short: "Set a Proofboard configuration value (auto-update-dictionary, keychain-disabled)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if args[0] != "auto-update-dictionary" {
-				return fmt.Errorf("unsupported config key %q", args[0])
-			}
 			value, err := strconv.ParseBool(args[1])
 			if err != nil {
-				return fmt.Errorf("parse auto-update-dictionary: %w", err)
+				return fmt.Errorf("parse %s: %w", args[0], err)
 			}
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
@@ -38,11 +35,22 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			current.AutoUpdateDictionary = value
+			switch args[0] {
+			case "auto-update-dictionary":
+				current.AutoUpdateDictionary = value
+			case "keychain-disabled":
+				// Default (false) keeps the OS keychain in use. Setting
+				// true is an explicit opt-out for environments where OS
+				// keychain access isn't reachable — falls back to a
+				// 0600-permission ~/.proofboard/device.key file instead.
+				current.KeychainDisabled = value
+			default:
+				return fmt.Errorf("unsupported config key %q", args[0])
+			}
 			if err := runtime.state.Save(ctx, current); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "auto-update-dictionary=%t\n", value)
+			_, err = fmt.Fprintf(out, "%s=%t\n", args[0], value)
 			return err
 		},
 	})

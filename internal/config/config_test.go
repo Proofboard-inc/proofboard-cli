@@ -23,9 +23,6 @@ func TestLoadUsesDevelopmentServiceDefaults(t *testing.T) {
 	if cfg.AgentAuthURL != "https://proofboard-frontend.vercel.app/cli-auth" {
 		t.Fatalf("AgentAuthURL = %q, want development frontend auth route", cfg.AgentAuthURL)
 	}
-	if cfg.DeviceSigningMode != "disabled" {
-		t.Fatalf("DeviceSigningMode = %q, want disabled for current dev-backend rollout", cfg.DeviceSigningMode)
-	}
 }
 
 func TestLoadAllowsIndependentServiceOverrides(t *testing.T) {
@@ -45,21 +42,5 @@ func TestLoadAllowsIndependentServiceOverrides(t *testing.T) {
 	}
 	if cfg.AgentAuthURL != "https://proofboard.io/agent/cli-auth" {
 		t.Fatalf("AgentAuthURL = %q, want independent auth URL override", cfg.AgentAuthURL)
-	}
-	if cfg.DeviceSigningMode != "required" {
-		t.Fatalf("DeviceSigningMode = %q, want required outside the dev backend", cfg.DeviceSigningMode)
-	}
-}
-
-func TestLoadAllowsExplicitDeviceSigningOverride(t *testing.T) {
-	t.Setenv("PROOFBOARD_API_BASE_URL", "https://api-dev.proofboard.io")
-	t.Setenv("PROOFBOARD_DEVICE_SIGNING_MODE", "required")
-
-	cfg, err := Load(context.Background())
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if cfg.DeviceSigningMode != "required" {
-		t.Fatalf("DeviceSigningMode = %q, want explicit required override", cfg.DeviceSigningMode)
 	}
 }

@@ -31,6 +31,8 @@ type RunInput struct {
 	ExpectedOrgHash   string
 	MergeTimestamps   []int64
 	PreviousHead      string
+	// Locally-detected tech stack + structural signals, optional.
+	Stack *model.StackReport
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -53,6 +55,7 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 		DictionaryVersion: p.dictionary.Version,
 		ExpectedOrgHash:   input.ExpectedOrgHash,
 		PreviousHead:      input.PreviousHead,
+		Stack:             input.Stack,
 	})
 	return payload, nil
 }
