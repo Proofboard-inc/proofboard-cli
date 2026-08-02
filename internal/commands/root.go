@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
@@ -90,44 +89,26 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
 	}
 
-	// 2. Check Dictionary Version
+	// 2. Check Dictionary Version — throttled to at most once per 6h.
+	// This function runs on every command via PersistentPreRunE, and `sync`
+	// (fired by post-merge/post-pull git hooks on every commit/pull) is not
+	// in the exclusion list above — so without a cadence gate this was
+	// hitting the dictionary endpoint on every single commit/pull, risking
+	// 429s. The gate covers the ATTEMPT, not just successful updates: a
+	// failed check is throttled too, so a flaky/down release server can't
+	// turn into a check-on-every-command retry storm either.
 	stateData, err := runCtx.state.Load(checkCtx)
-	if err == nil && stateData.AutoUpdateDictionary {
-		localDict, err := dictionary.LoadDefault(checkCtx)
-		if err == nil {
-			url := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
-			latestDict, err := releases.Latest(checkCtx, url)
-			versionComparison, comparisonErr := compareDictionaryVersions(latestDict.Version, localDict.Version)
-			if err == nil && comparisonErr == nil && versionComparison > 0 && latestDict.URL != "" {
-				dir := filepath.Join(runCtx.homeDir, ".proofboard")
-				if err := os.MkdirAll(dir, 0700); err == nil {
-					tempPath := filepath.Join(dir, "dictionary.json.tmp")
-					tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-					if err == nil {
-						downloadErr := releases.Download(checkCtx, latestDict.URL, tempFile)
-						tempFile.Close()
-						if downloadErr == nil {
-							validFile, err := os.Open(tempPath)
-							if err == nil {
-								downloadedDict, err := dictionary.Load(checkCtx, validFile)
-								validFile.Close()
-								if err == nil {
-									if err := dictionary.Validate(downloadedDict); err == nil {
-										targetPath := filepath.Join(dir, "dictionary.json")
-										if err := os.Rename(tempPath, targetPath); err == nil {
-											stateData.DictionaryVersion = latestDict.Version
-											if err := runCtx.state.Save(checkCtx, stateData); err == nil {
-												fmt.Fprintf(cmd.OutOrStdout(), "Dictionary updated successfully to version %s.\n", latestDict.Version)
-											}
-										}
-									}
-								}
-							}
-						}
-						_ = os.Remove(tempPath)
-					}
-				}
+	if err == nil && stateData.AutoUpdateDictionary &&
+		(stateData.LastDictionaryUpdateCheck.IsZero() || time.Since(stateData.LastDictionaryUpdateCheck) >= 6*time.Hour) {
+		if localDict, loadErr := dictionary.LoadDefault(checkCtx); loadErr == nil {
+			dictionaryURL := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
+			result, updateErr := dictionary.Update(checkCtx, runCtx.homeDir, dictionaryURL, localDict)
+			stateData.LastDictionaryUpdateCheck = time.Now().UTC()
+			if updateErr == nil && result.Updated {
+				stateData.DictionaryVersion = result.Version
+				fmt.Fprintf(cmd.OutOrStdout(), "Dictionary updated successfully to version %s.\n", result.Version)
 			}
+			_ = runCtx.state.Save(checkCtx, stateData)
 		}
 	}
 

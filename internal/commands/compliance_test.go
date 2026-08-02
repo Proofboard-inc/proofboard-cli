@@ -198,18 +198,16 @@ func TestStartupUpdateChecks(t *testing.T) {
 	// Setup handler mapping
 	latestCLIVersion := "9.9.9"
 	latestDictVersion := "2.0.0"
-	dictDownloadURL := srv.URL + "/dictionary/download/dictionary.json"
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"version": %q, "url": "https://proofboard.io/9.9.9"}`, latestCLIVersion)
 	})
+	// The real GET /cli/dictionary endpoint is public and returns the full
+	// dictionary directly, in one step — no separate version-pointer/download
+	// round trip.
 	mux.HandleFunc("/dictionary/latest.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"version": %q, "url": %q}`, latestDictVersion, dictDownloadURL)
-	})
-	mux.HandleFunc("/dictionary/download/dictionary.json", func(w http.ResponseWriter, r *http.Request) {
 		newDict := model.Dictionary{
 			Version: latestDictVersion,
 			Categories: map[string]model.Signals{

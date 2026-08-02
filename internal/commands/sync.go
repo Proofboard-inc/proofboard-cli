@@ -13,6 +13,7 @@ import (
 	"github.com/proofboard/proofboard/internal/api"
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/detection"
 	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
@@ -223,6 +224,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			if len(raw) == 0 && !metadataChanged {
 				_, err := fmt.Fprintln(out, "No commits to sync.")
+				if err == nil && triggerSource == "manual" {
+					_, err = fmt.Fprintln(out, "If this looks wrong: check `git config user.email` matches an email on your Proofboard account, and that this branch is tracked (`proofboard config add-branch <name>`).")
+				}
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 1: Ingest", "skipped", "no new commits to sync")
 				return err
 			}
@@ -300,6 +304,12 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if verbose {
 				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
 			}
+			// Best-effort local stack detection, refreshed on every
+			// sync — never block or fail a sync over a detection error.
+			var stack *model.StackReport
+			if report, detectErr := detection.DetectStack(repo.Path); detectErr == nil {
+				stack = &report
+			}
 			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
 				Raw:               raw,
 				OrgHash:           identity.OrgHash,
@@ -310,6 +320,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				ExpectedOrgHash:   repoState.OrgHash,
 				MergeTimestamps:   mergeTimestamps,
 				PreviousHead:      previousHead,
+				Stack:             stack,
 			})
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
@@ -337,30 +348,26 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("missing authentication token")
 				}
 				signedPayload := payload
-				var keyStore pbauth.DeviceKeyStore
-				if runtime.config.DeviceSigningMode == "required" {
-					keyStore = pbauth.NewDeviceKeyStore(runtime.homeDir)
-					deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
-					if keyErr != nil {
-						_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
-							"register device key", "warning", keyErr.Error())
-						return fmt.Errorf("register device signing key: %w", keyErr)
-					}
-					freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
-					if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
-						return fmt.Errorf("persist device key id: %w", err)
-					}
-					signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
+				// Device signing is mandatory — the backend unconditionally
+				// rejects any sync payload missing deviceKeyId/deviceSignature
+				// (cli-ingest.service.ts), so there is no optional path here.
+				keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
+				deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
+				if keyErr != nil {
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
+						"register device key", "warning", keyErr.Error())
+					return fmt.Errorf("register device signing key: %w", keyErr)
 				}
+				freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
+				if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
+					return fmt.Errorf("persist device key id: %w", err)
+				}
+				signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
 
 				// The signature has to cover the payload exactly as sent, so it
 				// is recomputed whenever the payload changes.
 				sign := func(candidate model.SyncPayload) (model.SyncPayload, error) {
 					candidate.DeviceSignature = ""
-					if runtime.config.DeviceSigningMode == "disabled" {
-						candidate.DeviceKeyID = ""
-						return candidate, nil
-					}
 					signingBytes, err := crypto.CanonicalJSON(candidate)
 					if err != nil {
 						return candidate, fmt.Errorf("marshal sync payload for signing: %w", err)
@@ -388,11 +395,12 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 				return syncErr
 			}
-			if fromAgent {
-				err = retryAfterAuthForAgent(ctx, out, runtime, transmit)
-			} else {
-				err = retryAfterAuth(ctx, out, "project synchronization", transmit)
-			}
+			err = withSpinner(out, "Transmitting proof…", triggerSource == "manual", func() error {
+				if fromAgent {
+					return retryAfterAuthForAgent(ctx, out, runtime, transmit)
+				}
+				return retryAfterAuth(ctx, out, "project synchronization", transmit)
+			})
 			if errors.Is(err, errAgentReconnectRequired) {
 				return nil
 			}

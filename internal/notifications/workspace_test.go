@@ -65,6 +65,26 @@ func TestMilestoneActionsRouteToDashboard(t *testing.T) {
 	}
 }
 
+// FIX: ActivateWorkspaceAction's "Review"/"Publish" (with no known bundle)
+// fallback used to open a hardcoded "https://proofboard.io/dashboard" — the
+// release/download domain, not the deployed frontend app — so clicking those
+// buttons sent the user to the wrong site. appBaseURL must resolve the CLI's
+// actual configured app URL instead.
+func TestAppBaseURLRespectsConfigOverride(t *testing.T) {
+	t.Setenv("PROOFBOARD_APP_BASE_URL", "https://custom.example.com")
+	if got := appBaseURL(context.Background()); got != "https://custom.example.com" {
+		t.Fatalf("appBaseURL() = %q, want the configured override", got)
+	}
+}
+
+func TestAppBaseURLFallsBackToDefaultFrontend(t *testing.T) {
+	t.Setenv("PROOFBOARD_APP_BASE_URL", "")
+	got := appBaseURL(context.Background())
+	if got != "https://proofboard-frontend.vercel.app" {
+		t.Fatalf("appBaseURL() = %q, want the real default frontend app, not proofboard.io", got)
+	}
+}
+
 func TestWorkspaceTargetActionURIRoundTrip(t *testing.T) {
 	raw := WorkspaceTargetActionURI("publish", "", "bundle-123")
 	kind, workspace, target, err := ParseWorkspaceTargetActionURI(raw)
