@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
+	"github.com/proofboard/proofboard/internal/config"
 	statestore "github.com/proofboard/proofboard/internal/state"
 )
 
@@ -78,7 +79,13 @@ func ActivateWorkspaceAction(ctx context.Context, kind, workspace string, target
 		if kind == "publish" && actionTarget != "" {
 			return runMilestoneAction(ctx, "publish", actionTarget)
 		}
-		dashboardURL := "https://proofboard.io/dashboard"
+		// FIX: this was hardcoded to "https://proofboard.io/dashboard" —
+		// proofboard.io isn't the deployed frontend app (that's
+		// config.DefaultAppBaseURL, proofboard-frontend.vercel.app, or
+		// whatever PROOFBOARD_APP_BASE_URL overrides it to); it's the
+		// release/download domain. Clicking "Review"/"Publish" opened the
+		// wrong site. Use the CLI's actual configured app base URL instead.
+		dashboardURL := appBaseURL(ctx) + "/dashboard"
 		if actionTarget != "" {
 			dashboardURL += "?milestoneBundle=" + url.QueryEscape(actionTarget)
 		}
@@ -91,6 +98,17 @@ func ActivateWorkspaceAction(ctx context.Context, kind, workspace string, target
 	default:
 		return fmt.Errorf("unsupported workspace action %q", kind)
 	}
+}
+
+// appBaseURL resolves the CLI's actual configured frontend URL (respecting
+// PROOFBOARD_APP_BASE_URL), falling back to the built-in default if config
+// can't load for any reason — never the wrong hardcoded domain.
+func appBaseURL(ctx context.Context) string {
+	cfg, err := config.Load(ctx)
+	if err != nil || cfg.AppBaseURL == "" {
+		return config.DefaultAppBaseURL
+	}
+	return cfg.AppBaseURL
 }
 
 func runMilestoneAction(ctx context.Context, action, target string) error {

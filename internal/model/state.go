@@ -16,6 +16,13 @@ type State struct {
 	AuthReconnectPrompted     bool                       `json:"authReconnectPrompted,omitempty"`
 	AuthReconnectPromptedAt   time.Time                  `json:"authReconnectPromptedAt,omitempty"`
 	AuthLoggedOut             bool                       `json:"authLoggedOut,omitempty"`
+	// KeychainDisabled forces device-signing-key storage to the plaintext
+	// ~/.proofboard/device.key file instead of the OS keychain. Zero-value
+	// (false) keeps the OS keychain as the default — this is an explicit
+	// opt-out for environments where OS keychain access isn't reachable
+	// (e.g. some non-standard terminal/session contexts), set via
+	// `proofboard config set keychain-disabled true`.
+	KeychainDisabled bool `json:"keychainDisabled,omitempty"`
 }
 
 type LinkedRepo struct {

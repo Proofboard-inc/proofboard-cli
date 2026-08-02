@@ -11,6 +11,7 @@ import (
 
 	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/dictionary"
 	"github.com/proofboard/proofboard/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -72,7 +73,7 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 				return err
 			}
 			latestVersion := strings.TrimPrefix(latest.Version, "v")
-			versionComparison, err := compareDictionaryVersions(latestVersion, version.Version)
+			versionComparison, err := dictionary.CompareVersions(latestVersion, version.Version)
 			if err != nil {
 				return fmt.Errorf("compare Career Agent versions: %w", err)
 			}

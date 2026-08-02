@@ -98,3 +98,61 @@ func TestAssembleUsesPlainIdentityHashForMismatchSignal(t *testing.T) {
 		t.Fatalf("identityMismatch = %d, want 0", payload.AntiFraudSignals.IdentityMismatch)
 	}
 }
+
+// Assemble must copy Stack through unchanged when present, and omit
+// it (nil) when absent — plumbing only.
+func TestAssemblePassesStackThrough(t *testing.T) {
+	stack := &model.StackReport{Languages: map[string]int{"Go": 1}, HasTests: true}
+
+	withStack := Assemble(AssemblyInput{Stack: stack})
+	if withStack.Stack != stack {
+		t.Fatalf("expected Stack to be passed through unchanged, got %#v", withStack.Stack)
+	}
+
+	withoutStack := Assemble(AssemblyInput{})
+	if withoutStack.Stack != nil {
+		t.Fatalf("expected nil Stack when AssemblyInput.Stack is omitted, got %#v", withoutStack.Stack)
+	}
+}
+
+// NormalizeCategory must map every known alias correctly (regression)
+// and must never pass an unmapped/unknown category through raw — it must
+// always fall back to "Feature Development" so the backend's ~25-value
+// CLI_CATEGORY_VOCABULARY @IsIn validator never 400s on an unrecognized
+// category string.
+func TestNormalizeCategory(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"known alias auth", "auth", "Authentication & Security"},
+		{"known alias frontend", "UI", "Frontend & UI"},
+		{"known alias documentation", "docs", "Documentation"},
+		{"known alias bugfix", "fix", "Bug Fixes & Maintenance"},
+		{"exact Unclassified falls through FEATURE case", "Unclassified", "Feature Development"},
+		{"unknown category never passes through raw", "Some Future Category", "Feature Development"},
+		{"empty string never passes through raw", "", "Feature Development"},
+		{"arbitrary garbage never passes through raw", "XYZ", "Feature Development"},
+		// FIX: these are what phase2/intent.go's Classify() (via phase5's
+		// shredder) actually produces — the full canonical category name, not
+		// a short alias. Before the canonicalCategoryByUpper lookup was added,
+		// every one of these fell through to the default case and got
+		// silently relabeled "Feature Development", discarding all real
+		// classification. This is the regression test for that bug.
+		{"full canonical name passes through: Authentication & Security", "Authentication & Security", "Authentication & Security"},
+		{"full canonical name passes through: API & Backend Services", "API & Backend Services", "API & Backend Services"},
+		{"full canonical name passes through: Design System & Components", "Design System & Components", "Design System & Components"},
+		{"full canonical name passes through: Real-time & WebSockets", "Real-time & WebSockets", "Real-time & WebSockets"},
+		{"full canonical name passes through: Access Control & Permissions", "Access Control & Permissions", "Access Control & Permissions"},
+		{"full canonical name is case-insensitive", "authentication & security", "Authentication & Security"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeCategory(tc.in)
+			if got != tc.want {
+				t.Errorf("normalizeCategory(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

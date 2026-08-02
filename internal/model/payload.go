@@ -38,6 +38,9 @@ type SyncPayload struct {
 	PreviousHead      string           `json:"previousHead,omitempty"`
 	DeviceKeyID       string           `json:"deviceKeyId,omitempty"`
 	DeviceSignature   string           `json:"deviceSignature,omitempty"`
+	// Locally-detected tech stack + structural signals, refreshed on
+	// every sync. Optional — old CLI versions simply omit it.
+	Stack *StackReport `json:"stack,omitempty"`
 }
 
 type SyncReceipt struct {

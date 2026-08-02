@@ -49,3 +49,45 @@ func TestPipelinePayloadContainsNoProprietaryText(t *testing.T) {
 		}
 	}
 }
+
+// RunInput.Stack must flow through unchanged into the final
+// SyncPayload.Stack — plumbing only, no live filesystem detection needed.
+func TestPipelinePassesStackThrough(t *testing.T) {
+	t.Parallel()
+	dict, err := dictionary.LoadDefault(context.Background())
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	stack := &model.StackReport{
+		Languages: map[string]int{"Go": 3},
+		TechStack: []string{"Gin"},
+		HasCI:     true,
+	}
+
+	payload, err := New(dict).Run(context.Background(), RunInput{
+		Raw:       nil,
+		OrgHash:   "org-hash",
+		RepoHash:  "repo-hash",
+		EmailHash: "email-hash",
+		Stack:     stack,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if payload.Stack != stack {
+		t.Fatalf("expected payload.Stack to be the same StackReport passed in, got %#v", payload.Stack)
+	}
+
+	payloadNoStack, err := New(dict).Run(context.Background(), RunInput{
+		Raw:       nil,
+		OrgHash:   "org-hash",
+		RepoHash:  "repo-hash",
+		EmailHash: "email-hash",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if payloadNoStack.Stack != nil {
+		t.Fatalf("expected nil Stack when RunInput.Stack is omitted, got %#v", payloadNoStack.Stack)
+	}
+}
