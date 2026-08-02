@@ -1,8 +1,8 @@
-package commands
+package dictionary
 
 import "testing"
 
-func TestCompareDictionaryVersions(t *testing.T) {
+func TestCompareVersions(t *testing.T) {
 	tests := []struct {
 		name       string
 		left       string
@@ -17,19 +17,19 @@ func TestCompareDictionaryVersions(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := compareDictionaryVersions(test.left, test.right)
+			got, err := CompareVersions(test.left, test.right)
 			if err != nil {
-				t.Fatalf("compareDictionaryVersions() error: %v", err)
+				t.Fatalf("CompareVersions() error: %v", err)
 			}
 			if got != test.comparison {
-				t.Fatalf("compareDictionaryVersions(%q, %q) = %d, want %d", test.left, test.right, got, test.comparison)
+				t.Fatalf("CompareVersions(%q, %q) = %d, want %d", test.left, test.right, got, test.comparison)
 			}
 		})
 	}
 }
 
-func TestCompareDictionaryVersionsRejectsInvalidVersion(t *testing.T) {
-	if _, err := compareDictionaryVersions("1.9.next", "1.9.3"); err == nil {
-		t.Fatal("compareDictionaryVersions() accepted a non-numeric version")
+func TestCompareVersionsRejectsInvalidVersion(t *testing.T) {
+	if _, err := CompareVersions("1.9.next", "1.9.3"); err == nil {
+		t.Fatal("CompareVersions() accepted a non-numeric version")
 	}
 }

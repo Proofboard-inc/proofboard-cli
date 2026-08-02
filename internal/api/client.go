@@ -193,6 +193,10 @@ func (c Client) patchJSON(ctx context.Context, path string, token string, reques
 	return c.requestJSON(ctx, http.MethodPatch, path, token, nil, request, response)
 }
 
+func (c Client) deleteJSON(ctx context.Context, path string, token string, response any) error {
+	return c.requestJSON(ctx, http.MethodDelete, path, token, nil, nil, response)
+}
+
 func (c Client) endpoint(route string) (string, error) {
 	base, err := url.Parse(c.baseURL)
 	if err != nil {

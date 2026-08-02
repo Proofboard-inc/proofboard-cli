@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 
+	"github.com/proofboard/proofboard/internal/api"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
 	statestore "github.com/proofboard/proofboard/internal/state"
@@ -32,6 +34,21 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			unlinkErr := retryAfterAuth(ctx, out, "repository unlink", func() error {
+				freshCredentials, credErr := runtime.credentials.Load(ctx)
+				if credErr != nil {
+					return fmt.Errorf("reload credentials: %w", credErr)
+				}
+				if freshCredentials.Token == "" {
+					return fmt.Errorf("missing authentication token")
+				}
+				_, apiErr := runtime.api.UnlinkRepo(ctx, freshCredentials.Token, identity.RepoHash)
+				return apiErr
+			})
+			if unlinkErr != nil && !api.IsStatus(unlinkErr, http.StatusNotFound) {
+				fmt.Fprintf(out, "Warning: could not notify Proofboard that this repo was unlinked (%v).\nHooks and local tracking have been removed regardless. Run `proofboard status`\nor check the dashboard if the project still shows as CLI-active.\n", unlinkErr)
+			}
+
 			current, err := runtime.state.Load(ctx)
 			if err != nil {
 				return err

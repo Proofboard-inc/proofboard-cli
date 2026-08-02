@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/proofboard/proofboard/internal/api"
+	statestore "github.com/proofboard/proofboard/internal/state"
 )
 
 func TestDeviceKeyStoreEnsureRegistersReusesAndSigns(t *testing.T) {
@@ -176,7 +177,8 @@ func TestDeviceKeyStoreRepairsExistingPermissions(t *testing.T) {
 }
 
 type memoryDeviceKeySecretStore struct {
-	value string
+	value    string
+	setCalls int
 }
 
 func (s *memoryDeviceKeySecretStore) Get(_, _ string) (string, error) {
@@ -187,8 +189,78 @@ func (s *memoryDeviceKeySecretStore) Get(_, _ string) (string, error) {
 }
 
 func (s *memoryDeviceKeySecretStore) Set(_, _, value string) error {
+	s.setCalls++
 	s.value = value
 	return nil
+}
+
+// FIX: Ensure() must not re-write the OS keychain on every call once a
+// device key is already registered and already loaded from the keychain.
+// On macOS, every keyring.Set call can surface an OS access-control prompt,
+// so a redundant write on every retryAfterAuth-driven retry (up to 3 per
+// sync) manifested as a repeated password/allow dialog per `proofboard sync`.
+func TestDeviceKeyStoreEnsureDoesNotRewriteKeychainWhenUnchanged(t *testing.T) {
+	tempHome := t.TempDir()
+	ctx := context.Background()
+	secrets := &memoryDeviceKeySecretStore{}
+	store := DeviceKeyStore{homeDir: tempHome, secretStore: secrets}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-123"})
+	}))
+	t.Cleanup(server.Close)
+	client := api.NewClient(server.URL, "", "", "", "/api/v1/cli/auth/device-key")
+
+	if _, err := store.Ensure(ctx, client, "token-123", false); err != nil {
+		t.Fatalf("first Ensure failed: %v", err)
+	}
+	if secrets.setCalls != 1 {
+		t.Fatalf("expected exactly one keychain write after registration, got %d", secrets.setCalls)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := store.Ensure(ctx, client, "token-123", false); err != nil {
+			t.Fatalf("repeat Ensure %d failed: %v", i, err)
+		}
+	}
+	if secrets.setCalls != 1 {
+		t.Fatalf("expected no additional keychain writes on repeated Ensure calls, got %d total", secrets.setCalls)
+	}
+}
+
+// FIX: `proofboard config set keychain-disabled true` (persisted in
+// state.json) must force device-key storage onto the plaintext file, exactly
+// like PROOFBOARD_DISABLE_KEYCHAIN=1, for users whose OS keychain access
+// isn't reachable. Default (unset) must keep using the keychain.
+func TestDeviceKeyStoreRespectsPersistedKeychainDisabledSetting(t *testing.T) {
+	tempHome := t.TempDir()
+	ctx := context.Background()
+	secrets := &memoryDeviceKeySecretStore{}
+	store := DeviceKeyStore{homeDir: tempHome, secretStore: secrets}
+
+	current := statestore.Default()
+	current.KeychainDisabled = true
+	if err := statestore.NewStore(tempHome).Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-456"})
+	}))
+	t.Cleanup(server.Close)
+	client := api.NewClient(server.URL, "", "", "", "/api/v1/cli/auth/device-key")
+
+	if _, err := store.Ensure(ctx, client, "token-123", false); err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if secrets.setCalls != 0 {
+		t.Fatalf("expected keychain-disabled setting to skip OS keychain entirely, got %d writes", secrets.setCalls)
+	}
+	if _, err := os.Stat(store.Path()); err != nil {
+		t.Fatalf("expected device key file fallback to exist: %v", err)
+	}
 }
 
 func TestDeviceKeyStorePrefersOSKeychainAndRemovesFallback(t *testing.T) {

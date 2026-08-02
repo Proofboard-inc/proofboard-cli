@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+
+	"github.com/proofboard/proofboard/internal/model"
 )
 
 type LinkHandshake struct {
@@ -15,6 +17,15 @@ type LinkRequest struct {
 	ExistingProjectID string         `json:"existingProjectId,omitempty"`
 	CreateNew         bool           `json:"createNew,omitempty"`
 	Handshake         *LinkHandshake `json:"handshake,omitempty"`
+	// Locally-detected tech stack + structural signals, optional.
+	Stack *model.StackReport `json:"stack,omitempty"`
+	// Locally-detected org name + human-confirmed role title.
+	// Human-confirmed via an interactive Y/n + free-text prompt in link.go —
+	// never inferred server-side from proprietary data. Applied by the
+	// backend only when this request results in creating a brand new
+	// project; ignored otherwise.
+	CompanyName string `json:"companyName,omitempty"`
+	RoleTitle   string `json:"roleTitle,omitempty"`
 }
 
 type ExistingProjectOption struct {
