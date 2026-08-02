@@ -147,9 +147,15 @@ func TestLastFridayCalculation(t *testing.T) {
 	}
 }
 
+// FIX: this test drives triggerMonthlyCareerSummaryWithTime, which calls
+// notifications.Dispatch — a REAL macOS desktop notification via beeep.Notify
+// unless explicitly disabled. Without this env var, every run of this test
+// fired an actual "Your May career summary is ready" popup on the developer's
+// machine, unrelated to anything the backend actually generated.
 func TestCareerSummaryNotificationTrigger(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	ctx := context.Background()
 	runtime, err := loadRuntime(ctx)

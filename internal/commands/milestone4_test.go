@@ -28,23 +28,24 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Spin up mock release server
+	// Spin up a mock backend serving the CLI dictionary endpoint directly —
+	// the real endpoint (GET /cli/dictionary) is public, unauthenticated, and
+	// returns the full dictionary (version, categories, featureKeywords) in a
+	// single response, not a version-pointer-then-download two-step CDN flow.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/dictionary/latest.json":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version": "1.3.0", "url": "/dictionary/1.3.0/dictionary.json"}`))
-		case "/dictionary/1.3.0/dictionary.json":
+		case "/cli/dictionary":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
-				"version": "1.3.0",
+				"version": "1.5.0",
 				"categories": {
-					"Authentication & security": {
+					"Authentication & Security": {
 						"impact": "feature",
-						"keyword_signals": ["auth"],
-						"path_signals": ["auth/"]
+						"keywords": ["auth"],
+						"paths": ["auth/"]
 					}
-				}
+				},
+				"featureKeywords": ["dashboard", "checkout"]
 			}`))
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
@@ -52,9 +53,8 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", ts.URL)
 	t.Setenv("PROOFBOARD_API_BASE_URL", ts.URL)
-	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/cli/dictionary")
 
 	var out bytes.Buffer
 	cmd := newUpdateDictionaryCommand(ctx, &out)
@@ -62,7 +62,7 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 		t.Fatalf("update-dictionary command failed: %v", err)
 	}
 
-	expectedMsg := "Dictionary updated successfully to version 1.3.0.\n"
+	expectedMsg := "Dictionary updated successfully to version 1.5.0.\n"
 	if out.String() != expectedMsg {
 		t.Errorf("expected message %q, got %q", expectedMsg, out.String())
 	}
@@ -78,8 +78,8 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		t.Fatalf("failed to decode target dictionary: %v", err)
 	}
-	if loaded.Version != "1.3.0" {
-		t.Errorf("expected dictionary version 1.3.0, got %q", loaded.Version)
+	if loaded.Version != "1.5.0" {
+		t.Errorf("expected dictionary version 1.5.0, got %q", loaded.Version)
 	}
 
 	// Verify state.json was updated with correct dictionary version
@@ -88,8 +88,8 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	if st.DictionaryVersion != "1.3.0" {
-		t.Errorf("expected state dictionaryVersion to be 1.3.0, got %q", st.DictionaryVersion)
+	if st.DictionaryVersion != "1.5.0" {
+		t.Errorf("expected state dictionaryVersion to be 1.5.0, got %q", st.DictionaryVersion)
 	}
 }
 
@@ -104,16 +104,15 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Spin up mock release server returning invalid schema (empty version)
+	// Spin up a mock backend advertising a newer version but with an invalid
+	// schema (no categories) — the version check passes, so Update proceeds
+	// to Validate(), which must reject it before anything is written.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/dictionary/latest.json":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version": "1.4.0", "url": "/dictionary/1.4.0/dictionary.json"}`))
-		case "/dictionary/1.4.0/dictionary.json":
+		case "/cli/dictionary":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
-				"version": "",
+				"version": "1.5.0",
 				"categories": {}
 			}`))
 		default:
@@ -122,9 +121,8 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	t.Setenv("PROOFBOARD_RELEASE_BASE_URL", ts.URL)
 	t.Setenv("PROOFBOARD_API_BASE_URL", ts.URL)
-	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/dictionary/latest.json")
+	t.Setenv("PROOFBOARD_API_DICTIONARY_PATH", "/cli/dictionary")
 
 	var out bytes.Buffer
 	cmd := newUpdateDictionaryCommand(ctx, &out)
@@ -149,8 +147,8 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	if st.DictionaryVersion == "1.4.0" {
-		t.Error("state.json dictionaryVersion should not be 1.4.0 after failure")
+	if st.DictionaryVersion == "1.5.0" {
+		t.Error("state.json dictionaryVersion should not be 1.5.0 after failure")
 	}
 }
 

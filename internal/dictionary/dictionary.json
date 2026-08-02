@@ -1,50 +1,152 @@
 {
-  "version": "1.2.0",
+  "version": "1.4.0",
+  "featureKeywords": [
+    "dashboard", "onboarding", "checkout", "shopping cart", "wishlist",
+    "search", "autocomplete", "filters", "sorting", "pagination", "infinite scroll",
+    "drag and drop", "calendar", "scheduling", "booking", "timeline", "activity feed",
+    "comments", "reviews", "ratings", "notifications", "settings", "user profile",
+    "admin panel", "user management", "audit log", "tagging", "bookmarks", "folders",
+    "workspace", "team management", "invite flow", "referral program", "waitlist",
+    "leaderboard", "gamification", "pricing page", "billing portal", "invoicing",
+    "subscription", "payment flow", "refunds", "tax calculation", "shipping",
+    "order tracking", "inventory management", "chat", "live chat", "chatbot",
+    "video call", "voice call", "email campaign", "push notification", "in-app messaging",
+    "file upload", "file export", "data import", "analytics dashboard", "reporting",
+    "charts", "data visualization", "recommendation engine", "personalization",
+    "login flow", "signup flow", "password reset", "two-factor authentication",
+    "single sign-on", "social login", "magic link", "email verification",
+    "api integration", "third-party integration", "webhooks", "background jobs",
+    "caching layer", "rate limiting", "feature flag", "a/b testing", "dark mode",
+    "accessibility", "localization", "offline mode", "progressive web app",
+    "deep linking", "mobile app", "browser extension", "landing page", "marketing site",
+    "blog", "changelog", "help center", "documentation site", "survey",
+    "feedback form", "support ticket", "moderation tools", "spam detection", "fraud detection"
+  ],
   "categories": {
     "Authentication & Security": {
-      "keywords": ["auth", "login", "jwt", "mfa", "rbac", "token", "encrypt", "session"],
-      "paths": ["auth/", "middleware/", "guards/", "security/"],
-      "impact": "feature"
-    },
-    "Frontend & UI": {
-      "keywords": ["component", "render", "hook", "state", "redux", "tailwind", "layout"],
-      "paths": ["components/", "pages/", ".tsx", ".jsx", ".vue"],
+      "keywords": ["auth", "login", "logout", "jwt", "oauth", "mfa", "2fa", "rbac", "token", "session", "cookie", "csrf", "cors", "encrypt", "hash", "credential", "sso"],
+      "paths": ["auth/", "middleware/", "guards/", "security/", "session/"],
       "impact": "feature"
     },
     "API & Backend Services": {
-      "keywords": ["api", "endpoint", "route", "controller", "graphql", "rpc", "handler"],
-      "paths": ["api/", "services/", "controllers/", "routes/"],
+      "keywords": ["api", "endpoint", "route", "controller", "graphql", "rpc", "grpc", "trpc", "handler", "middleware", "webhook"],
+      "paths": ["api/", "services/", "controllers/", "routes/", "handlers/"],
       "impact": "feature"
     },
     "Database & Data Layer": {
-      "keywords": ["migration", "schema", "query", "prisma", "mongoose", "redis", "index"],
-      "paths": ["migrations/", "models/", "db/", "repositories/"],
+      "keywords": ["migration", "schema", "query", "prisma", "mongoose", "sql", "index", "orm", "seed"],
+      "paths": ["migrations/", "models/", "db/", "repositories/", "schemas/"],
       "impact": "feature"
     },
     "Infrastructure & DevOps": {
-      "keywords": ["deploy", "docker", "k8s", "ci", "lambda", "terraform", "pipeline"],
-      "paths": ["infra/", ".github/", "Dockerfile", ".yml"],
+      "keywords": ["deploy", "docker", "k8s", "kubernetes", "ci", "cd", "lambda", "terraform", "ansible", "helm", "pipeline"],
+      "paths": ["infra/", ".github/workflows", "dockerfile", ".yml", "k8s/", "helm/"],
       "impact": "ship"
     },
     "Performance & Optimisation": {
-      "keywords": ["cache", "lazy", "memo", "bundle", "lighthouse", "throttle", "perf"],
+      "keywords": ["cache", "lazy", "memo", "bundle", "lighthouse", "throttle", "debounce", "perf", "profil", "minif", "compress"],
       "paths": ["next.config", "vite.config", "webpack/"],
       "impact": "refactor"
     },
+    "Frontend & UI": {
+      "keywords": ["component", "render", "hook", "state", "redux", "tailwind", "layout", "style", "css"],
+      "paths": ["components/", "pages/", "views/", "src/app/", ".tsx", ".jsx", ".vue", ".css", ".scss"],
+      "impact": "feature"
+    },
+    "Design System & Components": {
+      "keywords": ["design-system", "design system", "storybook", "token", "primitive", "variant", "design token"],
+      "paths": ["design-system/", "storybook/", "tokens/", "ui-lib/"],
+      "impact": "feature"
+    },
+    "Landing Pages & Marketing": {
+      "keywords": ["landing", "marketing", "campaign", "hero", "homepage", "conversion", "seo", "cta"],
+      "paths": ["landing/", "marketing/", "pages/home"],
+      "impact": "feature"
+    },
+    "Mobile Development": {
+      "keywords": ["ios", "android", "react-native", "expo", "swift", "kotlin", "flutter", "capacitor"],
+      "paths": ["ios/", "android/", "react-native/", "expo/"],
+      "impact": "feature"
+    },
+    "Real-time & WebSockets": {
+      "keywords": ["socket", "websocket", "realtime", "real-time", "sse", "presence", "broadcast", "channel", "event-stream"],
+      "paths": ["socket/", "ws/", "realtime/", "sse/"],
+      "impact": "feature"
+    },
+    "Search & Discovery": {
+      "keywords": ["search", "elasticsearch", "algolia", "meilisearch", "lunr", "typesense", "facet", "autocomplete"],
+      "paths": ["search/"],
+      "impact": "feature"
+    },
+    "Analytics & Observability": {
+      "keywords": ["analytics", "metrics", "telemetry", "tracking", "grafana", "prometheus", "datadog", "amplitude", "otel", "observability"],
+      "paths": ["analytics/", "metrics/", "telemetry/"],
+      "impact": "ship"
+    },
+    "Data Migration & ETL": {
+      "keywords": ["etl", "backfill", "transform", "ingest", "extract", "loader", "data pipeline"],
+      "paths": ["etl/", "seeds/", "pipelines/"],
+      "impact": "feature"
+    },
     "Payments & Billing": {
-      "keywords": ["payment", "stripe", "billing", "subscription", "invoice", "webhook"],
+      "keywords": ["payment", "stripe", "billing", "subscription", "invoice", "checkout", "paypal", "refund", "braintree"],
       "paths": ["payments/", "billing/", "subscriptions/"],
       "impact": "feature"
     },
+    "Email & Notifications": {
+      "keywords": ["email", "mailer", "smtp", "sendgrid", "resend", "notification", "push notification", "twilio", "template"],
+      "paths": ["email/", "mailer/", "notifications/", "templates/email"],
+      "impact": "feature"
+    },
+    "Access Control & Permissions": {
+      "keywords": ["permission", "role", "rbac", "policy", "tenant", "feature-flag", "feature flag", "guard", "acl", "authoriz"],
+      "paths": ["permissions/", "roles/", "policies/"],
+      "impact": "feature"
+    },
+    "AI & Machine Learning": {
+      "keywords": ["model", "training", "inference", "prompt", "embedding", "llm", "neural", "tensorflow", "torch", "machine learning"],
+      "paths": ["models/", "training/", "inference/", "prompts/"],
+      "impact": "feature"
+    },
+    "Internationalisation & Localisation": {
+      "keywords": ["i18n", "l10n", "locale", "translation", "intl", "rtl", "plural"],
+      "paths": ["i18n/", "l10n/", "locales/", "translations/"],
+      "impact": "feature"
+    },
     "Testing & QA": {
-      "keywords": ["test", "spec", "mock", "jest", "cypress", "coverage", "fixture"],
-      "paths": ["__tests__/", ".test.", ".spec.", "e2e/"],
+      "keywords": ["test", "spec", "mock", "jest", "vitest", "cypress", "playwright", "coverage", "fixture", "e2e"],
+      "paths": ["__tests__/", ".test.", ".spec.", "e2e/", "cypress/", "playwright/"],
       "impact": "bugfix"
     },
     "Documentation": {
-      "keywords": ["doc", "readme", "comment", "guide"],
-      "paths": ["docs/", "README", ".md"],
+      "keywords": ["doc", "readme", "comment", "guide", "changelog", "openapi", "swagger", "jsdoc"],
+      "paths": ["docs/", "readme", ".md", "changelog"],
       "impact": "ship"
+    },
+    "Bug Fixes & Maintenance": {
+      "keywords": ["hotfix", "patch", "revert", "maintain", "deprecat", "workaround", "regression"],
+      "paths": [],
+      "impact": "bugfix"
+    },
+    "Refactoring": {
+      "keywords": ["refactor", "cleanup", "reorganiz", "restructur", "rename", "extract", "simplif"],
+      "paths": [],
+      "impact": "refactor"
+    },
+    "File Storage & Media": {
+      "keywords": ["upload", "storage", "s3", "cdn", "media", "cloudinary", "ffmpeg", "image", "video", "blob"],
+      "paths": ["upload/", "storage/", "media/"],
+      "impact": "feature"
+    },
+    "Developer Tooling": {
+      "keywords": ["script", "tool", "makefile", "husky", "lint", "prettier", "codegen", "eslint"],
+      "paths": ["scripts/", "tools/", "bin/", "makefile"],
+      "impact": "refactor"
+    },
+    "Feature Development": {
+      "keywords": ["feat", "feature", "implement", "introduce"],
+      "paths": ["features/"],
+      "impact": "feature"
     }
   }
 }

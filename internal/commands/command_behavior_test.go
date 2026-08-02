@@ -31,7 +31,18 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	runGit(t, repoDir, "update-ref", "refs/remotes/origin/main", head)
 	runGit(t, repoDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
+	var unlinkRequests []*http.Request
+	var unlinkAuthHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/cli/repos/") {
+			unlinkRequests = append(unlinkRequests, r)
+			unlinkAuthHeader = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"message": "Repository unlinked. Post-merge hook will no longer fire.",
+			})
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/link" {
 			http.NotFound(w, r)
 			return
@@ -79,7 +90,9 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	if len(current.LinkedRepos) != 1 {
 		t.Fatalf("linked repositories = %d, want 1", len(current.LinkedRepos))
 	}
-	for _, linked := range current.LinkedRepos {
+	var linkedRepoHash string
+	for hash, linked := range current.LinkedRepos {
+		linkedRepoHash = hash
 		if linked.EmailHashKey != testEmailHashKey {
 			t.Fatalf("linked repository did not retain emailHashKey")
 		}
@@ -94,12 +107,97 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	if err := newUnlinkCommand(ctx, &unlinkOut).ExecuteContext(ctx); err != nil {
 		t.Fatalf("unlink command: %v", err)
 	}
+	if len(unlinkRequests) != 1 {
+		t.Fatalf("backend unlink requests = %d, want 1", len(unlinkRequests))
+	}
+	if wantPath := "/api/v1/cli/repos/" + linkedRepoHash; unlinkRequests[0].URL.Path != wantPath {
+		t.Fatalf("unlink request path = %q, want %q", unlinkRequests[0].URL.Path, wantPath)
+	}
+	if unlinkAuthHeader != "Bearer test-token" {
+		t.Fatalf("unlink request auth header = %q, want bearer test-token", unlinkAuthHeader)
+	}
+	if strings.Contains(unlinkOut.String(), "Warning") {
+		t.Fatalf("unlink output unexpectedly warned: %q", unlinkOut.String())
+	}
 	current, err = statestore.NewStore(homeDir).Load(ctx)
 	if err != nil {
 		t.Fatalf("load unlinked state: %v", err)
 	}
 	if len(current.LinkedRepos) != 0 {
 		t.Fatalf("linked repositories after unlink = %d", len(current.LinkedRepos))
+	}
+	for _, hook := range []string{"post-commit", "post-merge", "post-rewrite"} {
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "hooks", hook)); !os.IsNotExist(err) {
+			t.Fatalf("%s hook remains after unlink", hook)
+		}
+	}
+}
+
+// If the backend unlink call fails (offline, auth failure after retry,
+// or any non-404 error), local hook/state cleanup must still proceed — a user
+// who has already lost network access or auth should still be able to remove
+// hooks from their own machine — but a clear warning must be printed
+// distinguishing "hooks removed locally" from "backend was not notified."
+func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	writeRepoFileAndCommit(t, repoDir)
+	head := gitOutput(t, repoDir, "rev-parse", "HEAD")
+	runGit(t, repoDir, "update-ref", "refs/remotes/origin/main", head)
+	runGit(t, repoDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/cli/repos/") {
+			http.Error(w, `{"message":"server unavailable"}`, http.StatusInternalServerError)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/link" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"isNewProject":      false,
+			"projectId":         "project-123",
+			"dictionaryVersion": "1.0.0",
+			"emailHashKey":      testEmailHashKey,
+		})
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+	t.Setenv("PROOFBOARD_API_LINK_PATH", "/link")
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "test-token", EmailHash: "email-hash"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var linkOut bytes.Buffer
+	linkCommand := newLinkCommand(ctx, &linkOut)
+	linkCommand.SetArgs([]string{"--non-interactive"})
+	if err := linkCommand.ExecuteContext(ctx); err != nil {
+		t.Fatalf("link command: %v\n%s", err, linkOut.String())
+	}
+
+	var unlinkOut bytes.Buffer
+	if err := newUnlinkCommand(ctx, &unlinkOut).ExecuteContext(ctx); err != nil {
+		t.Fatalf("unlink command should not fail when backend call fails: %v", err)
+	}
+	if !strings.Contains(unlinkOut.String(), "Warning") {
+		t.Fatalf("unlink output missing warning about failed backend notification: %q", unlinkOut.String())
+	}
+	if !strings.Contains(unlinkOut.String(), "Repository unlinked. Hooks removed.") {
+		t.Fatalf("unlink output missing local cleanup confirmation: %q", unlinkOut.String())
+	}
+	current, err := statestore.NewStore(homeDir).Load(ctx)
+	if err != nil {
+		t.Fatalf("load unlinked state: %v", err)
+	}
+	if len(current.LinkedRepos) != 0 {
+		t.Fatalf("linked repositories after unlink = %d, want 0", len(current.LinkedRepos))
 	}
 	for _, hook := range []string{"post-commit", "post-merge", "post-rewrite"} {
 		if _, err := os.Stat(filepath.Join(repoDir, ".git", "hooks", hook)); !os.IsNotExist(err) {
