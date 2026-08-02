@@ -41,7 +41,70 @@ func Log(ctx context.Context, repo Repo, lastSHA string) ([]model.RawCommit, err
 	if err != nil {
 		return nil, err
 	}
-	return FilterCommitsByAuthorEmail(commits, email), nil
+	commits = FilterCommitsByAuthorEmail(commits, email)
+
+	// Fetch commit bodies via a second, separate git log call — kept
+	// entirely apart from the header/numstat call above because commit
+	// bodies are free-form multi-line text that could otherwise corrupt the
+	// existing line-oriented numstat parser. Best-effort: a failure here
+	// (e.g. an unusual repo state) must never fail an otherwise-successful
+	// sync — commits simply proceed with a nil Body.
+	if bodies, err := logBodies(ctx, repo, lastSHA, email); err == nil {
+		attachBodies(commits, bodies)
+	}
+
+	return commits, nil
+}
+
+// logBodies fetches the full commit message body for each commit in the same
+// range/author scope as the primary Log() call, keyed by SHA. Uses STX/ETX
+// (\x02/\x03) record delimiters, which never appear in ordinary commit text,
+// so a body containing literal newlines (unlike Subject, which is always a
+// single line) can't be confused with the next record.
+func logBodies(ctx context.Context, repo Repo, lastSHA, email string) (map[string][]byte, error) {
+	args := []string{"-C", repo.Path, "log"}
+	if lastSHA != "" {
+		args = append(args, lastSHA+"..HEAD")
+	}
+	args = append(
+		args,
+		"--format=%x02%H%x1f%b%x03",
+		"--no-merges",
+		"--regexp-ignore-case",
+		"--author="+quoteGitBasicRegexp(email),
+	)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git log bodies: %w", err)
+	}
+	return parseBodies(out), nil
+}
+
+func parseBodies(out []byte) map[string][]byte {
+	bodies := make(map[string][]byte)
+	records := strings.Split(string(out), "\x02")
+	for _, record := range records {
+		record = strings.TrimSuffix(record, "\n")
+		record = strings.TrimSuffix(record, "\x03")
+		if record == "" {
+			continue
+		}
+		parts := strings.SplitN(record, "\x1f", 2)
+		if len(parts) != 2 || parts[1] == "" {
+			continue
+		}
+		bodies[parts[0]] = []byte(parts[1])
+	}
+	return bodies
+}
+
+func attachBodies(commits []model.RawCommit, bodies map[string][]byte) {
+	for i := range commits {
+		if body, ok := bodies[commits[i].SHA]; ok {
+			commits[i].Body = body
+		}
+	}
 }
 
 func quoteGitBasicRegexp(value string) string {

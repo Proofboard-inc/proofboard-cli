@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 
 	"github.com/proofboard/proofboard/internal/api"
+	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/zalando/go-keyring"
 )
 
@@ -61,28 +62,54 @@ func (s DeviceKeyStore) Path() string {
 	return filepath.Join(s.homeDir, ".proofboard", "device.key")
 }
 
-func (s DeviceKeyStore) Load(ctx context.Context) (DeviceKeyRecord, error) {
-	if err := ctx.Err(); err != nil {
-		return DeviceKeyRecord{}, fmt.Errorf("load device key: %w", err)
+// keychainDisabled defaults to false (OS keychain stays the default store).
+// The env var remains for test isolation / one-off overrides; the persisted
+// state field is the discoverable, documented path via
+// `proofboard config set keychain-disabled true`, for environments where OS
+// keychain access isn't reachable at all (e.g. some non-standard terminal
+// sessions where the OS itself can't locate a keychain for the process).
+func (s DeviceKeyStore) keychainDisabled(ctx context.Context) bool {
+	if os.Getenv("PROOFBOARD_DISABLE_KEYCHAIN") == "1" {
+		return true
 	}
-	if os.Getenv("PROOFBOARD_DISABLE_KEYCHAIN") != "1" && s.secretStore != nil {
+	current, err := statestore.NewStore(s.homeDir).Load(ctx)
+	if err != nil {
+		return false
+	}
+	return current.KeychainDisabled
+}
+
+func (s DeviceKeyStore) Load(ctx context.Context) (DeviceKeyRecord, error) {
+	record, _, err := s.load(ctx)
+	return record, err
+}
+
+// load additionally reports whether the record came from the OS keychain
+// (fromKeychain) vs. the on-disk file fallback. Ensure uses this to decide
+// whether a migration write to the keychain is actually needed, rather than
+// writing to it — and prompting the OS keychain access dialog — on every call.
+func (s DeviceKeyStore) load(ctx context.Context) (record DeviceKeyRecord, fromKeychain bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return DeviceKeyRecord{}, false, fmt.Errorf("load device key: %w", err)
+	}
+	if !s.keychainDisabled(ctx) && s.secretStore != nil {
 		if secret, err := s.secretStore.Get(deviceKeyKeychainService, deviceKeyKeychainAccount); err == nil {
 			record, decodeErr := decodeDeviceKeyRecord([]byte(secret))
 			if decodeErr != nil {
-				return DeviceKeyRecord{}, fmt.Errorf("decode device key from OS keychain: %w", decodeErr)
+				return DeviceKeyRecord{}, false, fmt.Errorf("decode device key from OS keychain: %w", decodeErr)
 			}
-			return record, nil
+			return record, true, nil
 		}
 	}
 	data, err := os.ReadFile(s.Path())
 	if err != nil {
-		return DeviceKeyRecord{}, fmt.Errorf("read device key: %w", err)
+		return DeviceKeyRecord{}, false, fmt.Errorf("read device key: %w", err)
 	}
-	record, err := decodeDeviceKeyRecord(data)
+	record, err = decodeDeviceKeyRecord(data)
 	if err != nil {
-		return DeviceKeyRecord{}, fmt.Errorf("decode device key: %w", err)
+		return DeviceKeyRecord{}, false, fmt.Errorf("decode device key: %w", err)
 	}
-	return record, nil
+	return record, false, nil
 }
 
 func decodeDeviceKeyRecord(data []byte) (DeviceKeyRecord, error) {
@@ -115,7 +142,7 @@ func (s DeviceKeyStore) Save(ctx context.Context, record DeviceKeyRecord) error 
 	if err != nil {
 		return fmt.Errorf("marshal device key: %w", err)
 	}
-	if os.Getenv("PROOFBOARD_DISABLE_KEYCHAIN") != "1" && s.secretStore != nil {
+	if !s.keychainDisabled(ctx) && s.secretStore != nil {
 		if err := s.secretStore.Set(deviceKeyKeychainService, deviceKeyKeychainAccount, string(data)); err == nil {
 			// A successful keychain write supersedes the file fallback. Remove
 			// any migrated plaintext copy so only the OS-protected secret
@@ -136,7 +163,7 @@ func (s DeviceKeyStore) Save(ctx context.Context, record DeviceKeyRecord) error 
 }
 
 func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token string, rotate bool) (DeviceKeyRecord, error) {
-	record, err := s.Load(ctx)
+	record, fromKeychain, err := s.load(ctx)
 	if err == nil && record.Algorithm != deviceKeyAlgorithm {
 		// Migrate pre-v1.9 Ed25519 installations to the ECDSA P-256 format
 		// required by the deployed sync verifier.
@@ -152,11 +179,18 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 			if err := s.Save(ctx, record); err != nil {
 				return DeviceKeyRecord{}, err
 			}
+			return record, nil
 		}
-		// Save also migrates a legacy file into the OS keychain when one is
-		// available. The record and key ID are otherwise unchanged.
-		if err := s.Save(ctx, record); err != nil {
-			return DeviceKeyRecord{}, err
+		// Only write back when the record didn't already come from the OS
+		// keychain (a one-time migration of a legacy on-disk key). Writing on
+		// every Ensure() call — even when nothing changed — meant every
+		// retryAfterAuth retry re-triggered the OS keychain access prompt,
+		// which on macOS can surface as a repeated password/allow dialog on
+		// every single sync.
+		if !fromKeychain {
+			if err := s.Save(ctx, record); err != nil {
+				return DeviceKeyRecord{}, err
+			}
 		}
 		return record, nil
 	}

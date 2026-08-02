@@ -3,3 +3,8 @@ proofboard
 proofboard.exe
 dist/
 keys/
+.DS_Store
+PR-DESCRIPTION.md
+
+bundle.js
+proofboard-cli.txt

@@ -18,7 +18,6 @@ type Config struct {
 	APIBaseURL                string
 	AppBaseURL                string
 	ReleaseBaseURL            string
-	DeviceSigningMode         string
 	LinkPath                  string
 	CheckPath                 string
 	SyncPath                  string
@@ -42,7 +41,6 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("api.base_url", DefaultAPIBaseURL)
 	v.SetDefault("app.base_url", DefaultAppBaseURL)
 	v.SetDefault("release.base_url", "https://proofboard.io")
-	v.SetDefault("device.signing_mode", "auto")
 	v.SetDefault("api.link_path", "/api/v1/cli/repos/link")
 	v.SetDefault("api.check_path", "/api/v1/cli/repos/check")
 	v.SetDefault("api.sync_path", "/api/v1/cli/sync")
@@ -54,25 +52,10 @@ func Load(ctx context.Context) (Config, error) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("git.production_branches", []string{"main", "master", "production"})
 	apiBaseURL := strings.TrimRight(v.GetString("api.base_url"), "/")
-	deviceSigningMode := strings.ToLower(strings.TrimSpace(v.GetString("device.signing_mode")))
-	if deviceSigningMode == "auto" {
-		if apiBaseURL == DefaultAPIBaseURL {
-			deviceSigningMode = "disabled"
-		} else {
-			deviceSigningMode = "required"
-		}
-	}
-	if deviceSigningMode != "disabled" && deviceSigningMode != "required" {
-		return Config{}, fmt.Errorf(
-			"load config: device signing mode must be auto, disabled, or required, got %q",
-			deviceSigningMode,
-		)
-	}
 	return Config{
 		APIBaseURL:                apiBaseURL,
 		AppBaseURL:                v.GetString("app.base_url"),
 		ReleaseBaseURL:            v.GetString("release.base_url"),
-		DeviceSigningMode:         deviceSigningMode,
 		LinkPath:                  v.GetString("api.link_path"),
 		CheckPath:                 v.GetString("api.check_path"),
 		SyncPath:                  v.GetString("api.sync_path"),
