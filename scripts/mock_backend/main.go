@@ -7,9 +7,15 @@ package main
 
 import (
 	"bytes"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -19,19 +25,25 @@ import (
 	"strings"
 	"sync"
 
+	pbcrypto "github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/model"
 )
 
 type server struct {
-	mu           sync.Mutex
-	calls        []string
-	publicKey    ed25519.PublicKey
-	pollCount    int
-	pollsPending int
-	secrets      []string
-	syncPayloads []model.SyncPayload
-	failures     []string
-	baseURL      string
+	mu                     sync.Mutex
+	calls                  []string
+	publicKey              *ecdsa.PublicKey
+	pollCount              int
+	pollsPending           int
+	deviceKeyRegistrations int
+	deviceKeyID            string
+	revokeFirstSync        bool
+	firstSyncRejected      bool
+	secrets                []string
+	email                  string
+	syncPayloads           []model.SyncPayload
+	failures               []string
+	baseURL                string
 }
 
 func (s *server) record(name string) {
@@ -134,17 +146,27 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		raw, err := base64.StdEncoding.DecodeString(request.PublicKey)
-		if err != nil || len(raw) != ed25519.PublicKeySize {
-			s.fail("device-key public key is not a base64 ed25519 key: %v", err)
+		block, _ := pem.Decode([]byte(request.PublicKey))
+		if block == nil || block.Type != "PUBLIC KEY" {
+			s.fail("device-key public key is not PEM")
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+		publicKey, ok := parsed.(*ecdsa.PublicKey)
+		if err != nil || !ok || publicKey.Curve != elliptic.P256() {
+			s.fail("device-key public key is not ECDSA P-256: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 		s.mu.Lock()
-		s.publicKey = ed25519.PublicKey(raw)
+		s.publicKey = publicKey
+		s.deviceKeyRegistrations++
+		s.deviceKeyID = fmt.Sprintf("device-key-e2e-%d", s.deviceKeyRegistrations)
+		deviceKeyID := s.deviceKeyID
 		s.mu.Unlock()
-		s.pass("device public key registered (%d bytes, ed25519)", len(raw))
-		_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-key-e2e"})
+		s.pass("device public key registered (ECDSA P-256 PEM)")
+		_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": deviceKeyID})
 
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/repos/link":
 		s.record("link")
@@ -152,6 +174,8 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			"isNewProject":      true,
 			"projectId":         "project-e2e",
 			"dictionaryVersion": "1.2.0",
+			"publicKey":         "counter-signing-public-key",
+			"emailHashKey":      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		})
 
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cli/sync":
@@ -162,7 +186,23 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad payload", http.StatusBadRequest)
 			return
 		}
+		s.mu.Lock()
+		shouldReject := s.revokeFirstSync && !s.firstSyncRejected
+		if shouldReject {
+			s.firstSyncRejected = true
+		}
+		s.mu.Unlock()
+		if shouldReject {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"code":    "DEVICE_KEY_REVOKED",
+				"message": "Unknown or revoked device key",
+			})
+			return
+		}
 		s.verifySignature(payload)
+		s.verifyEmailHash(payload)
 		s.mu.Lock()
 		s.syncPayloads = append(s.syncPayloads, payload)
 		s.mu.Unlock()
@@ -172,11 +212,26 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]any{})
 
 	case r.URL.Path == "/api/v1/cli/dictionary":
-		http.NotFound(w, r)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"version": "1.2.0",
+			"url":     s.baseURL + "/dictionary.json",
+		})
 
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *server) verifyEmailHash(payload model.SyncPayload) {
+	key, _ := hex.DecodeString("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(strings.ToLower(strings.TrimSpace(s.email))))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if payload.EmailHash != expected {
+		s.fail("emailHash was not the expected per-project HMAC")
+		return
+	}
+	s.pass("emailHash verified as a per-project HMAC")
 }
 
 // verifySignature reproduces the server-side check: rebuild the exact bytes the
@@ -184,10 +239,15 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 func (s *server) verifySignature(payload model.SyncPayload) {
 	s.mu.Lock()
 	publicKey := s.publicKey
+	deviceKeyID := s.deviceKeyID
 	s.mu.Unlock()
 
 	if payload.DeviceKeyID == "" {
 		s.fail("sync payload carried no deviceKeyId")
+		return
+	}
+	if payload.DeviceKeyID != deviceKeyID {
+		s.fail("sync payload used stale deviceKeyId")
 		return
 	}
 	if payload.DeviceSignature == "" {
@@ -205,15 +265,17 @@ func (s *server) verifySignature(payload model.SyncPayload) {
 		return
 	}
 
-	// The Career Agent signs the payload with the signature field cleared.
+	// The Career Agent signs recursively key-sorted canonical JSON with the
+	// signature field omitted.
 	signed := payload
 	signed.DeviceSignature = ""
-	canonical, err := json.Marshal(signed)
+	canonical, err := pbcrypto.CanonicalJSON(signed)
 	if err != nil {
 		s.fail("could not rebuild canonical payload: %v", err)
 		return
 	}
-	if !ed25519.Verify(publicKey, canonical, signature) {
+	digest := sha256.Sum256(canonical)
+	if !ecdsa.VerifyASN1(publicKey, digest[:], signature) {
 		s.fail("SIGNATURE VERIFICATION FAILED — canonical bytes do not match what was signed")
 		return
 	}
@@ -226,8 +288,10 @@ func main() {
 		listenAddress = "127.0.0.1:0"
 	}
 	s := &server{
-		secrets:      strings.Split(os.Getenv("MOCK_SECRETS"), "|"),
-		pollsPending: 2,
+		secrets:         strings.Split(os.Getenv("MOCK_SECRETS"), "|"),
+		email:           os.Getenv("MOCK_EMAIL"),
+		pollsPending:    2,
+		revokeFirstSync: os.Getenv("MOCK_REVOKE_FIRST_SYNC") == "1",
 	}
 
 	listener, err := net.Listen("tcp", listenAddress)
