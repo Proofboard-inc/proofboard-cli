@@ -13,13 +13,38 @@ import (
 
 func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var rotateKey bool
+	var switchAccount bool
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Connect the Proofboard Career Agent",
+		Long: "Connects this machine to your Proofboard account via a device-code sign-in.\n" +
+			"If you're already authenticated, this reports your current connection status\n" +
+			"instead of starting a new sign-in — use --switch to connect a different account.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("auth: %w", err)
+			}
+			// Already authenticated: report status instead of forcing a fresh
+			// device-code network round trip. Previously this ran unconditionally,
+			// so a developer who was already connected but had a flaky/offline
+			// network got a hard "auth login: send request: ... timeout" error for
+			// a command that had nothing to actually do. --switch (or --rotate-key,
+			// which needs a live round trip to register the new key) bypasses this.
+			if !switchAccount && !rotateKey {
+				if existing, loadErr := runtime.credentials.Load(ctx); loadErr == nil &&
+					existing.Token != "" && !credentialsCompletelyExpired(existing) {
+					name := existing.Username
+					if name == "" {
+						name = "Proofboard user"
+					}
+					_, printErr := fmt.Fprintf(out,
+						"Already authenticated as %s. Proofboard Career Agent is connected.\n"+
+							"Run `proofboard auth --switch` to connect a different account, or `proofboard auth logout` first.\n",
+						name,
+					)
+					return printErr
+				}
 			}
 			emailHash, emailErr := authEmailHash(ctx)
 			if emailErr != nil {
@@ -62,6 +87,7 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&rotateKey, "rotate-key", false, "generate a new device signing key")
+	cmd.Flags().BoolVar(&switchAccount, "switch", false, "connect a different Proofboard account, even if one is already connected")
 	cmd.AddCommand(newAuthLogoutCommand(ctx, out))
 	return cmd
 }

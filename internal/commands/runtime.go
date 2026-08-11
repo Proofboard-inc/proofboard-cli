@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/state"
+	"github.com/proofboard/proofboard/internal/style"
 )
 
 type runtimeContext struct {
@@ -67,33 +69,6 @@ func authEmailHash(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("git config user.email is empty")
 	}
 	return crypto.NormalizedSHA256(email), nil
-}
-
-func triggerMonthlyCareerSummary(ctx context.Context, out io.Writer, runtime runtimeContext) error {
-	return triggerMonthlyCareerSummaryWithTime(ctx, out, runtime, time.Now())
-}
-
-func triggerMonthlyCareerSummaryWithTime(ctx context.Context, out io.Writer, runtime runtimeContext, now time.Time) error {
-	current, err := runtime.state.Load(ctx)
-	if err != nil {
-		return err
-	}
-	key, monthName := getReadyCareerSummaryMonth(now)
-	if current.MonthlyCareerSummaryShown == nil {
-		current.MonthlyCareerSummaryShown = make(map[string]bool)
-	}
-	if !current.MonthlyCareerSummaryShown[key] {
-		_, err := fmt.Fprintf(out, "Proofboard: Your %s career summary is ready. proofboard.io/career-summary\n", monthName)
-		if err != nil {
-			return err
-		}
-		notifications.Dispatch(nil, notifications.MonthlyCareerSummary(monthName))
-		current.MonthlyCareerSummaryShown[key] = true
-		if err := runtime.state.Save(ctx, current); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func notifyAuthExpiry(ctx context.Context, out io.Writer, runtime runtimeContext) {
@@ -173,13 +148,88 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 		if n.Type == "milestone_bundle_ready" {
 			bundleID := notificationMetaString(n.Meta, "bundleId", "milestoneBundleId", "id")
 			title := notificationMetaString(n.Meta, "title", "milestoneTitle", "name")
-			notifications.PrintEvent(out, notifications.MilestoneDetected(title))
-			_ = launchTargetActionNotification(ctx, "milestone", bundleID, title)
+			commitCount, hasCommitCount := notificationMetaInt(n.Meta, "commitCount", "commitsCount", "count")
+			// Milestones are rare enough, and reviewable purely from the
+			// terminal (review/publish/skip are all real commands below), so
+			// this no longer also raises an OS-level popup the way it used
+			// to — the terminal print, with the next commands spelled out
+			// literally, is the only surface now.
+			printMilestoneReady(out, title, commitCount, hasCommitCount, bundleID)
 		} else {
-			notifications.Dispatch(out, notifications.RemoteNotification(n))
+			// Terminal-only: these are routine, already-happened confirmations
+			// (sync completed, someone viewed your proofboard, etc.) surfaced
+			// the next time the user happens to run a command — not the kind
+			// of time-sensitive prompt that warrants interrupting them with an
+			// OS-level popup on top of it.
+			notifications.PrintEvent(out, notifications.RemoteNotification(n))
 		}
 		_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
 	}
+}
+
+// printMilestoneReady prints the milestone-ready block that used to be an
+// OS-level notification with Review/Publish/Skip buttons. With no buttons to
+// click anymore, the three actions are spelled out as literal, runnable
+// `proofboard milestone ...` commands instead.
+func printMilestoneReady(out io.Writer, title string, commitCount int, hasCommitCount bool, bundleID string) {
+	if strings.TrimSpace(title) == "" {
+		title = "Engineering milestone"
+	}
+	countSuffix := ""
+	if hasCommitCount {
+		unit := "commit"
+		if commitCount != 1 {
+			unit = "commits"
+		}
+		countSuffix = fmt.Sprintf(" (%d %s)", commitCount, unit)
+	}
+	fmt.Fprintf(out, "%s Milestone ready: %q%s\n", style.Success(out, "✓"), title, countSuffix)
+	if strings.TrimSpace(bundleID) == "" {
+		// Nothing to act on without a bundle id — the caller has nothing
+		// further to run, so leave it at the headline.
+		return
+	}
+	type suggestedCommand struct {
+		command string
+		help    string
+	}
+	commands := []suggestedCommand{
+		{fmt.Sprintf("Run `proofboard milestone review %s`", bundleID), "inspect before publishing"},
+		{fmt.Sprintf("Run `proofboard milestone publish %s`", bundleID), "publish as-is"},
+		{fmt.Sprintf("Run `proofboard milestone skip %s`", bundleID), "dismiss this one"},
+	}
+	width := 0
+	for _, c := range commands {
+		if len(c.command) > width {
+			width = len(c.command)
+		}
+	}
+	for _, c := range commands {
+		fmt.Fprintf(out, "  %-*s — %s\n", width, c.command, c.help)
+	}
+}
+
+// notificationMetaInt is notificationMetaString's numeric counterpart: JSON
+// metadata decodes numbers as float64, but a backend that serializes it as a
+// string is tolerated too.
+func notificationMetaInt(meta map[string]any, keys ...string) (int, bool) {
+	for _, key := range keys {
+		value, ok := meta[key]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case float64:
+			return int(v), true
+		case int:
+			return v, true
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func notificationMetaString(meta map[string]any, keys ...string) string {
@@ -191,23 +241,3 @@ func notificationMetaString(meta map[string]any, keys ...string) string {
 	return ""
 }
 
-func getReadyCareerSummaryMonth(now time.Time) (string, string) {
-	lastFriday := lastFridayOfMonth(now.Year(), now.Month(), now.Location())
-	var targetTime time.Time
-	if now.After(lastFriday) {
-		targetTime = now
-	} else {
-		targetTime = now.AddDate(0, -1, 0)
-	}
-	key := targetTime.Format("2006-01")
-	monthName := targetTime.Month().String()
-	return key, monthName
-}
-
-func lastFridayOfMonth(year int, month time.Month, loc *time.Location) time.Time {
-	t := time.Date(year, month+1, 0, 0, 0, 0, 0, loc)
-	for t.Weekday() != time.Friday {
-		t = t.AddDate(0, 0, -1)
-	}
-	return t
-}

@@ -5,6 +5,8 @@ import "time"
 type Notification struct {
 	ID        string         `json:"id"`
 	Type      string         `json:"type"`
+	Title     string         `json:"title"`
+	Message   string         `json:"message"`
 	IsRead    bool           `json:"isRead"`
 	ActionURL string         `json:"actionUrl"`
 	Meta      map[string]any `json:"meta"`

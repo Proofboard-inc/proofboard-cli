@@ -41,6 +41,21 @@ type SyncPayload struct {
 	// Locally-detected tech stack + structural signals, refreshed on
 	// every sync. Optional — old CLI versions simply omit it.
 	Stack *StackReport `json:"stack,omitempty"`
+	// IsDefaultBranch reports whether the branch this sync's commits came
+	// from is the repository's actual detected default branch (per
+	// detectDefaultBranch), as opposed to one manually added via
+	// `proofboard config add-branch`. Never the branch name itself — just
+	// this boolean — so nothing proprietary/identifying leaves the machine.
+	// Lets the backend weight SHA-proof trust higher for verifiably-shipped
+	// (default-branch) work than for manually-vouched-for branch work, which
+	// the CLI itself has no way to verify is actually a legitimate long-lived
+	// branch rather than a throwaway one a user pointed the tool at.
+	IsDefaultBranch bool `json:"isDefaultBranch"`
+	// Regenerate, when true, tells the backend this is a `sync --resync`
+	// replay of an already-ingested payload: no new commits, just a request
+	// to regenerate milestone-cluster outcomeSummary text. Omitted (false)
+	// on every normal sync.
+	Regenerate bool `json:"regenerate,omitempty"`
 }
 
 type SyncReceipt struct {

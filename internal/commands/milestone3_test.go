@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"testing"
-	"time"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/model"
@@ -92,110 +91,6 @@ func TestConfigBranchOperations(t *testing.T) {
 	}
 }
 
-func TestLastFridayCalculation(t *testing.T) {
-	tests := []struct {
-		now               time.Time
-		expectedKey       string
-		expectedMonthName string
-	}{
-		{
-			// June 16, 2026. Last Friday of June 2026 is June 26.
-			// 16 is before 26, so previous month (May) is ready.
-			now:               time.Date(2026, time.June, 16, 12, 0, 0, 0, time.UTC),
-			expectedKey:       "2026-05",
-			expectedMonthName: "May",
-		},
-		{
-			// June 27, 2026. Last Friday of June 2026 is June 26.
-			// 27 is after 26, so current month (June) is ready.
-			now:               time.Date(2026, time.June, 27, 12, 0, 0, 0, time.UTC),
-			expectedKey:       "2026-06",
-			expectedMonthName: "June",
-		},
-		{
-			// June 26, 2026 at 00:00:01 (after 00:00:00 start of Friday).
-			// Last Friday is ready.
-			now:               time.Date(2026, time.June, 26, 0, 0, 1, 0, time.UTC),
-			expectedKey:       "2026-06",
-			expectedMonthName: "June",
-		},
-		{
-			// February 2026. Last Friday of Feb 2026 is Feb 27.
-			// Feb 28 is after 27, current month (Feb) is ready.
-			now:               time.Date(2026, time.February, 28, 12, 0, 0, 0, time.UTC),
-			expectedKey:       "2026-02",
-			expectedMonthName: "February",
-		},
-		{
-			// February 2026. Feb 26 is before 27, previous month (Jan) is ready.
-			now:               time.Date(2026, time.February, 26, 12, 0, 0, 0, time.UTC),
-			expectedKey:       "2026-01",
-			expectedMonthName: "January",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.now.Format("2006-01-02"), func(t *testing.T) {
-			key, monthName := getReadyCareerSummaryMonth(tc.now)
-			if key != tc.expectedKey {
-				t.Errorf("getReadyCareerSummaryMonth(%v) key = %q, want %q", tc.now, key, tc.expectedKey)
-			}
-			if monthName != tc.expectedMonthName {
-				t.Errorf("getReadyCareerSummaryMonth(%v) monthName = %q, want %q", tc.now, monthName, tc.expectedMonthName)
-			}
-		})
-	}
-}
-
-// FIX: this test drives triggerMonthlyCareerSummaryWithTime, which calls
-// notifications.Dispatch — a REAL macOS desktop notification via beeep.Notify
-// unless explicitly disabled. Without this env var, every run of this test
-// fired an actual "Your May career summary is ready" popup on the developer's
-// machine, unrelated to anything the backend actually generated.
-func TestCareerSummaryNotificationTrigger(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
-	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
-
-	ctx := context.Background()
-	runtime, err := loadRuntime(ctx)
-	if err != nil {
-		t.Fatalf("loadRuntime: %v", err)
-	}
-
-	// Trigger on June 16, 2026 (May is ready)
-	var out bytes.Buffer
-	now1 := time.Date(2026, time.June, 16, 12, 0, 0, 0, time.UTC)
-	if err := triggerMonthlyCareerSummaryWithTime(ctx, &out, runtime, now1); err != nil {
-		t.Fatalf("triggerMonthlyCareerSummaryWithTime: %v", err)
-	}
-
-	expectedMsg1 := "Proofboard: Your May career summary is ready. proofboard.io/career-summary\n"
-	if out.String() != expectedMsg1 {
-		t.Errorf("expected notification %q, got %q", expectedMsg1, out.String())
-	}
-
-	// Trigger again on same day (should be quiet)
-	out.Reset()
-	if err := triggerMonthlyCareerSummaryWithTime(ctx, &out, runtime, now1); err != nil {
-		t.Fatalf("triggerMonthlyCareerSummaryWithTime: %v", err)
-	}
-	if out.Len() > 0 {
-		t.Errorf("expected no notification on repeat, got %q", out.String())
-	}
-
-	// Trigger on June 27, 2026 (June is ready)
-	out.Reset()
-	now2 := time.Date(2026, time.June, 27, 12, 0, 0, 0, time.UTC)
-	if err := triggerMonthlyCareerSummaryWithTime(ctx, &out, runtime, now2); err != nil {
-		t.Fatalf("triggerMonthlyCareerSummaryWithTime: %v", err)
-	}
-
-	expectedMsg2 := "Proofboard: Your June career summary is ready. proofboard.io/career-summary\n"
-	if out.String() != expectedMsg2 {
-		t.Errorf("expected notification %q, got %q", expectedMsg2, out.String())
-	}
-}
 
 func createTempGitRepo(t *testing.T) string {
 	repoDir := t.TempDir()

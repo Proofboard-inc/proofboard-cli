@@ -189,8 +189,16 @@ func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 	if !strings.Contains(unlinkOut.String(), "Warning") {
 		t.Fatalf("unlink output missing warning about failed backend notification: %q", unlinkOut.String())
 	}
-	if !strings.Contains(unlinkOut.String(), "Repository unlinked. Hooks removed.") {
-		t.Fatalf("unlink output missing local cleanup confirmation: %q", unlinkOut.String())
+	// When the backend call genuinely fails (not a 404 — a real failure to
+	// notify), the output must NOT claim the plain, unqualified "Repository
+	// unlinked." success line — that would be a false-success report. It
+	// should say "unlinked locally" instead, honestly distinguishing local
+	// cleanup (which always happens) from backend confirmation (which didn't).
+	if strings.Contains(unlinkOut.String(), "Repository unlinked. Hooks removed.") {
+		t.Fatalf("unlink output falsely claims full success despite a failed backend call: %q", unlinkOut.String())
+	}
+	if !strings.Contains(unlinkOut.String(), "Repository unlinked locally. Hooks removed.") {
+		t.Fatalf("unlink output missing local-only cleanup confirmation: %q", unlinkOut.String())
 	}
 	current, err := statestore.NewStore(homeDir).Load(ctx)
 	if err != nil {
@@ -203,6 +211,67 @@ func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(repoDir, ".git", "hooks", hook)); !os.IsNotExist(err) {
 			t.Fatalf("%s hook remains after unlink", hook)
 		}
+	}
+}
+
+func TestUnlinkCommandReportsCleanSuccessOn404(t *testing.T) {
+	// A 404 on the backend unlink call means "nothing to unlink there" (e.g.
+	// the project was already deleted some other way) — a genuine success
+	// case, not a failure. This must still print the plain, unqualified
+	// success line, not the "unlinked locally... could not confirm" warning
+	// path — that path is reserved for real failures (network/5xx/auth).
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	writeRepoFileAndCommit(t, repoDir)
+	head := gitOutput(t, repoDir, "rev-parse", "HEAD")
+	runGit(t, repoDir, "update-ref", "refs/remotes/origin/main", head)
+	runGit(t, repoDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/cli/repos/") {
+			http.Error(w, `{"message":"No linked project found for this repository"}`, http.StatusNotFound)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/link" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"isNewProject":      false,
+			"projectId":         "project-123",
+			"dictionaryVersion": "1.0.0",
+			"emailHashKey":      testEmailHashKey,
+		})
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+	t.Setenv("PROOFBOARD_API_LINK_PATH", "/link")
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "test-token", EmailHash: "email-hash"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var linkOut bytes.Buffer
+	linkCommand := newLinkCommand(ctx, &linkOut)
+	linkCommand.SetArgs([]string{"--non-interactive"})
+	if err := linkCommand.ExecuteContext(ctx); err != nil {
+		t.Fatalf("link command: %v\n%s", err, linkOut.String())
+	}
+
+	var unlinkOut bytes.Buffer
+	if err := newUnlinkCommand(ctx, &unlinkOut).ExecuteContext(ctx); err != nil {
+		t.Fatalf("unlink command should not fail on a 404: %v", err)
+	}
+	if strings.Contains(unlinkOut.String(), "Warning") {
+		t.Fatalf("unlink output should not warn on a 404 (nothing to unlink there is a success case): %q", unlinkOut.String())
+	}
+	if !strings.Contains(unlinkOut.String(), "Repository unlinked. Hooks removed.") {
+		t.Fatalf("unlink output missing plain success confirmation on 404: %q", unlinkOut.String())
 	}
 }
 
