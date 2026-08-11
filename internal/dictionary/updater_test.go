@@ -49,6 +49,7 @@ func TestUpdateSuccessfullyDownloadsValidatesAndInstalls(t *testing.T) {
 		Version:         "2.0.0",
 		Categories:      map[string]model.Signals{"Code": {Keywords: []string{"func"}, Impact: "high"}},
 		FeatureKeywords: []string{"dashboard", "checkout"},
+		StackSignals:    map[string]string{"react": "React"},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cli/dictionary", func(w http.ResponseWriter, r *http.Request) {

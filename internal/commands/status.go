@@ -124,9 +124,6 @@ func newStatusCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					pending,
 				)
 			}
-			if err := triggerMonthlyCareerSummary(ctx, out, runtime); err != nil {
-				return err
-			}
 			return nil
 		},
 	}

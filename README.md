@@ -24,6 +24,14 @@ brew install proofboard
 npm install -g proofboard-cli
 ```
 
+proofboard.io will present Homebrew as the primary macOS install path going
+forward (owned by the release/CI team — not yet wired into this repo's
+release automation, see `build/goreleaser.yaml`), since it isn't subject to
+the same Gatekeeper "unidentified developer" warning a downloaded `.pkg`/curl
+install can trigger without Apple notarization. Until notarization ships, if
+macOS blocks the `.pkg` installer, right-click it and choose **Open** to
+bypass the warning once.
+
 The release scripts support Linux, macOS, and Windows. Running `proofboard install` directly installs the native binary and registers the appropriate systemd user service, macOS LaunchAgent, or Windows scheduled task.
 
 The npm package is a thin launcher for the signed native release. It does not
@@ -35,6 +43,13 @@ npx proofboard-cli sync
 ```
 
 ## How It Works
+
+On macOS, the "Project detected"/"Milestone detected" prompts use
+[terminal-notifier](https://github.com/julienXX/terminal-notifier) when it's
+installed (`brew install terminal-notifier`) for a proper corner-positioned,
+non-blocking Notification Center banner with clickable actions. Without it,
+the Career Agent falls back automatically to a centered AppleScript dialog —
+nothing to configure either way.
 
 Once installed, the Career Agent:
 

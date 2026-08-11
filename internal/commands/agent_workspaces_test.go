@@ -38,7 +38,15 @@ func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, output)
 	}
-	statePath := filepath.Join(homeDir, ".config", "Code", "User", "globalStorage", "storage.json")
+	// Use whatever path editorStateFiles() actually looks at for this OS
+	// (e.g. ~/Library/Application Support/Code/... on macOS) rather than a
+	// hardcoded Linux-only ~/.config path — otherwise this test writes its
+	// fixture somewhere discoverEditorStateWorkspaces never looks on darwin.
+	statePaths := editorStateFiles()
+	if len(statePaths) == 0 {
+		t.Fatal("editorStateFiles() returned no candidate paths")
+	}
+	statePath := statePaths[0]
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		t.Fatalf("mkdir editor state: %v", err)
 	}
@@ -46,10 +54,18 @@ func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	if err := os.WriteFile(statePath, data, 0o600); err != nil {
 		t.Fatalf("write editor state: %v", err)
 	}
+	// git resolves symlinks in its reported toplevel path (relevant on macOS,
+	// where a temp dir is typically under /var/folders, itself a symlink to
+	// /private/var/folders) — resolve the expected path the same way so the
+	// comparison isn't just an artifact of an unresolved vs. resolved path.
+	wantRepoDir := repoDir
+	if resolved, err := filepath.EvalSymlinks(repoDir); err == nil {
+		wantRepoDir = resolved
+	}
 	seen := make(map[string]bool)
 	var workspaces []string
 	discoverEditorStateWorkspaces(context.Background(), seen, &workspaces)
-	if len(workspaces) != 1 || workspaces[0] != repoDir {
-		t.Fatalf("workspaces = %#v, want %q", workspaces, repoDir)
+	if len(workspaces) != 1 || workspaces[0] != wantRepoDir {
+		t.Fatalf("workspaces = %#v, want %q", workspaces, wantRepoDir)
 	}
 }

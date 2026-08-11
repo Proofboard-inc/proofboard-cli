@@ -32,6 +32,11 @@ type ExistingProjectOption struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Role string `json:"role"`
+	// RepoFullName is the repo identity (owner/repo) backing this project,
+	// populated by the backend from vcsPublicImport.repoFullName when
+	// present. Empty for Volume-Proof-only projects that have no repo
+	// identity — that's expected and handled gracefully by callers.
+	RepoFullName string `json:"repoFullName,omitempty"`
 }
 
 type LinkResponse struct {

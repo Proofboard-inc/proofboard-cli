@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,12 @@ import (
 )
 
 const githubAPIBaseURL = "https://api.github.com"
+
+// ErrNoGitHubRelease means the repository has no published release yet (a
+// 404 from the GitHub API) — distinct from a network failure or any other
+// error, so callers (see update.go) can show a clear, specific message
+// instead of the raw "GitHub latest release returned 404 Not Found" string.
+var ErrNoGitHubRelease = errors.New("no published release found")
 
 type GitHubReleaseAsset struct {
 	Name   string `json:"name"`
@@ -38,6 +45,9 @@ func LatestGitHubRelease(ctx context.Context, repository string) (GitHubRelease,
 		return GitHubRelease{}, fmt.Errorf("fetch GitHub latest release: %w", err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return GitHubRelease{}, fmt.Errorf("%s: %w", repository, ErrNoGitHubRelease)
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return GitHubRelease{}, fmt.Errorf("GitHub latest release returned %s", res.Status)
 	}
