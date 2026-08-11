@@ -132,7 +132,7 @@ func (s CredentialStore) Delete(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("delete credentials: %w", err)
 	}
-	if s.secretStore != nil {
+	if !s.keychainDisabled(ctx) && s.secretStore != nil {
 		if err := s.secretStore.Delete(credentialsKeychainService, credentialsKeychainAccount); err != nil && err != keyring.ErrNotFound {
 			return fmt.Errorf("delete credentials from OS keychain: %w", err)
 		}
