@@ -9,7 +9,6 @@ type State struct {
 	LastDictionaryUpdateCheck time.Time                  `json:"lastDictionaryUpdateCheck,omitempty"`
 	SuppressedWorkspaces      []string                   `json:"suppressedWorkspaces"`
 	PromptedWorkspaces        map[string]time.Time       `json:"promptedWorkspaces,omitempty"`
-	MonthlyCareerSummaryShown map[string]bool            `json:"monthlyCareerSummaryShown"`
 	DictionaryVersion         string                     `json:"dictionaryVersion,omitempty"`
 	FirstRunSetupComplete     bool                       `json:"firstRunSetupComplete"`
 	IDEProcesses              []string                   `json:"ideProcesses,omitempty"`
@@ -44,4 +43,11 @@ type LinkedRepoState struct {
 	DictionaryVersion  string    `json:"dictionaryVersion"`
 	ProductionBranches []string  `json:"productionBranches"`
 	MetadataHash       string    `json:"metadataHash,omitempty"`
+	// LastSyncPayload caches the exact payload most recently transmitted for
+	// this repo (post-Shredder — contains no commit text, same content that
+	// already left the machine). Replayed verbatim by `sync --resync` so the
+	// resend's contentHash matches what the backend already has on file,
+	// without re-ingesting/re-classifying git history. Nil until the first
+	// successful sync.
+	LastSyncPayload *SyncPayload `json:"lastSyncPayload,omitempty"`
 }

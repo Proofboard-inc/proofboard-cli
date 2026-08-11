@@ -156,10 +156,19 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, seenUnlin
 		activeWorkspaces[result.WorkspacePath] = true
 		switch result.Action {
 		case detection.ActionLink:
-			if !seenUnlinked[result.WorkspacePath] {
-				seenUnlinked[result.WorkspacePath] = true
-				_ = launchWorkspaceNotification(ctx, runtime, result)
-			}
+			// Intentionally silent here. "Project detected" is surfaced by the
+			// shell startup hook instead (`proofboard detect`, backgrounded from
+			// .zshrc/.zprofile/.bashrc — see shell_hooks.go), which prints
+			// straight into the terminal the developer already has open
+			// (printLinkDetected in detect.go). This polling agent used to ALSO
+			// raise its own OS-level popup (terminal-notifier, or an
+			// always-centered AppleScript `display dialog` when that's not
+			// installed) for the same event on every IDE window it found — two
+			// independent notification paths firing for one detection, which is
+			// what produced a stack of centered dialog popups piling up across
+			// unrelated projects. The shell hook is the sole surface for this
+			// now; the agent only acts on ActionSync below, which has no
+			// user-facing prompt of its own.
 		case detection.ActionSync:
 			if time.Since(lastSyncLaunch[result.WorkspacePath]) >= time.Minute {
 				lastSyncLaunch[result.WorkspacePath] = time.Now()

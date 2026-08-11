@@ -17,9 +17,10 @@ func newNotifyCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var target string
 
 	cmd := &cobra.Command{
-		Use:    "notify",
-		Hidden: true,
-		Short:  "Render a workspace notification",
+		Use:   "notify",
+		Short: "Manually show a Career Agent workspace notification (project-detected, milestone, etc)",
+		Long: "Manually trigger the same interactive notification the background agent shows automatically.\n" +
+			"Mainly useful for testing a notification, or for re-raising one you dismissed.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if kind == "" {
 				return nil

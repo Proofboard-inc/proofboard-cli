@@ -143,12 +143,23 @@ func suppressWorkspace(ctx context.Context, workspace string) error {
 	return nil
 }
 
+// VisibleSyncRunner, when set, runs an explicitly user-chosen "Sync Project"
+// action in a real, visible terminal window instead of silently in the
+// background. The commands package (which owns the per-OS
+// terminal-launching logic) wires this up in an init(); it's a function
+// variable rather than a direct call to avoid an import cycle (commands
+// already imports notifications).
+var VisibleSyncRunner func(ctx context.Context, workspace string, args ...string) error
+
 func runWorkspaceSync(ctx context.Context, workspace string) error {
+	if VisibleSyncRunner != nil {
+		return VisibleSyncRunner(ctx, workspace, "sync", "--incremental", "--agent")
+	}
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, execPath, "sync", "--agent")
+	cmd := exec.CommandContext(ctx, execPath, "sync", "--incremental", "--agent")
 	cmd.Dir = workspace
 	cmd.Stdin = nil
 	cmd.Stdout = nil
@@ -177,7 +188,7 @@ func workspaceActionLabels(kind string) (title string, body string, primary stri
 	case "reconnect":
 		return "Your Proofboard session has expired", "Reconnect to resume private background synchronization.", "Reconnect", "", ""
 	case "milestone":
-		return "Milestone detected", "Review this engineering milestone before publishing it.", "Review", "Publish", "Ignore"
+		return "Milestone detected", "Review this engineering milestone before publishing it.", "Review", "Publish", "Skip"
 	default:
 		return "Proofboard Career Agent", "Open Proofboard to continue.", "Open", "Not Now", "Never Ask Again"
 	}
