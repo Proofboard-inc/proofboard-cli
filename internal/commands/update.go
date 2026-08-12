@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,7 +43,10 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 	}
 	return &cobra.Command{
 		Use:   "update",
-		Short: "Update Proofboard Career Agent",
+		Short: "Update Proofboard Career Agent to the latest published release",
+		Long: "Checks for a newer Proofboard Career Agent release and, if one exists, downloads it,\n" +
+			"verifies its signature, and replaces the currently running binary in place.\n" +
+			"Safe to run any time — a no-op if you're already on the latest version.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runtimeContext, err := loadRuntime(ctx)
 			if err != nil {
@@ -69,8 +73,16 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 					}
 				}
 			}
+			if errors.Is(err, api.ErrNoGitHubRelease) {
+				_, printErr := fmt.Fprintf(out,
+					"No published Proofboard Career Agent release was found yet — you're running the development build (%s).\n"+
+						"Nothing to update to right now; check back once a release is published.\n",
+					version.Version,
+				)
+				return printErr
+			}
 			if err != nil {
-				return err
+				return fmt.Errorf("check for a newer release: %w", err)
 			}
 			latestVersion := strings.TrimPrefix(latest.Version, "v")
 			versionComparison, err := dictionary.CompareVersions(latestVersion, version.Version)

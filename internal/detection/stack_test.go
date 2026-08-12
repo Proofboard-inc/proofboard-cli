@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/proofboard/proofboard/internal/model"
 )
 
 func initGitRepo(t *testing.T, dir string) {
@@ -59,7 +61,7 @@ func TestDetectStackNodeReactRepo(t *testing.T) {
 	writeFile(t, dir, ".github/workflows/ci.yml", "name: CI\non: [push]")
 	commitAll(t, dir)
 
-	report, err := DetectStack(dir)
+	report, err := DetectStack(dir, model.Dictionary{})
 	if err != nil {
 		t.Fatalf("DetectStack() error: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestDetectStackGoRepo(t *testing.T) {
 	writeFile(t, dir, "Dockerfile", "FROM golang:1.22\n")
 	commitAll(t, dir)
 
-	report, err := DetectStack(dir)
+	report, err := DetectStack(dir, model.Dictionary{})
 	if err != nil {
 		t.Fatalf("DetectStack() error: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestDetectStackEmptyRepoReturnsZeroValueNoError(t *testing.T) {
 	writeFile(t, dir, "README.md", "# Nothing here\n")
 	commitAll(t, dir)
 
-	report, err := DetectStack(dir)
+	report, err := DetectStack(dir, model.Dictionary{})
 	if err != nil {
 		t.Fatalf("DetectStack() error: %v", err)
 	}
@@ -148,7 +150,7 @@ func TestDetectStackMonorepoDetectsNestedManifests(t *testing.T) {
 	writeFile(t, dir, "apps/backend/main.go", "package main\nfunc main() {}\n")
 	commitAll(t, dir)
 
-	report, err := DetectStack(dir)
+	report, err := DetectStack(dir, model.Dictionary{})
 	if err != nil {
 		t.Fatalf("DetectStack() error: %v", err)
 	}
@@ -163,7 +165,7 @@ func TestDetectStackMonorepoDetectsNestedManifests(t *testing.T) {
 
 func TestDetectStackNotAGitRepoReturnsError(t *testing.T) {
 	dir := t.TempDir() // no git init
-	_, err := DetectStack(dir)
+	_, err := DetectStack(dir, model.Dictionary{})
 	if err == nil {
 		t.Fatal("expected an error for a non-git directory")
 	}

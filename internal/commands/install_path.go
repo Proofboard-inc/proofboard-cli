@@ -11,6 +11,11 @@ import (
 
 const proofboardPathHeader = "# Proofboard Career Agent"
 
+type shellHookTarget struct {
+	Path string
+	Line string
+}
+
 // ensureDirectoryOnPath makes a per-user installation directory reachable as a
 // plain `proofboard` command. Nothing here needs administrator access: on
 // Windows only the per-user PATH is edited, and elsewhere the user's own shell

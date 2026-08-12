@@ -13,6 +13,7 @@ import (
 	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/crypto"
 	"github.com/proofboard/proofboard/internal/detection"
+	"github.com/proofboard/proofboard/internal/dictionary"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
 	"github.com/proofboard/proofboard/internal/model"
@@ -133,18 +134,18 @@ func promptForCompanyAndRole(in io.Reader, out io.Writer, org string, stack *mod
 		fmt.Fprintf(out, "Detected organisation: %s\n", org)
 		fmt.Fprintf(out, "Is this your employer/client for this project? [Y/n]: ")
 		line, _ := reader.ReadString('\n')
-		answer := strings.ToLower(strings.TrimSpace(line))
+		answer := strings.ToLower(sanitizeTypedInput(line))
 		if answer == "n" || answer == "no" {
 			fmt.Fprintf(out, "Company name (optional, press enter to skip): ")
 			companyLine, _ := reader.ReadString('\n')
-			companyName = strings.TrimSpace(companyLine)
+			companyName = sanitizeTypedInput(companyLine)
 		} else {
 			companyName = org
 		}
 	} else {
 		fmt.Fprintf(out, "Company name (optional, press enter to skip): ")
 		companyLine, _ := reader.ReadString('\n')
-		companyName = strings.TrimSpace(companyLine)
+		companyName = sanitizeTypedInput(companyLine)
 	}
 
 	suggestedRole := inferRoleTitle(stack)
@@ -154,17 +155,54 @@ func promptForCompanyAndRole(in io.Reader, out io.Writer, org string, stack *mod
 		fmt.Fprintf(out, "Role title (optional, press enter to skip): ")
 	}
 	roleLine, _ := reader.ReadString('\n')
-	roleTitle = strings.TrimSpace(roleLine)
+	roleTitle = sanitizeTypedInput(roleLine)
 	if roleTitle == "" {
 		roleTitle = suggestedRole
 	}
 	return companyName, roleTitle
 }
 
+// sanitizeTypedInput cleans a line read via a raw bufio.Reader from an
+// interactive prompt. Unlike a shell's readline, a bufio.Reader does no line
+// editing — pressing an arrow key (or any other special key) while typing
+// inserts its raw ANSI/terminal escape sequence (e.g. ESC '[' 'A' for Up)
+// literally into the buffer instead of moving a cursor, so a mid-input
+// keystroke can end up prefixed onto — or embedded in — the text that gets
+// sent to the backend as companyName/roleTitle. This strips ANSI CSI escape
+// sequences and other non-printable control bytes before trimming
+// surrounding whitespace.
+func sanitizeTypedInput(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b { // ESC — drop it and, if present, the whole CSI sequence it starts
+			if i+1 < len(s) && s[i+1] == '[' {
+				j := i + 2
+				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+					j++
+				}
+				i = j // final byte (0x40-0x7e) also consumed by the loop's i++
+				continue
+			}
+			continue
+		}
+		if c < 0x20 && c != '\n' && c != '\r' {
+			continue // drop other C0 control bytes; newline/CR handled by TrimSpace below
+		}
+		b.WriteByte(c)
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func promptForProject(in io.Reader, out io.Writer, options []api.ExistingProjectOption) (string, bool) {
 	fmt.Fprintf(out, "This repo is not linked yet. Found existing projects:\n")
 	for i, opt := range options {
-		fmt.Fprintf(out, "  %d  %-15s %s\n", i+1, opt.Name, opt.Role)
+		if opt.RepoFullName != "" {
+			fmt.Fprintf(out, "  %d  %-15s %-20s %s\n", i+1, opt.Name, opt.Role, opt.RepoFullName)
+		} else {
+			fmt.Fprintf(out, "  %d  %-15s %s\n", i+1, opt.Name, opt.Role)
+		}
 	}
 	fmt.Fprintf(out, "  n  Create a new project\n")
 
@@ -188,10 +226,14 @@ func promptForProject(in io.Reader, out io.Writer, options []api.ExistingProject
 
 func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var nonInteractive bool
+	var dismiss bool
 	cmd := &cobra.Command{
 		Use:   "link",
 		Short: "Connect the current repository for advanced workflows",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if dismiss {
+				return dismissWorkspacePrompt(ctx, cmd.OutOrStdout())
+			}
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
@@ -235,9 +277,23 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					})
 					if checkErr == nil && checkRes.IsLinked {
 						fmt.Fprintln(out, "Repository is already linked to Proofboard.")
+						fmt.Fprintln(out, "To unlink it and connect a different project, run: proofboard unlink")
 						return nil
 					}
-					// If backend check failed or returned not linked, proceed with link
+					if checkErr == nil && !checkRes.IsLinked {
+						// Backend genuinely doesn't have this repo linked (e.g. it
+						// was removed some other way) — fall through to the normal
+						// link flow below, prompts and all.
+					} else {
+						// The backend couldn't be reached to verify — a network
+						// blip is not the same as "not linked". Local state already
+						// says this repo is connected, so trust it instead of
+						// silently re-running the full interactive flow (re-asking
+						// organisation/company/role) every time the network hiccups.
+						fmt.Fprintln(out, "Repository appears already linked to Proofboard, but the connection couldn't be reached to confirm it right now.")
+						fmt.Fprintln(out, "Skipping re-registration — try again once you're back online, or run `proofboard unlink` first if you want to connect a different project.")
+						return nil
+					}
 				}
 			}
 
@@ -245,7 +301,13 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// link on a detection error, the repo may simply not be a
 			// perfectly clean git checkout yet.
 			var stack *model.StackReport
-			if report, detectErr := detection.DetectStack(repo.Path); detectErr == nil {
+			// Best-effort local dictionary load (no network call — reads the
+			// already-persisted ~/.proofboard/dictionary.json, or the bundled
+			// embedded fallback on a fresh install). Same "never block on this"
+			// contract as DetectStack itself: an empty dictionary just falls
+			// back to the small built-in stack-signal table.
+			linkDict, _ := dictionary.LoadDefault(ctx)
+			if report, detectErr := detection.DetectStack(repo.Path, linkDict); detectErr == nil {
 				stack = &report
 			}
 
@@ -350,6 +412,9 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			branch := detectDefaultBranch(ctx, repo.Path)
+			if branch != "" && !pbgit.IsProductionBranch(branch, current.WatchedBranches) {
+				fmt.Fprintf(out, "Tracking branch %q for this repository (not one of your globally watched branches).\n", branch)
+			}
 			if branch == "" {
 				if nonInteractive {
 					branch = "main"
@@ -408,5 +473,32 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "connect the project without terminal prompts")
 	_ = cmd.Flags().MarkHidden("non-interactive")
+	cmd.Flags().BoolVar(&dismiss, "dismiss", false, "stop Proofboard from asking to connect this workspace again")
 	return cmd
+}
+
+// dismissWorkspacePrompt is the terminal-invokable equivalent of the "Never
+// Ask Again" button the old "Project detected" OS notification used to
+// offer. It writes the same suppression-state entry
+// (AddWorkspaceSuppression) that button used to write, keyed on the current
+// working directory — the same workspace path `detect`/the Career Agent
+// hash when deciding whether to prompt again.
+func dismissWorkspacePrompt(ctx context.Context, out io.Writer) error {
+	runtime, err := loadRuntime(ctx)
+	if err != nil {
+		return fmt.Errorf("link --dismiss: %w", err)
+	}
+	current, err := runtime.state.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	updated, err := statestore.AddWorkspaceSuppression(current, runtime.workingDir)
+	if err != nil {
+		return fmt.Errorf("suppress workspace: %w", err)
+	}
+	if err := runtime.state.Save(ctx, updated); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	_, err = fmt.Fprintln(out, "Proofboard will not ask to connect this workspace again. Run `proofboard link` any time to add it manually.")
+	return err
 }

@@ -33,6 +33,8 @@ type RunInput struct {
 	PreviousHead      string
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport
+	// IsDefaultBranch — see model.SyncPayload.IsDefaultBranch.
+	IsDefaultBranch bool
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -56,6 +58,7 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 		ExpectedOrgHash:   input.ExpectedOrgHash,
 		PreviousHead:      input.PreviousHead,
 		Stack:             input.Stack,
+		IsDefaultBranch:   input.IsDefaultBranch,
 	})
 	return payload, nil
 }
