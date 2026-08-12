@@ -2,6 +2,7 @@ package phase2
 
 import (
 	"bytes"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -57,6 +58,48 @@ const (
 	bodyKeywordWeight    = 1
 	symbolWeight         = 1
 )
+
+// conventionalCommitPrefix matches a Conventional Commits type prefix at the
+// start of a subject line: "feat:", "fix(scope):", "chore!:", etc.
+var conventionalCommitPrefix = regexp.MustCompile(`^([a-zA-Z]+)(\([^)]*\))?!?:\s`)
+
+// conventionalCommitImpact maps a Conventional Commits type to an impact
+// type. This is a STRONGER signal than the category dictionary's default
+// impact for a matched category: the author explicitly declared what kind of
+// change this is, so it overrides the category-inferred guess rather than
+// the other way around — previously a "chore: bump dependency versions"
+// commit that happened to match e.g. the "API & Backend Services" category
+// by keyword coincidence would be classified impact "feature" (that
+// category's default), which is wrong regardless of what the category is.
+var conventionalCommitImpact = map[string]string{
+	"feat":     "feature",
+	"feature":  "feature",
+	"fix":      "bugfix",
+	"bugfix":   "bugfix",
+	"hotfix":   "bugfix",
+	"revert":   "bugfix",
+	"refactor": "refactor",
+	"perf":     "refactor",
+	"chore":    "maintenance",
+	"style":    "maintenance",
+	"docs":     "maintenance",
+	"test":     "maintenance",
+	"tests":    "maintenance",
+	"build":    "ship",
+	"ci":       "ship",
+	"deploy":   "ship",
+}
+
+// impactFromConventionalPrefix returns the impact type declared by a
+// Conventional Commits prefix on the subject line, or "" if the subject
+// doesn't have one or the type isn't recognized.
+func impactFromConventionalPrefix(subject []byte) string {
+	match := conventionalCommitPrefix.FindSubmatch(subject)
+	if match == nil {
+		return ""
+	}
+	return conventionalCommitImpact[strings.ToLower(string(match[1]))]
+}
 
 func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.CommitSignal {
 	signals := make([]model.CommitSignal, 0, len(commits))
@@ -124,13 +167,36 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 			}
 		}
 
-		// FeatureKeyword: a separate, more specific signal than category — see
-		// model.Dictionary.FeatureKeywords. Iterated in dictionary list order
-		// (not a map), so a tie between two keywords deterministically keeps
-		// whichever is listed first — no extra sort needed, unlike the
-		// category loop above.
-		featureKeyword := ""
-		featureScore := 0
+		// A Conventional Commits type prefix ("chore:", "fix:", ...) is an
+		// explicit, author-declared signal — it overrides whatever impact the
+		// matched category defaults to (see impactFromConventionalPrefix).
+		if declared := impactFromConventionalPrefix(subjectLowerBytes); declared != "" {
+			impact = declared
+		}
+
+		// FeatureKeyword(s): a separate, more specific signal than category —
+		// see model.Dictionary.FeatureKeywords. Every keyword that scores > 0
+		// is kept (not just the single top-scorer) — a commit can legitimately
+		// touch more than one concept (e.g. an "orders" commit that also wires
+		// up "delivery"), and dropping every match but the best one was
+		// throwing that signal away, leaving milestone clusters with only one
+		// generic feature label even when several distinct ones were present
+		// across their commits. Sorted by descending score, then by dictionary
+		// order for a deterministic tie-break (not a map, so no extra sort key
+		// needed there).
+		//
+		// File-path matching (weighted highest, same as category classification
+		// above) was added after real-world dogfooding showed most commit
+		// subjects are too terse ("fix bug", "update logic") to ever contain a
+		// feature phrase — but the module/folder a commit actually touches
+		// (src/modules/vendors/..., src/modules/delivery/...) reliably names the
+		// feature area regardless of how the author wrote the message, and can't
+		// be spoofed by a vague commit message the way subject/body text can.
+		type featureMatch struct {
+			keyword string
+			score   int
+		}
+		var featureMatches []featureMatch
 		for _, keyword := range dictionary.FeatureKeywords {
 			keywordBytes := []byte(strings.ToLower(keyword))
 			score := 0
@@ -140,10 +206,26 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 			if bodyLowerBytes != nil && bytes.Contains(bodyLowerBytes, keywordBytes) {
 				score += bodyKeywordWeight
 			}
-			if score > featureScore {
-				featureScore = score
-				featureKeyword = keyword
+			for _, filePath := range commit.FilePaths {
+				if strings.Contains(strings.ToLower(filePath), string(keywordBytes)) {
+					score += pathWeight
+					break
+				}
 			}
+			if score > 0 {
+				featureMatches = append(featureMatches, featureMatch{keyword, score})
+			}
+		}
+		sort.SliceStable(featureMatches, func(i, j int) bool {
+			return featureMatches[i].score > featureMatches[j].score
+		})
+		featureKeyword := ""
+		featureKeywords := make([]string, 0, len(featureMatches))
+		for _, m := range featureMatches {
+			featureKeywords = append(featureKeywords, m.keyword)
+		}
+		if len(featureKeywords) > 0 {
+			featureKeyword = featureKeywords[0]
 		}
 
 		noise := NoiseScore(commit.Subject, scores)
@@ -166,6 +248,7 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 			CategoryScores:  scores,
 			PrimaryCategory: primary,
 			FeatureKeyword:  featureKeyword,
+			FeatureKeywords: featureKeywords,
 			ImpactType:      impact,
 			NoiseScore:      noise,
 			SignatureValid:  commit.SignatureValid,

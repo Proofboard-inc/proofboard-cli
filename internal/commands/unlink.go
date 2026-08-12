@@ -9,6 +9,7 @@ import (
 	"github.com/proofboard/proofboard/internal/api"
 	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/hooks"
+	"github.com/proofboard/proofboard/internal/logging"
 	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/spf13/cobra"
 )
@@ -45,8 +46,21 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_, apiErr := runtime.api.UnlinkRepo(ctx, freshCredentials.Token, identity.RepoHash)
 				return apiErr
 			})
-			if unlinkErr != nil && !api.IsStatus(unlinkErr, http.StatusNotFound) {
-				fmt.Fprintf(out, "Warning: could not notify Proofboard that this repo was unlinked (%v).\nHooks and local tracking have been removed regardless. Run `proofboard status`\nor check the dashboard if the project still shows as CLI-active.\n", unlinkErr)
+			// A 404 means the backend already has nothing to unlink (e.g. the
+			// project was deleted some other way) — that's a genuine success
+			// case, not a failure. Anything else (network failure, an auth
+			// failure that survived the full retry chain, a 5xx) means the
+			// backend was never actually notified, and previously this printed
+			// a bare "Repository unlinked." success line regardless — telling
+			// the user it worked when the dashboard project could still show
+			// as CLI-active. Track it instead of discarding it.
+			backendConfirmed := unlinkErr == nil || api.IsStatus(unlinkErr, http.StatusNotFound)
+			if !backendConfirmed {
+				// Full error (URL, repo hash, underlying dial/DNS failure) goes to
+				// the log, not the terminal — the person doesn't need "dial tcp:
+				// lookup api-dev.proofboard.io: no such host" printed at them to
+				// understand "couldn't reach the server".
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, "unlink", "failure", "confirm unlink with backend", unlinkErr.Error())
 			}
 
 			current, err := runtime.state.Load(ctx)
@@ -56,6 +70,9 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			current = statestore.RemoveLinkedRepo(current, identity.RepoHash)
 			// Disconnecting is a deliberate choice to stop tracking, so the
 			// workspace becomes eligible for the connection prompt again.
+			// Local state is cleared unconditionally either way — local-first:
+			// there's nothing to gain by keeping local tracking alive just
+			// because the backend couldn't be reached.
 			if current, err = statestore.ClearWorkspacePrompt(current, repo.Path); err != nil {
 				return err
 			}
@@ -65,7 +82,13 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err := runtime.state.Save(ctx, current); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(out, "Repository unlinked. Hooks removed.")
+			if backendConfirmed {
+				_, err = fmt.Fprintln(out, "Repository unlinked. Hooks removed.")
+				return err
+			}
+			_, err = fmt.Fprintln(out, "Repository unlinked locally. Hooks removed.\n"+
+				"Warning: Proofboard could not be reached to confirm the unlink — your dashboard may still show this\n"+
+				"project as CLI-active until connectivity is restored. Run `proofboard unlink` again once you're back online.")
 			return err
 		},
 	}

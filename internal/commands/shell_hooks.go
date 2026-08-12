@@ -15,8 +15,36 @@ import (
 
 const (
 	legacyShellDetectionLine = "proofboard detect >/dev/null 2>&1 &"
-	shellDetectionLine       = "(proofboard detect >/dev/null 2>&1 &)"
-	fishShellDetectionLine   = "proofboard detect >/dev/null 2>&1 &\ndisown $last_pid"
+
+	// legacyBackgroundedShellDetectionLine was shellDetectionLine's value
+	// until the fix below: it ran `detect` backgrounded with BOTH stdout and
+	// stderr sent to /dev/null. That meant the "New repository detected"
+	// prompt it prints on a match (see printLinkDetected in detect.go) was
+	// discarded every single time — worse, detect ALSO records the prompt as
+	// "shown" the moment it runs (see recordWorkspacePrompt), so this line
+	// silently burned the one-time prompt for every workspace without the
+	// developer ever having a chance to see it. `detect` only ever does fast,
+	// local git plumbing (no network) with its own bounded timeout, so there
+	// is no real latency reason to background or silence it — see
+	// shellDetectionLine below, which now matches noticeLine's pattern
+	// (synchronous, stderr-only suppression) instead.
+	legacyBackgroundedShellDetectionLine = "(proofboard detect >/dev/null 2>&1 &)"
+	legacyFishBackgroundedDetectionLine  = "proofboard detect >/dev/null 2>&1 &\ndisown $last_pid"
+
+	shellDetectionLine     = "proofboard detect 2>/dev/null"
+	fishShellDetectionLine = "proofboard detect 2>/dev/null"
+
+	// noticeLine runs synchronously, same as shellDetectionLine above, so its
+	// output is actually visible the moment a terminal starts up — the same
+	// subtle "one line on shell startup" pattern as a venv auto-activation
+	// hook. Only stderr is suppressed; a slow network is already bounded by a
+	// short timeout inside the command itself.
+	noticeLine     = "proofboard notices 2>/dev/null"
+	fishNoticeLine = "proofboard notices 2>/dev/null"
+	psNoticeLine   = "proofboard notices 2>$null"
+
+	legacyPSDetectionLine = "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"
+	psDetectionLine       = "proofboard detect 2>$null"
 )
 
 func newShellHookMaintenanceCommand(ctx context.Context, out io.Writer) *cobra.Command {
@@ -68,15 +96,29 @@ func ensureShellDetectionHooks(ctx context.Context) (updated bool, inspected int
 		if target.Path == "" {
 			continue
 		}
-		done, err := ensureLineInFile(target.Path, target.Line)
-		if err != nil {
-			return false, inspected, err
-		}
-		if done {
-			updated = true
+		for _, line := range target.Lines {
+			done, err := ensureLineInFile(target.Path, line)
+			if err != nil {
+				return false, inspected, err
+			}
+			if done {
+				updated = true
+			}
 		}
 	}
 	return updated, inspected, nil
+}
+
+// legacyDetectionLines are every prior value of the shell startup detection
+// line, oldest first — checked in ensureLineInFile so an existing install
+// gets migrated onto the current line instead of ending up with two (or,
+// after this fix, silently keeping the still-broken backgrounded/silenced
+// one forever since it never matches "line already present").
+var legacyDetectionLines = []string{
+	legacyShellDetectionLine,
+	legacyBackgroundedShellDetectionLine,
+	legacyFishBackgroundedDetectionLine,
+	legacyPSDetectionLine,
 }
 
 func ensureLineInFile(path string, line string) (bool, error) {
@@ -87,8 +129,11 @@ func ensureLineInFile(path string, line string) (bool, error) {
 	if strings.Contains(string(content), line) {
 		return false, nil
 	}
-	if strings.Contains(string(content), legacyShellDetectionLine) {
-		updated := strings.ReplaceAll(string(content), legacyShellDetectionLine, line)
+	for _, legacy := range legacyDetectionLines {
+		if !strings.Contains(string(content), legacy) {
+			continue
+		}
+		updated := strings.ReplaceAll(string(content), legacy, line)
 		mode := os.FileMode(0o644)
 		if info, statErr := os.Stat(path); statErr == nil {
 			mode = info.Mode().Perm()
@@ -112,12 +157,12 @@ func ensureLineInFile(path string, line string) (bool, error) {
 	return true, nil
 }
 
-type shellHookTarget struct {
-	Path string
-	Line string
+type detectHookTarget struct {
+	Path  string
+	Lines []string
 }
 
-func shellHookTargets() ([]shellHookTarget, error) {
+func shellHookTargets() ([]detectHookTarget, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("home directory: %w", err)
@@ -130,35 +175,33 @@ func shellHookTargets() ([]shellHookTarget, error) {
 
 	switch shell {
 	case "bash":
-		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, ".bashrc"), Line: shellDetectionLine},
-			{Path: filepath.Join(homeDir, ".bash_profile"), Line: shellDetectionLine},
+		return []detectHookTarget{
+			{Path: filepath.Join(homeDir, ".bashrc"), Lines: []string{shellDetectionLine, noticeLine}},
+			{Path: filepath.Join(homeDir, ".bash_profile"), Lines: []string{shellDetectionLine, noticeLine}},
 		}, nil
 	case "zsh":
-		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, ".zshrc"), Line: shellDetectionLine},
-			{Path: filepath.Join(homeDir, ".zprofile"), Line: shellDetectionLine},
+		return []detectHookTarget{
+			{Path: filepath.Join(homeDir, ".zshrc"), Lines: []string{shellDetectionLine, noticeLine}},
+			{Path: filepath.Join(homeDir, ".zprofile"), Lines: []string{shellDetectionLine, noticeLine}},
 		}, nil
 	case "fish":
-		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Line: fishShellDetectionLine},
+		return []detectHookTarget{
+			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Lines: []string{fishShellDetectionLine, fishNoticeLine}},
 		}, nil
 	case "powershell", "pwsh":
-		line := "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"
-		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Line: line},
-			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Line: line},
+		return []detectHookTarget{
+			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
+			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
 		}, nil
 	default:
 		if os.Getenv("OS") == "Windows_NT" {
-			line := "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"
-			return []shellHookTarget{
-				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Line: line},
-				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Line: line},
+			return []detectHookTarget{
+				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
+				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
 			}, nil
 		}
-		return []shellHookTarget{
-			{Path: filepath.Join(homeDir, ".profile"), Line: shellDetectionLine},
+		return []detectHookTarget{
+			{Path: filepath.Join(homeDir, ".profile"), Lines: []string{shellDetectionLine, noticeLine}},
 		}, nil
 	}
 }

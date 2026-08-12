@@ -13,6 +13,7 @@ import (
 	"github.com/proofboard/proofboard/internal/detection"
 	"github.com/proofboard/proofboard/internal/logging"
 	statestore "github.com/proofboard/proofboard/internal/state"
+	"github.com/proofboard/proofboard/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +35,16 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				workspace = runtime.workingDir
 			}
 
-			result, err := detection.Inspect(ctx, runtime.homeDir, workspace, editor)
+			// detect now runs synchronously from shell startup (see
+			// shell_hooks.go) rather than backgrounded, so its output is
+			// actually visible in the new terminal instead of being discarded.
+			// Inspect only does local git plumbing, no network, but this bound
+			// still protects shell startup from ever hanging on a pathological
+			// repo — same pattern as the other startup checks in root.go.
+			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+
+			result, err := detection.Inspect(checkCtx, runtime.homeDir, workspace, editor)
 			if err != nil {
 				if isNotGitRepoError(err) {
 					return nil
@@ -55,9 +65,19 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", "failure", "record workspace prompt", err.Error())
 					return nil
 				}
-				_ = launchWorkspaceNotification(ctx, runtime, result)
+				// `detect` runs inside the very terminal the shell-open hook
+				// just backgrounded it from, so an OS-level popup is
+				// unnecessary machinery here — print straight to that
+				// terminal instead. (See printLinkDetected.) Skipped in
+				// --json mode, which must emit nothing but the JSON payload.
+				if !jsonOutput {
+					printLinkDetected(cmd.OutOrStdout())
+				}
 			} else if result.Action == detection.ActionSync {
 				_ = launchWorkspaceSync(ctx, result.WorkspacePath)
+				if !jsonOutput {
+					printSyncNeeded(cmd.OutOrStdout())
+				}
 			}
 
 			if jsonOutput {
@@ -112,21 +132,21 @@ func isNotGitRepoError(err error) bool {
 	return strings.Contains(msg, "not a git repository") || strings.Contains(msg, "rev-parse --show-toplevel")
 }
 
-func launchWorkspaceNotification(ctx context.Context, runtime runtimeContext, result detection.Result) error {
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
-	}
-	// The prompt outlives this command: detect exits as soon as it has handed
-	// the notification over. Binding the child to this command's context would
-	// cancel it on the way out, killing the prompt before it is ever drawn.
-	cmd := exec.Command(execPath, "notify",
-		"--kind", string(result.Action),
-		"--workspace", result.WorkspacePath,
-		"--repo-name", result.RepoName,
-	)
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return startDetachedCommand(cmd)
+// printLinkDetected replaces the OS-level "Project detected" notification
+// for the plain `detect` path. The repo/org name is deliberately left out —
+// it's not needed to make the message actionable, and detect.go otherwise
+// keeps that identity out of anything it prints or logs locally (see the
+// sync.log entry above, which only ever carries RepoHash).
+func printLinkDetected(out io.Writer) {
+	fmt.Fprintf(out, "%s New repository detected\n", style.Success(out, "✓"))
+	fmt.Fprintln(out, "  Run `proofboard link` to add this to your career record.")
+	fmt.Fprintln(out, "  Run `proofboard link --dismiss` if you don't want to be asked about this workspace again.")
+}
+
+// printSyncNeeded replaces the OS-level "Project needs sync" notification.
+// The sync itself is already kicked off in the background by
+// launchWorkspaceSync above (unchanged) — this is purely informational.
+func printSyncNeeded(out io.Writer) {
+	fmt.Fprintf(out, "%s Project needs sync\n", style.Success(out, "✓"))
+	fmt.Fprintln(out, "  Syncing the latest commits privately in the background — no action needed.")
 }

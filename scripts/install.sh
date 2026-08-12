@@ -6,6 +6,11 @@ set -e
 # Usage:
 #   curl -fsSL https://proofboard.io/install.sh | sh
 #
+# macOS users: proofboard.io will present `brew install` as the primary
+# install path there (avoids the Gatekeeper "unidentified developer" warning
+# this script's unnotarized binary can trigger). This script remains the
+# fallback / power-user path.
+#
 # The script resolves the latest published release, verifies the release
 # signature, and then hands over to the Career Agent's own installer so the
 # executable and the background agent are registered the same way as a manual

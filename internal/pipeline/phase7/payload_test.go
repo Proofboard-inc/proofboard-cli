@@ -115,6 +115,18 @@ func TestAssemblePassesStackThrough(t *testing.T) {
 	}
 }
 
+func TestAssemblePassesIsDefaultBranchThrough(t *testing.T) {
+	onDefault := Assemble(AssemblyInput{IsDefaultBranch: true})
+	if !onDefault.IsDefaultBranch {
+		t.Fatalf("expected IsDefaultBranch=true to pass through unchanged")
+	}
+
+	onManual := Assemble(AssemblyInput{IsDefaultBranch: false})
+	if onManual.IsDefaultBranch {
+		t.Fatalf("expected IsDefaultBranch=false to pass through unchanged")
+	}
+}
+
 // NormalizeCategory must map every known alias correctly (regression)
 // and must never pass an unmapped/unknown category through raw — it must
 // always fall back to "Feature Development" so the backend's ~25-value

@@ -34,9 +34,18 @@ type CommitSignal struct {
 	// FeatureKeyword is the best-matching generic feature noun for this
 	// commit (e.g. "dashboard", "checkout"), matched against
 	// Dictionary.FeatureKeywords — a separate, more specific signal from the
-	// 25-category taxonomy. Empty if nothing matched.
+	// 25-category taxonomy. Empty if nothing matched. Kept alongside
+	// FeatureKeywords (plural) for callers that only need the single
+	// strongest signal.
 	FeatureKeyword string
-	ImpactType     string
+	// FeatureKeywords holds EVERY dictionary keyword that matched this commit
+	// (subject/body/path), not just the top-scoring one — a commit touching
+	// both an "orders" and "delivery" area should contribute to both counts
+	// when a cluster later tallies its dominant feature keywords, instead of
+	// only ever counting whichever one happened to score highest. Ordered by
+	// descending match score.
+	FeatureKeywords []string
+	ImpactType      string
 	NoiseScore     float64
 	SignatureValid bool
 }

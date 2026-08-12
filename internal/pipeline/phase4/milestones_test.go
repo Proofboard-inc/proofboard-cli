@@ -267,8 +267,13 @@ func TestDetectCommitCountInvariant(t *testing.T) {
 			if total != n {
 				t.Errorf("n=%d: sum(cluster.CommitCount) = %d, want %d", n, total, n)
 			}
-			if len(clusters) > maxClustersPerSync {
-				t.Errorf("n=%d: got %d clusters, want <= cap %d", n, len(clusters), maxClustersPerSync)
+			// These fixtures are all spaced an hour apart, so even the
+			// largest (n=137, spanning ~5.7 days) is well under the
+			// clusterCapWeeksPerCluster=5-week threshold that would earn
+			// clusters above the floor — the dynamic cap always resolves to
+			// minMilestoneClusters here.
+			if len(clusters) > minMilestoneClusters {
+				t.Errorf("n=%d: got %d clusters, want <= cap %d", n, len(clusters), minMilestoneClusters)
 			}
 		})
 	}
@@ -318,12 +323,16 @@ func buildMergeSeparatedCommits(groupCount int) ([]model.CommitSignal, []int64) 
 // the cap must keep every one of them — the old code wrongly force-collapsed
 // anything past 4.
 func TestDetectPreservesRealMergeBoundariesUpToCap(t *testing.T) {
-	commits, mergeTimestamps := buildMergeSeparatedCommits(maxClustersPerSync)
+	// buildMergeSeparatedCommits spaces groups 48h apart, so
+	// minMilestoneClusters (6) groups span ~10 days (~1.4 weeks) — well
+	// under the clusterCapWeeksPerCluster=5-week threshold, so the dynamic
+	// cap for this fixture resolves to the floor, minMilestoneClusters.
+	commits, mergeTimestamps := buildMergeSeparatedCommits(minMilestoneClusters)
 
 	clusters := Detect(model.ScoredResult{Commits: commits}, mergeTimestamps)
 
-	if len(clusters) != maxClustersPerSync {
-		t.Fatalf("expected %d merge-derived clusters preserved, got %d", maxClustersPerSync, len(clusters))
+	if len(clusters) != minMilestoneClusters {
+		t.Fatalf("expected %d merge-derived clusters preserved, got %d", minMilestoneClusters, len(clusters))
 	}
 	total := 0
 	for _, c := range clusters {
@@ -339,12 +348,17 @@ func TestDetectPreservesRealMergeBoundariesUpToCap(t *testing.T) {
 // milestone per PR — while still accounting for every commit.
 func TestDetectCapsManyMergeBoundariesAtMax(t *testing.T) {
 	const groupCount = 20
+	// 20 groups 48h apart span ~38 days (~5.4 weeks): just over one
+	// clusterCapWeeksPerCluster=5-week increment (ceil(5.4/5) = 2), still
+	// far below minMilestoneClusters, so the dynamic cap for this fixture
+	// is still the floor.
+	const wantCap = minMilestoneClusters
 	commits, mergeTimestamps := buildMergeSeparatedCommits(groupCount)
 
 	clusters := Detect(model.ScoredResult{Commits: commits}, mergeTimestamps)
 
-	if len(clusters) != maxClustersPerSync {
-		t.Fatalf("expected consolidation down to cap %d, got %d clusters", maxClustersPerSync, len(clusters))
+	if len(clusters) != wantCap {
+		t.Fatalf("expected consolidation down to cap %d, got %d clusters", wantCap, len(clusters))
 	}
 	total := 0
 	for _, c := range clusters {
@@ -398,6 +412,32 @@ func TestConsolidatePrefersSameCategoryNeighbours(t *testing.T) {
 	}
 	if dominantCategoryOf(out[2]) != "Database & Data Layer" {
 		t.Errorf("expected third group Database, got %s", dominantCategoryOf(out[2]))
+	}
+}
+
+// TestClusterCap directly exercises the dynamic cap formula (floor, linear
+// scaling, and ceiling) independent of the milestone-detection fixtures
+// above — those fixtures are all short-span and only ever land on the
+// floor, so this is what actually proves a long-lived sync earns more than
+// the old flat 6.
+func TestClusterCap(t *testing.T) {
+	cases := []struct {
+		name      string
+		spanWeeks float64
+		want      int
+	}{
+		{"zero span floors", 0, minMilestoneClusters},
+		{"short span floors", 4, minMilestoneClusters},
+		{"exactly one cluster-week-unit still floors", 5, minMilestoneClusters},
+		{"a year of history scales up", 52, 11}, // ceil(52/5) = 11
+		{"huge history is capped at the max", 1000, maxMilestoneClusters},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := clusterCap(tc.spanWeeks); got != tc.want {
+				t.Errorf("clusterCap(%v) = %d, want %d", tc.spanWeeks, got, tc.want)
+			}
+		})
 	}
 }
 
