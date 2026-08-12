@@ -45,7 +45,8 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 						"paths": ["auth/"]
 					}
 				},
-				"featureKeywords": ["dashboard", "checkout"]
+				"featureKeywords": ["dashboard", "checkout"],
+				"stackSignals": {"react": "React"}
 			}`))
 		default:
 			http.Error(w, "not found", http.StatusNotFound)

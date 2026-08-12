@@ -1,20 +1,49 @@
 package phase4
 
 import (
+	"math"
 	"sort"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-// maxClustersPerSync caps how many milestone clusters a single sync emits.
-// This is a MAX, not a target: a small incremental sync of a few commits
-// yields only one or two clusters and never hits the cap. It bites mainly on
-// the first full sync of a large history, where one-cluster-per-merge-commit
-// (a repo with dozens of PRs) would otherwise produce dozens of trivial
-// "milestones". When natural boundaries exceed this, consolidate() merges the
-// least-significant adjacent ones until the count fits — see consolidate.
-const maxClustersPerSync = 6
+// minMilestoneClusters/maxMilestoneClusters bound the dynamic per-sync
+// cluster cap computed by clusterCap: a MAX, not a target — a small
+// incremental sync of a few commits yields only one or two clusters and
+// never hits the cap. The cap bites mainly on a large sync (e.g. a first
+// full sync of a long-lived repo), where one-cluster-per-merge-commit (a
+// repo with dozens of PRs) would otherwise produce dozens of trivial
+// "milestones". When natural boundaries exceed the cap, consolidate() merges
+// the least-significant adjacent ones until the count fits — see consolidate.
+//
+// The cap used to be a flat 6 regardless of how much history a sync covered,
+// which squeezed a full year of work into 6 buckets on a first full sync.
+// clusterCap instead scales the cap with the sync's real time span, floored
+// at minMilestoneClusters (so a short sync still behaves exactly as before)
+// and capped at maxMilestoneClusters (so a huge, multi-year history doesn't
+// produce an unbounded number of milestones).
+const (
+	minMilestoneClusters = 6
+	maxMilestoneClusters = 20
+	// clusterCapWeeksPerCluster is how many weeks of commit history "earn"
+	// one additional cluster above the floor.
+	clusterCapWeeksPerCluster = 5.0
+)
+
+// clusterCap computes the per-sync milestone cap from the real chronological
+// span (in weeks) of the commits being processed, bounded to
+// [minMilestoneClusters, maxMilestoneClusters].
+func clusterCap(spanWeeks float64) int {
+	limit := int(math.Ceil(spanWeeks / clusterCapWeeksPerCluster))
+	if limit < minMilestoneClusters {
+		limit = minMilestoneClusters
+	}
+	if limit > maxMilestoneClusters {
+		limit = maxMilestoneClusters
+	}
+	return limit
+}
 
 // linearSegmentGapHours is the time gap (between consecutive commits, in a
 // repo with no merge signal) that forces a new segment even when the category
@@ -46,8 +75,16 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 	// Cap the number of milestones per sync by consolidating the least
 	// significant adjacent groups. Same-category neighbours collapse first
 	// (the same feature split across several PRs), then the smallest
-	// neighbours, always preserving chronological order.
-	clusterGroups = consolidate(clusterGroups, maxClustersPerSync)
+	// neighbours, always preserving chronological order. The cap itself
+	// scales with how much real time this sync's commits span — see
+	// clusterCap — rather than a flat constant, so a sync covering a year
+	// of history isn't squeezed into the same handful of buckets as a
+	// sync covering a week.
+	spanWeeks := 0.0
+	if len(commits) > 1 {
+		spanWeeks = commits[len(commits)-1].Timestamp.Sub(commits[0].Timestamp).Hours() / (24 * 7)
+	}
+	clusterGroups = consolidate(clusterGroups, clusterCap(spanWeeks))
 
 	clusters := make([]model.Cluster, 0, len(clusterGroups))
 	for idx, clusterCommits := range clusterGroups {
@@ -246,26 +283,94 @@ func buildCluster(clusterCommits []model.CommitSignal, clusterIndex int) model.C
 	}
 }
 
-// dominantFeatureKeyword returns the feature keyword (see
-// model.CommitSignal.FeatureKeyword) that appears on the most commits in the
-// cluster — a mode, not a score sum, since a keyword hitting several distinct
-// commits is a stronger "this cluster is really about X" signal than one
-// commit matching it many times. Empty if no commit in the cluster matched
-// any feature keyword. Ties resolve alphabetically for determinism.
+// minFeatureKeywordShare is the minimum fraction of a cluster's commits that
+// must share the winning feature keyword before it's trusted enough to name
+// the milestone. Without this floor, a single coincidental keyword match in
+// an otherwise unrelated large cluster (e.g. one commit out of 45 mentioning
+// "comments" in passing) could win by default and produce a nonsense
+// milestone title like "comments feature" for work that wasn't about
+// comments at all.
+//
+// Lowered from 0.4 to 0.2 after real dogfooding on a 188-commit repo: even
+// after adding file-path matching in phase2 (Classify) raised the overall
+// match rate from near-zero to 76% of commits, a 23-commit cluster whose
+// real theme was checkout work still landed at 5/23 = 21.7% share for
+// "checkout" — correct and non-coincidental (5 independent commits, not one
+// lucky match), just short of the old 0.25 floor. The minFeatureKeywordCount
+// floor below is what actually guards against coincidence at this share
+// level; the percentage alone doesn't need to be as strict once count is
+// enforced separately.
+const minFeatureKeywordShare = 0.2
+
+// minFeatureKeywordCount is an absolute floor alongside minFeatureKeywordShare:
+// for a cluster of only 2-3 commits, 25% share could be satisfied by a single
+// commit, which is exactly the "one coincidental match" case the share floor
+// exists to reject. Requiring at least 2 commits agreeing (when the cluster
+// has more than one commit at all) closes that gap.
+const minFeatureKeywordCount = 2
+
+// dominantFeatureKeyword returns the feature keyword(s) that appear on the
+// most commits in the cluster — a mode, not a score sum, since a keyword
+// hitting several distinct commits is a stronger "this cluster is really
+// about X" signal than one commit matching it many times. Counts every
+// keyword a commit matched (model.CommitSignal.FeatureKeywords — phase2
+// keeps every keyword that scored > 0 per commit, not just the top one), so
+// a cluster genuinely spanning two themes (e.g. "orders" and "delivery" both
+// independently well-represented) can say so instead of reporting only
+// whichever one edged out the other. Falls back to the single FeatureKeyword
+// field for callers/tests that only set that one.
+//
+// Empty if no commit in the cluster matched any feature keyword, OR if the
+// winning keyword doesn't clear both minFeatureKeywordShare and
+// minFeatureKeywordCount (a weak, coincidental signal shouldn't drive the
+// milestone's name — the AI summary falls back to describing the milestone
+// generically by category + impact instead). A second keyword is appended
+// ("orders & delivery") only if it independently clears the same bar on its
+// own count — a weak runner-up dilutes the name rather than adding signal.
+// Ties resolve alphabetically for determinism.
 func dominantFeatureKeyword(commits []model.CommitSignal) string {
+	if len(commits) == 0 {
+		return ""
+	}
 	counts := make(map[string]int)
 	for _, c := range commits {
-		if c.FeatureKeyword != "" {
-			counts[c.FeatureKeyword]++
+		keywords := c.FeatureKeywords
+		if len(keywords) == 0 && c.FeatureKeyword != "" {
+			keywords = []string{c.FeatureKeyword}
+		}
+		for _, kw := range keywords {
+			counts[kw]++
 		}
 	}
-	best := ""
-	bestCount := 0
+
+	type ranked struct {
+		keyword string
+		count   int
+	}
+	candidates := make([]ranked, 0, len(counts))
 	for _, kw := range sortedKeys(counts) {
-		if counts[kw] > bestCount {
-			bestCount = counts[kw]
-			best = kw
+		candidates = append(candidates, ranked{kw, counts[kw]})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].count > candidates[j].count
+	})
+
+	qualifies := func(r ranked) bool {
+		if r.count == 0 {
+			return false
 		}
+		if len(commits) > 1 && r.count < minFeatureKeywordCount {
+			return false
+		}
+		return float64(r.count)/float64(len(commits)) >= minFeatureKeywordShare
+	}
+
+	if len(candidates) == 0 || !qualifies(candidates[0]) {
+		return ""
+	}
+	best := candidates[0].keyword
+	if len(candidates) > 1 && candidates[1].keyword != best && qualifies(candidates[1]) {
+		return best + " & " + candidates[1].keyword
 	}
 	return best
 }

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -212,7 +213,6 @@ func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 		"/api/v1/cli/repos/link",
 		"/api/v1/cli/auth/device-key",
 		"/api/v1/cli/sync",
-		"/api/v1/projects/milestone-bundles",
 	}
 	if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
 		t.Fatalf("Sync Project API sequence = %#v, want %#v", calls, wantCalls)
@@ -490,8 +490,6 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load state: %v", err)
 	}
-	key, _ := getReadyCareerSummaryMonth(time.Now())
-	st.MonthlyCareerSummaryShown[key] = true
 	repoPathAbs, err := filepath.Abs(repoDir)
 	if err != nil {
 		t.Fatalf("failed to get absolute path: %v", err)
@@ -543,7 +541,290 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 		t.Fatalf("sync execution failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Milestone detected") || !strings.Contains(out.String(), "Review | Publish | Ignore") {
-		t.Fatalf("expected actionable milestone prompt, got %q", out.String())
+	if !strings.Contains(out.String(), "Clusters detected:") {
+		t.Fatalf("expected a live cluster summary line, got %q", out.String())
+	}
+}
+
+// TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork verifies that
+// `sync --resync` on a repo that has never completed a real sync (no
+// LastSyncPayload cached yet) prints the guidance message and returns a
+// non-nil error without ever reaching the network — no device-key
+// registration, no /cli/sync call, nothing.
+func TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
+	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
+		t.Fatalf("initial commit: %v: %s", err, output)
+	}
+	ctx := context.Background()
+	repo := pbgit.Repo{Path: repoDir}
+	head, err := pbgit.Head(ctx, repo)
+	if err != nil {
+		t.Fatalf("head: %v", err)
+	}
+
+	var networkCalls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&networkCalls, 1)
+		http.Error(w, "unexpected network call", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "token", EmailHash: "email-hash"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	store := state.NewStore(homeDir)
+	current := state.Default()
+	repoHash := crypto.SHA256("github:org/repo")
+	current.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:          repoHash,
+		OrgHash:           crypto.SHA256("github:org"),
+		LastHeadSHA:       head,
+		ProjectID:         "project-1",
+		EmailHashKey:      testEmailHashKey,
+		LastSyncAt:        time.Now().Add(-time.Hour),
+		DictionaryVersion: version.Version,
+		// LastSyncPayload intentionally left nil: no real sync has happened yet.
+	}
+	current.AutoUpdateDictionary = false
+	if err := store.Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := exec.Command("git", "-C", repoDir, "update-ref", "refs/remotes/origin/main", head).Run(); err != nil {
+		t.Fatalf("update remote ref: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var out bytes.Buffer
+	cmd := newSyncCommand(ctx, &out)
+	cmd.SetArgs([]string{"--resync"})
+	err = cmd.ExecuteContext(ctx)
+	if err == nil {
+		t.Fatalf("expected --resync with no cached payload to fail, output=%q", out.String())
+	}
+	if !strings.Contains(out.String(), `Nothing to resync yet — run "proofboard sync" first.`) {
+		t.Fatalf("expected guidance message, got %q", out.String())
+	}
+	if calls := atomic.LoadInt32(&networkCalls); calls != 0 {
+		t.Fatalf("expected zero network calls before failing, got %d", calls)
+	}
+}
+
+// TestSyncResyncReSignsCachedPayloadWithRegenerateTrue verifies that
+// `sync --resync`, given a cached LastSyncPayload, replays it verbatim
+// except for setting Regenerate: true, and re-signs it (so the transmitted
+// signature differs from whatever stale signature was cached) rather than
+// re-running any part of the ingest pipeline. It also checks the CLI-side
+// state is left untouched (no LastHeadSHA/LastSyncPayload mutation), since a
+// resync causes no project-state change on the backend.
+func TestSyncResyncReSignsCachedPayloadWithRegenerateTrue(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
+	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
+		t.Fatalf("initial commit: %v: %s", err, output)
+	}
+	ctx := context.Background()
+	repo := pbgit.Repo{Path: repoDir}
+	head, err := pbgit.Head(ctx, repo)
+	if err != nil {
+		t.Fatalf("head: %v", err)
+	}
+
+	var received model.SyncPayload
+	var syncCalls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/cli/auth/device-key":
+			_ = json.NewEncoder(w).Encode(map[string]string{"deviceKeyId": "device-key-resync"})
+		case "/api/v1/cli/sync":
+			atomic.AddInt32(&syncCalls, 1)
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				t.Errorf("decode resync payload: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(model.SyncReceipt{ID: "sync-resync", Status: "regenerating"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "token", EmailHash: "email-hash"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	store := state.NewStore(homeDir)
+	current := state.Default()
+	repoHash := crypto.SHA256("github:org/repo")
+	cachedPayload := model.SyncPayload{
+		SHAs:              []string{"abc123"},
+		Timestamps:        []int64{1700000000},
+		Additions:         []int{4},
+		Deletions:         []int{1},
+		FilesChanged:      []int{2},
+		Categories:        []string{"feature"},
+		OrgHash:           crypto.SHA256("github:org"),
+		RepoHash:          repoHash,
+		EmailHash:         "cached-email-hash",
+		Provider:          "github",
+		CapturedAt:        "2024-01-01T00:00:00Z",
+		CLIVersion:        version.Version,
+		DictionaryVersion: version.Version,
+		DeviceKeyID:       "stale-device-key",
+		DeviceSignature:   "stale-signature-value",
+	}
+	current.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:          repoHash,
+		OrgHash:           crypto.SHA256("github:org"),
+		LastHeadSHA:       head,
+		ProjectID:         "project-1",
+		EmailHashKey:      testEmailHashKey,
+		LastSyncAt:        time.Now().Add(-time.Hour),
+		DictionaryVersion: version.Version,
+		LastSyncPayload:   &cachedPayload,
+	}
+	current.AutoUpdateDictionary = false
+	if err := store.Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := exec.Command("git", "-C", repoDir, "update-ref", "refs/remotes/origin/main", head).Run(); err != nil {
+		t.Fatalf("update remote ref: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var out bytes.Buffer
+	cmd := newSyncCommand(ctx, &out)
+	cmd.SetArgs([]string{"--resync"})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		t.Fatalf("resync: %v; output=%s", err, out.String())
+	}
+	if atomic.LoadInt32(&syncCalls) != 1 {
+		t.Fatalf("expected exactly one /cli/sync call, got %d", syncCalls)
+	}
+	if !received.Regenerate {
+		t.Fatalf("expected transmitted resync payload to have Regenerate=true, got %+v", received)
+	}
+	if received.DeviceSignature == "" || received.DeviceSignature == cachedPayload.DeviceSignature {
+		t.Fatalf("expected resync to re-sign with a fresh signature, got %q (cached was %q)", received.DeviceSignature, cachedPayload.DeviceSignature)
+	}
+	if len(received.SHAs) != 1 || received.SHAs[0] != "abc123" {
+		t.Fatalf("expected resync to replay the cached SHAs verbatim, got %#v", received.SHAs)
+	}
+	if !strings.Contains(out.String(), "Regenerate requested for your milestone summaries") {
+		t.Fatalf("expected regenerate confirmation message, got %q", out.String())
+	}
+
+	persisted, err := state.NewStore(homeDir).Load(ctx)
+	if err != nil {
+		t.Fatalf("load state after resync: %v", err)
+	}
+	repoState := persisted.LinkedRepos[repoHash]
+	if repoState.LastHeadSHA != head {
+		t.Fatalf("resync must not advance LastHeadSHA, got %q want %q", repoState.LastHeadSHA, head)
+	}
+	if repoState.LastSyncPayload == nil || repoState.LastSyncPayload.DeviceSignature != "stale-signature-value" {
+		t.Fatalf("resync must not overwrite the cached LastSyncPayload, got %+v", repoState.LastSyncPayload)
+	}
+}
+
+// TestSyncNoCommitsHintsResyncOnlyWithCachedPayload verifies the zero-new-
+// commits "No commits to sync." short-circuit only suggests
+// `proofboard sync --resync` when a previous sync actually cached a
+// replayable payload — a fresh, never-synced project has nothing to
+// regenerate, so the hint would be misleading there.
+func TestSyncNoCommitsHintsResyncOnlyWithCachedPayload(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		cachePayload bool
+	}{
+		{name: "withoutCachedPayload", cachePayload: false},
+		{name: "withCachedPayload", cachePayload: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			homeDir := t.TempDir()
+			repoDir := createTempGitRepo(t)
+			t.Setenv("HOME", homeDir)
+			t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+			t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
+			if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
+				t.Fatalf("initial commit: %v: %s", err, output)
+			}
+			ctx := context.Background()
+			repo := pbgit.Repo{Path: repoDir}
+			head, err := pbgit.Head(ctx, repo)
+			if err != nil {
+				t.Fatalf("head: %v", err)
+			}
+			// MetadataFingerprint hashes remote-tracking refs, so it must be
+			// computed AFTER the remote ref below is created — otherwise it
+			// won't match what the sync run itself computes, and the "no
+			// commits, metadata unchanged" short-circuit this test targets
+			// would never trigger.
+			if err := exec.Command("git", "-C", repoDir, "update-ref", "refs/remotes/origin/main", head).Run(); err != nil {
+				t.Fatalf("update remote ref: %v", err)
+			}
+			metadataHash, err := pbgit.MetadataFingerprint(ctx, repo)
+			if err != nil {
+				t.Fatalf("metadata fingerprint: %v", err)
+			}
+
+			var networkCalls int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&networkCalls, 1)
+				http.Error(w, "unexpected network call", http.StatusInternalServerError)
+			}))
+			t.Cleanup(server.Close)
+			t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+			if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "token", EmailHash: "email-hash"}); err != nil {
+				t.Fatalf("save credentials: %v", err)
+			}
+			store := state.NewStore(homeDir)
+			current := state.Default()
+			repoHash := crypto.SHA256("github:org/repo")
+			repoState := model.LinkedRepoState{
+				RepoHash:          repoHash,
+				OrgHash:           crypto.SHA256("github:org"),
+				LastHeadSHA:       head,
+				MetadataHash:      metadataHash,
+				ProjectID:         "project-1",
+				EmailHashKey:      testEmailHashKey,
+				LastSyncAt:        time.Now().Add(-time.Hour),
+				DictionaryVersion: version.Version,
+			}
+			if tc.cachePayload {
+				repoState.LastSyncPayload = &model.SyncPayload{SHAs: []string{"abc123"}}
+			}
+			current.LinkedRepos[repoHash] = repoState
+			current.AutoUpdateDictionary = false
+			if err := store.Save(ctx, current); err != nil {
+				t.Fatalf("save state: %v", err)
+			}
+			restoreWorkingDirectory(t, repoDir)
+
+			var out bytes.Buffer
+			cmd := newSyncCommand(ctx, &out)
+			cmd.SetArgs([]string{"--incremental"})
+			if err := cmd.ExecuteContext(ctx); err != nil {
+				t.Fatalf("sync: %v; output=%s", err, out.String())
+			}
+			if !strings.Contains(out.String(), "No commits to sync.") {
+				t.Fatalf("expected the no-commits short-circuit, got %q", out.String())
+			}
+			hintPresent := strings.Contains(out.String(), "proofboard sync --resync")
+			if hintPresent != tc.cachePayload {
+				t.Fatalf("resync hint present=%v, want %v; output=%q", hintPresent, tc.cachePayload, out.String())
+			}
+			if calls := atomic.LoadInt32(&networkCalls); calls != 0 {
+				t.Fatalf("expected zero network calls on a no-op sync, got %d", calls)
+			}
+		})
 	}
 }

@@ -14,7 +14,14 @@ import (
 	"github.com/proofboard/proofboard/internal/state"
 )
 
-func TestDetectCommandIsSilentAndLogsWorkspaceState(t *testing.T) {
+// FIX: `detect` used to silence its own output entirely and shell out to a
+// detached `notify` subprocess to raise an OS-level popup for a newly
+// detected repository. `detect` always runs inside the terminal the user is
+// already looking at (the shell-open hook backgrounds it in the current
+// session), so that OS popup was unnecessary machinery — it now prints the
+// "New repository detected" prompt straight to its own stdout instead, and
+// no longer shells out to `notify` for this case.
+func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
 	t.Setenv("HOME", tempHome)
@@ -47,8 +54,19 @@ func TestDetectCommandIsSilentAndLogsWorkspaceState(t *testing.T) {
 		t.Fatalf("detect command failed: %v", err)
 	}
 
-	if out.Len() != 0 {
-		t.Fatalf("expected silent detect command, got output: %q", out.String())
+	printed := out.String()
+	if !strings.Contains(printed, "New repository detected") {
+		t.Fatalf("expected link prompt in terminal output, got: %q", printed)
+	}
+	if !strings.Contains(printed, "Run `proofboard link`") {
+		t.Fatalf("expected suggested `proofboard link` command in terminal output, got: %q", printed)
+	}
+	// The real privacy invariant is "never print the actual repo/org
+	// identifier" (here, the test remote's "org/repo") — not "never use the
+	// English word 'repository'", which the new terminal-print copy
+	// ("New repository detected") legitimately does.
+	if strings.Contains(printed, "org/repo") {
+		t.Fatalf("expected terminal output to omit the repo name, got: %q", printed)
 	}
 
 	st, err := state.NewStore(tempHome).Load(ctx)

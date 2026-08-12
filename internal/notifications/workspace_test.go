@@ -57,7 +57,7 @@ func TestWorkspaceActionLabelsExposeThreeChoices(t *testing.T) {
 func TestMilestoneActionsRouteToDashboard(t *testing.T) {
 	_, _, primary, secondary, tertiary := workspaceActionLabels("milestone")
 	primaryKey, secondaryKey, tertiaryKey := workspaceActionKeys("milestone")
-	if primary != "Review" || secondary != "Publish" || tertiary != "Ignore" {
+	if primary != "Review" || secondary != "Publish" || tertiary != "Skip" {
 		t.Fatalf("unexpected milestone labels: %q, %q, %q", primary, secondary, tertiary)
 	}
 	if primaryKey != "review" || secondaryKey != "publish" || tertiaryKey != "ignore" {

@@ -32,6 +32,8 @@ type AssemblyInput struct {
 	PreviousHead      string
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport
+	// IsDefaultBranch — see model.SyncPayload.IsDefaultBranch.
+	IsDefaultBranch bool
 }
 
 func Assemble(input AssemblyInput) model.SyncPayload {
@@ -64,6 +66,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		PreviousHead:      input.PreviousHead,
 		NotifyPush:        false,
 		Stack:             input.Stack,
+		IsDefaultBranch:   input.IsDefaultBranch,
 		AntiFraudSignals: model.AntiFraudSignals{
 			LowCommitCount:      len(commits) < 3,
 			OrgHashMismatch:     input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,

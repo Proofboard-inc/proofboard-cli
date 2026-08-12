@@ -272,3 +272,31 @@ func TestClassifyLargeCommitNotHijackedByFewDocFiles(t *testing.T) {
 		t.Fatalf("expected Backend category for a commit dominated by backend files, got %s", signals[0].PrimaryCategory)
 	}
 }
+
+// Regression test for generic milestone titles ("I designed a medium-scale
+// API to enhance backend services"): real commit subjects are usually too
+// terse to contain a feature-keyword phrase ("fix null check" says nothing),
+// but the module a commit actually touches reliably does. FeatureKeyword
+// matching must also check FilePaths, not just subject/body text.
+func TestClassifyFeatureKeywordMatchesFilePathWhenSubjectIsUninformative(t *testing.T) {
+	dict := model.Dictionary{
+		Version:         "1.0.0",
+		Categories:      map[string]model.Signals{"API & Backend Services": {Impact: "feature"}},
+		FeatureKeywords: []string{"vendors", "checkout"},
+	}
+
+	raw := []model.RawCommit{
+		{
+			SHA:          "sha1",
+			Timestamp:    time.Now(),
+			FilesChanged: 1,
+			Subject:      []byte("fix null check"),
+			FilePaths:    []string{"src/modules/vendors/vendors.service.ts"},
+		},
+	}
+
+	signals := Classify(raw, dict)
+	if signals[0].FeatureKeyword != "vendors" {
+		t.Fatalf("FeatureKeyword = %q, want %q from file path match despite an uninformative subject", signals[0].FeatureKeyword, "vendors")
+	}
+}

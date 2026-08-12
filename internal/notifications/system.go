@@ -37,17 +37,11 @@ func renderTerminal(event Event) string {
 		b.WriteString("\n")
 		b.WriteString(event.Body)
 	}
-	if event.PrimaryAction != "" || event.SecondaryAction != "" || event.TertiaryAction != "" {
-		b.WriteString("\n")
-		actions := make([]string, 0, 3)
-		for _, action := range []string{event.PrimaryAction, event.SecondaryAction, event.TertiaryAction} {
-			if action != "" {
-				actions = append(actions, action)
-			}
-		}
-		b.WriteString("Actions: ")
-		b.WriteString(strings.Join(actions, " | "))
-	}
+	// Deliberately no "Actions: X | Y | Z" line here — on this plain-text
+	// path (surfaced notifications, sync summaries) those aren't clickable,
+	// so printing them read as broken UI. Real actions are only offered
+	// through the actual interactive dialog/toast paths in workspace*.go,
+	// which have genuine buttons.
 	return b.String()
 }
 
@@ -69,6 +63,23 @@ func RemoteNotification(n model.Notification) Event {
 			}
 		}
 		return ""
+	}
+
+	// Prefer the backend's own title/message when it sent one — that's the
+	// real, specific copy (e.g. "4 new milestone clusters captured. Review
+	// on your dashboard.") rather than reconstructing a generic canned
+	// sentence from just the notification type. Most terminals auto-linkify
+	// a bare URL, so the action URL is printed as plain text rather than a
+	// fake "Actions:" button.
+	if strings.TrimSpace(n.Title) != "" {
+		body := n.Message
+		if n.ActionURL != "" {
+			if body != "" {
+				body += "\n"
+			}
+			body += n.ActionURL
+		}
+		return Event{Title: n.Title, Body: body}
 	}
 
 	switch n.Type {
@@ -148,10 +159,10 @@ func InboundOpportunity(role, org string, reasons []string) Event {
 func ProofOfShipCaptured(milestoneCount int) Event {
 	return Event{
 		Title:           "Milestone detected",
-		Body:            fmt.Sprintf("%d milestone(s) were captured locally and added to your engineering proof.", milestoneCount),
+		Body:            fmt.Sprintf("%d milestone(s) captured locally. Review and approve on your dashboard, then toggle the project public to publish your SHA proof.", milestoneCount),
 		PrimaryAction:   "Review",
 		SecondaryAction: "Publish",
-		TertiaryAction:  "Ignore",
+		TertiaryAction:  "Skip",
 	}
 }
 
@@ -164,16 +175,7 @@ func MilestoneDetected(title string) Event {
 		Body:            title,
 		PrimaryAction:   "Review",
 		SecondaryAction: "Publish",
-		TertiaryAction:  "Ignore",
-	}
-}
-
-func MonthlyCareerSummary(monthName string) Event {
-	return Event{
-		Title:           fmt.Sprintf("%s summary is ready", monthName),
-		Body:            fmt.Sprintf("Your career summary for %s is now available.", monthName),
-		PrimaryAction:   "View Summary",
-		SecondaryAction: "Later",
+		TertiaryAction:  "Skip",
 	}
 }
 

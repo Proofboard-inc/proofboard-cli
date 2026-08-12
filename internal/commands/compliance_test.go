@@ -217,6 +217,7 @@ func TestStartupUpdateChecks(t *testing.T) {
 					Impact:   "high",
 				},
 			},
+			StackSignals: map[string]string{"react": "React"},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(newDict)

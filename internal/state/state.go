@@ -69,9 +69,6 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 	if state.LinkedRepos == nil {
 		state.LinkedRepos = make(map[string]model.LinkedRepoState)
 	}
-	if state.MonthlyCareerSummaryShown == nil {
-		state.MonthlyCareerSummaryShown = make(map[string]bool)
-	}
 	if state.SuppressedWorkspaces == nil {
 		state.SuppressedWorkspaces = make([]string, 0)
 	}
@@ -113,12 +110,11 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 
 func Default() model.State {
 	return model.State{
-		LinkedRepos:               make(map[string]model.LinkedRepoState),
-		WatchedBranches:           []string{"main", "master", "develop"},
-		AutoUpdateDictionary:      true,
-		MonthlyCareerSummaryShown: make(map[string]bool),
-		SuppressedWorkspaces:      make([]string, 0),
-		IDEProcesses:              []string{"code", "code-insiders", "cursor", "webstorm", "idea", "zed", "sublime_text", "vim", "nvim"},
+		LinkedRepos:          make(map[string]model.LinkedRepoState),
+		WatchedBranches:      []string{"main", "master", "develop"},
+		AutoUpdateDictionary: true,
+		SuppressedWorkspaces: make([]string, 0),
+		IDEProcesses:         []string{"code", "code-insiders", "cursor", "webstorm", "idea", "zed", "sublime_text", "vim", "nvim"},
 	}
 }
 
@@ -126,6 +122,19 @@ func WorkspaceSuppressionKey(workspace string) (string, error) {
 	absolute, err := filepath.Abs(workspace)
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace suppression path: %w", err)
+	}
+	// Resolve symlinks so this always hashes the same real path git itself
+	// would report as the repo root (`git rev-parse --show-toplevel`
+	// resolves symlinks). On macOS in particular, a path can round-trip
+	// through a symlinked temp/mount point (e.g. /var/folders/... is a
+	// symlink to /private/var/folders/...) — without this, a suppression
+	// recorded via one form of the path silently never matches a lookup via
+	// the other, and workspace suppression stops working. Falls back to the
+	// unresolved absolute path if the workspace doesn't exist yet (e.g. it
+	// was just deleted) rather than failing outright.
+	resolved, evalErr := filepath.EvalSymlinks(absolute)
+	if evalErr == nil {
+		absolute = resolved
 	}
 	normalized := filepath.Clean(absolute)
 	if runtime.GOOS == "windows" {

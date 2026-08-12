@@ -14,4 +14,11 @@ type StackReport struct {
 	HasTests  bool     `json:"hasTests,omitempty"`
 	HasDocker bool     `json:"hasDocker,omitempty"`
 	HasIaC    bool     `json:"hasIaC,omitempty"`
+	// IndustryHints is a best-effort list of industry labels (e.g.
+	// ["Fintech"], or ["E-commerce", "Logistics"] when a project genuinely
+	// spans more than one), matched against the dictionary's IndustrySignals
+	// (manifest dependency names) and IndustrySubjectKeywords (commit
+	// subjects) — generic hints, not a hard classification. Strongest match
+	// first. Empty when nothing matched or no dictionary is available yet.
+	IndustryHints []string `json:"industryHints,omitempty"`
 }
