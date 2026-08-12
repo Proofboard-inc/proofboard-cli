@@ -124,8 +124,10 @@ test ! -s "$TEST_ARTIFACT_DIR/detect.txt"
 
 touch "$HOME/.bashrc" "$HOME/.bash_profile"
 SHELL=/bin/bash "$COMPILED_BINARY" hook-maintain
-grep -qF '(proofboard detect >/dev/null 2>&1 &)' "$HOME/.bashrc"
-grep -qF '(proofboard detect >/dev/null 2>&1 &)' "$HOME/.bash_profile"
+grep -qF 'proofboard detect 2>/dev/null' "$HOME/.bashrc"
+grep -qF 'proofboard notices 2>/dev/null' "$HOME/.bashrc"
+grep -qF 'proofboard detect 2>/dev/null' "$HOME/.bash_profile"
+grep -qF 'proofboard notices 2>/dev/null' "$HOME/.bash_profile"
 rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
 
 for profile in \

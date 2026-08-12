@@ -4,7 +4,7 @@ Proofboard builds your career while you focus on building software.
 
 The Career Agent runs locally, detects Git workspaces opened in supported IDEs, and continuously turns meaningful engineering activity into structured proof. Authentication, project setup, and synchronization happen automatically; the `proofboard` executable remains available for advanced users, automation, and debugging.
 
-The current release is v1.9.4. The native agent is implemented in Go 1.21+.
+The current release is v1.10.0. The native agent is implemented in Go 1.21+.
 
 ## Install
 
