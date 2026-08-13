@@ -13,12 +13,10 @@ import (
 
 // newMilestoneCommand groups the three actions offered whenever the Career
 // Agent surfaces a detected milestone (see printMilestoneReady in
-// runtime.go). These used to only be reachable as buttons on an OS-level
-// notification, routed through the hidden `milestone-action` command via a
-// notify-activate callback. Now that milestone detection is a plain
-// terminal message with no buttons, they need to be real, documented
-// subcommands instead — "review"/"publish"/"skip" read far better as
-// command names than a single generic `milestone-action <verb> <id>`.
+// runtime.go). Milestone detection is a plain terminal message with no
+// buttons, so these are real, documented subcommands: "review"/"publish"/
+// "skip" read far better as command names than a single generic
+// `milestone-action <verb> <id>`.
 func newMilestoneCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "milestone",
@@ -87,8 +85,7 @@ func newMilestoneSkipCommand(ctx context.Context, out io.Writer) *cobra.Command 
 // milestoneDashboardURL resolves the CLI's actual configured frontend URL
 // (respecting PROOFBOARD_APP_BASE_URL), falling back to the built-in
 // default if config can't load for any reason. Mirrors appBaseURL in
-// internal/notifications/workspace.go, which is what the old notification's
-// "Review" button used before milestone detection moved to the terminal.
+// internal/notifications/workspace.go.
 func milestoneDashboardURL(ctx context.Context, bundleID string) string {
 	base := config.DefaultAppBaseURL
 	if cfg, err := config.Load(ctx); err == nil && cfg.AppBaseURL != "" {

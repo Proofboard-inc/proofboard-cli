@@ -13,7 +13,7 @@ import (
 const githubAPIBaseURL = "https://api.github.com"
 
 // ErrNoGitHubRelease means the repository has no published release yet (a
-// 404 from the GitHub API) — distinct from a network failure or any other
+// 404 from the GitHub API), distinct from a network failure or any other
 // error, so callers (see update.go) can show a clear, specific message
 // instead of the raw "GitHub latest release returned 404 Not Found" string.
 var ErrNoGitHubRelease = errors.New("no published release found")

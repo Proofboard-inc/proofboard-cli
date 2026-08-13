@@ -127,7 +127,7 @@ func WorkspaceSuppressionKey(workspace string) (string, error) {
 	// would report as the repo root (`git rev-parse --show-toplevel`
 	// resolves symlinks). On macOS in particular, a path can round-trip
 	// through a symlinked temp/mount point (e.g. /var/folders/... is a
-	// symlink to /private/var/folders/...) — without this, a suppression
+	// symlink to /private/var/folders/...); without this, a suppression
 	// recorded via one form of the path silently never matches a lookup via
 	// the other, and workspace suppression stops working. Falls back to the
 	// unresolved absolute path if the workspace doesn't exist yet (e.g. it
@@ -172,7 +172,7 @@ func AddWorkspaceSuppression(state model.State, workspace string) (model.State, 
 
 // WasWorkspacePrompted reports whether a workspace was permanently silenced
 // by the old (pre-interactive-prompt) "shown at most once, ever" behavior.
-// Nothing writes new entries into PromptedWorkspaces any more — the
+// Nothing writes new entries into PromptedWorkspaces any more: the
 // interactive prompt (see printLinkDetected in commands/detect.go) instead
 // asks again on every terminal until the developer either links the project
 // or explicitly says "never" (AddWorkspaceSuppression, the same mechanism
@@ -192,7 +192,7 @@ func WasWorkspacePrompted(state model.State, workspace string) bool {
 // RecordWorkspacePrompt remembers that the prompt was shown for a workspace,
 // permanently silencing future offers until ClearWorkspacePrompt undoes it.
 // The interactive `detect` prompt (commands/detect.go) deliberately does not
-// call this any more — asking again on every terminal until the developer
+// call this any more: asking again on every terminal until the developer
 // links or explicitly dismisses is now the default. Kept as a primitive for
 // any caller that still wants the old "shown once, ever" behavior (e.g. a
 // --json-mode IDE integration recording its own dismissal).
@@ -214,10 +214,10 @@ func RecordWorkspacePrompt(state model.State, workspace string, at time.Time) (m
 // RecoverBurnedWorkspacePrompts clears every previously recorded "prompt
 // already shown" marker, exactly once. Older CLI versions ran workspace
 // detection fully backgrounded with both stdout and stderr silenced, while
-// still recording the one-time prompt as shown the moment it ran — so every
+// still recording the one-time prompt as shown the moment it ran, so every
 // workspace opened under that version had its prompt permanently burned
-// without the developer ever seeing it, and simply migrating the shell hook
-// line to the fixed, synchronous form did not undo that. Called only when a
+// without the developer ever seeing it; migrating the shell hook line to the
+// synchronous form alone does not undo that. Called only when a
 // legacy hook line is found and migrated (see ensureLineInFile), and gated
 // by RecoveredLegacyPrompts so a workspace legitimately dismissed after this
 // recovery never gets reset again.

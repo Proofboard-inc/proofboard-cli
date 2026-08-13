@@ -33,7 +33,7 @@ type RunInput struct {
 	PreviousHead      string
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport
-	// IsDefaultBranch — see model.SyncPayload.IsDefaultBranch.
+	// IsDefaultBranch: see model.SyncPayload.IsDefaultBranch.
 	IsDefaultBranch bool
 }
 

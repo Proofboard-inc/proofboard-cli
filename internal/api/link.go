@@ -20,7 +20,7 @@ type LinkRequest struct {
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport `json:"stack,omitempty"`
 	// Locally-detected org name + human-confirmed role title.
-	// Human-confirmed via an interactive Y/n + free-text prompt in link.go —
+	// Human-confirmed via an interactive Y/n + free-text prompt in link.go;
 	// never inferred server-side from proprietary data. Applied by the
 	// backend only when this request results in creating a brand new
 	// project; ignored otherwise.
@@ -35,7 +35,7 @@ type ExistingProjectOption struct {
 	// RepoFullName is the repo identity (owner/repo) backing this project,
 	// populated by the backend from vcsPublicImport.repoFullName when
 	// present. Empty for Volume-Proof-only projects that have no repo
-	// identity — that's expected and handled gracefully by callers.
+	// identity, which is expected and handled gracefully by callers.
 	RepoFullName string `json:"repoFullName,omitempty"`
 }
 

@@ -44,24 +44,25 @@ func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 	}
 }
 
-func TestWorkspaceActionLabelsExposeThreeChoices(t *testing.T) {
-	title, body, primary, secondary, tertiary := workspaceActionLabels("link")
-	if title != "Project detected" || body != "Would you like to add this project to your career record?" {
-		t.Fatalf("unexpected repository-agnostic prompt: %q / %q", title, body)
+// reconnect (session expiry) is the only case reserved for an OS-level
+// popup now — project-detected, sync-needed, and milestone-ready all moved
+// to plain terminal output and must not carry the old interactive labels
+// (Sync Project/Review/Publish/etc.) that implied a clickable popup exists
+// for them.
+func TestWorkspaceActionLabelsOnlyReconnectIsARealPopup(t *testing.T) {
+	title, body, primary, secondary, tertiary := workspaceActionLabels("reconnect")
+	if title != "Your Proofboard session has expired" {
+		t.Fatalf("unexpected reconnect prompt title: %q", title)
 	}
-	if primary != "Sync Project" || secondary != "Not Now" || tertiary != "Never Ask Again" {
-		t.Fatalf("unexpected choices: %q, %q, %q", primary, secondary, tertiary)
+	if body == "" || primary != "Reconnect" || secondary != "" || tertiary != "" {
+		t.Fatalf("unexpected reconnect choices: %q / %q, %q, %q", body, primary, secondary, tertiary)
 	}
-}
 
-func TestMilestoneActionsRouteToDashboard(t *testing.T) {
-	_, _, primary, secondary, tertiary := workspaceActionLabels("milestone")
-	primaryKey, secondaryKey, tertiaryKey := workspaceActionKeys("milestone")
-	if primary != "Review" || secondary != "Publish" || tertiary != "Skip" {
-		t.Fatalf("unexpected milestone labels: %q, %q, %q", primary, secondary, tertiary)
-	}
-	if primaryKey != "review" || secondaryKey != "publish" || tertiaryKey != "ignore" {
-		t.Fatalf("unexpected milestone keys: %q, %q, %q", primaryKey, secondaryKey, tertiaryKey)
+	for _, kind := range []string{"link", "sync", "milestone"} {
+		title, _, primary, secondary, tertiary := workspaceActionLabels(kind)
+		if title != "Proofboard Career Agent" || primary != "Open" || secondary != "Not Now" || tertiary != "Never Ask Again" {
+			t.Fatalf("%q should fall through to the generic default, got: %q / %q, %q, %q", kind, title, primary, secondary, tertiary)
+		}
 	}
 }
 
