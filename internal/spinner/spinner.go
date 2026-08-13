@@ -1,7 +1,7 @@
 // Package spinner draws a terminal progress indicator for long-running
 // network phases (link/sync). It is dependency-free, consistent with the
 // CLI's no-third-party-dependency stance for small, self-contained features,
-// and it never writes a partial frame when the destination is not a TTY —
+// and it never writes a partial frame when the destination is not a TTY,
 // required so --json output, piped output, hook-triggered background syncs,
 // and log files stay clean.
 package spinner
@@ -63,8 +63,8 @@ func (s *Spinner) run() {
 	}
 }
 
-// Stop halts the animation, clears the line, and — if finalMessage is
-// non-empty — prints it on its own line. Safe to call even if Start was
+// Stop halts the animation, clears the line, and, if finalMessage is
+// non-empty, prints it on its own line. Safe to call even if Start was
 // never called (e.g. non-interactive runs that skip Start entirely).
 func (s *Spinner) Stop(finalMessage string) {
 	if s == nil || !s.started {

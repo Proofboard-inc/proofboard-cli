@@ -41,7 +41,7 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			case "keychain-disabled":
 				// Default (false) keeps the OS keychain in use. Setting
 				// true is an explicit opt-out for environments where OS
-				// keychain access isn't reachable — falls back to a
+				// keychain access isn't reachable; falls back to a
 				// 0600-permission ~/.proofboard/device.key file instead.
 				current.KeychainDisabled = value
 			default:

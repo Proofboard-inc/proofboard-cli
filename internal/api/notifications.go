@@ -33,10 +33,9 @@ func (c Client) MarkAllNotificationsRead(ctx context.Context, token string) erro
 // equivalents of GetNotifications/MarkNotificationRead above. The CLI's
 // device-code-issued token is a completely separate auth strategy from the
 // user session JWT (see backend CLAUDE.md), so it cannot call
-// /api/v1/notifications — that route only accepts a user session token, and
-// was silently rejecting every CLI-authenticated call. /api/v1/cli/notifications
-// is the CLI-guarded mirror added specifically so `proofboard notices` works
-// for real (device-code-authenticated) CLI installs.
+// /api/v1/notifications: that route only accepts a user session token.
+// /api/v1/cli/notifications is the CLI-guarded mirror that lets
+// `proofboard notices` work for real (device-code-authenticated) CLI installs.
 func (c Client) GetCliNotifications(ctx context.Context, token string, query url.Values) (model.PaginatedNotifications, error) {
 	var response model.PaginatedNotifications
 	err := c.getJSON(ctx, "/api/v1/cli/notifications", token, query, &response)

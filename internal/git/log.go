@@ -43,12 +43,12 @@ func Log(ctx context.Context, repo Repo, lastSHA string) ([]model.RawCommit, err
 	}
 	commits = FilterCommitsByAuthorEmail(commits, email)
 
-	// Fetch commit bodies via a second, separate git log call — kept
+	// Fetch commit bodies via a second, separate git log call, kept
 	// entirely apart from the header/numstat call above because commit
 	// bodies are free-form multi-line text that could otherwise corrupt the
 	// existing line-oriented numstat parser. Best-effort: a failure here
 	// (e.g. an unusual repo state) must never fail an otherwise-successful
-	// sync — commits simply proceed with a nil Body.
+	// sync; commits simply proceed with a nil Body.
 	if bodies, err := logBodies(ctx, repo, lastSHA, email); err == nil {
 		attachBodies(commits, bodies)
 	}

@@ -47,17 +47,16 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return apiErr
 			})
 			// A 404 means the backend already has nothing to unlink (e.g. the
-			// project was deleted some other way) — that's a genuine success
+			// project was deleted some other way), which is a genuine success
 			// case, not a failure. Anything else (network failure, an auth
 			// failure that survived the full retry chain, a 5xx) means the
-			// backend was never actually notified, and previously this printed
-			// a bare "Repository unlinked." success line regardless — telling
-			// the user it worked when the dashboard project could still show
-			// as CLI-active. Track it instead of discarding it.
+			// backend was never actually notified, so the outcome is tracked
+			// rather than discarded, since telling the user it worked when the
+			// dashboard project could still show as CLI-active would be wrong.
 			backendConfirmed := unlinkErr == nil || api.IsStatus(unlinkErr, http.StatusNotFound)
 			if !backendConfirmed {
 				// Full error (URL, repo hash, underlying dial/DNS failure) goes to
-				// the log, not the terminal — the person doesn't need "dial tcp:
+				// the log, not the terminal: the person doesn't need "dial tcp:
 				// lookup api-dev.proofboard.io: no such host" printed at them to
 				// understand "couldn't reach the server".
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, "unlink", "failure", "confirm unlink with backend", unlinkErr.Error())
@@ -70,7 +69,7 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			current = statestore.RemoveLinkedRepo(current, identity.RepoHash)
 			// Disconnecting is a deliberate choice to stop tracking, so the
 			// workspace becomes eligible for the connection prompt again.
-			// Local state is cleared unconditionally either way — local-first:
+			// Local state is cleared unconditionally either way: local-first,
 			// there's nothing to gain by keeping local tracking alive just
 			// because the backend couldn't be reached.
 			if current, err = statestore.ClearWorkspacePrompt(current, repo.Path); err != nil {

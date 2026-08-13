@@ -9,19 +9,17 @@ import (
 )
 
 // minMilestoneClusters/maxMilestoneClusters bound the dynamic per-sync
-// cluster cap computed by clusterCap: a MAX, not a target — a small
+// cluster cap computed by clusterCap: a MAX, not a target. A small
 // incremental sync of a few commits yields only one or two clusters and
 // never hits the cap. The cap bites mainly on a large sync (e.g. a first
 // full sync of a long-lived repo), where one-cluster-per-merge-commit (a
 // repo with dozens of PRs) would otherwise produce dozens of trivial
 // "milestones". When natural boundaries exceed the cap, consolidate() merges
-// the least-significant adjacent ones until the count fits — see consolidate.
+// the least-significant adjacent ones until the count fits, see consolidate.
 //
-// The cap used to be a flat 6 regardless of how much history a sync covered,
-// which squeezed a full year of work into 6 buckets on a first full sync.
-// clusterCap instead scales the cap with the sync's real time span, floored
-// at minMilestoneClusters (so a short sync still behaves exactly as before)
-// and capped at maxMilestoneClusters (so a huge, multi-year history doesn't
+// clusterCap scales the cap with the sync's real time span, floored at
+// minMilestoneClusters (so a short sync stays close to the floor) and
+// capped at maxMilestoneClusters (so a huge, multi-year history doesn't
 // produce an unbounded number of milestones).
 const (
 	minMilestoneClusters = 6
@@ -47,7 +45,7 @@ func clusterCap(spanWeeks float64) int {
 
 // linearSegmentGapHours is the time gap (between consecutive commits, in a
 // repo with no merge signal) that forces a new segment even when the category
-// hasn't changed — a multi-day pause is a natural work-session boundary.
+// hasn't changed: a multi-day pause is a natural work-session boundary.
 const linearSegmentGapHours = 72
 
 func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster {
@@ -76,8 +74,8 @@ func Detect(result model.ScoredResult, mergeTimestamps []int64) []model.Cluster 
 	// significant adjacent groups. Same-category neighbours collapse first
 	// (the same feature split across several PRs), then the smallest
 	// neighbours, always preserving chronological order. The cap itself
-	// scales with how much real time this sync's commits span — see
-	// clusterCap — rather than a flat constant, so a sync covering a year
+	// scales with how much real time this sync's commits span (see
+	// clusterCap) rather than a flat constant, so a sync covering a year
 	// of history isn't squeezed into the same handful of buckets as a
 	// sync covering a week.
 	spanWeeks := 0.0
@@ -126,7 +124,7 @@ func groupCommits(commits []model.CommitSignal, mergeTimestamps []int64) [][]mod
 
 // segmentLinear splits a chronologically-sorted commit list (with no
 // merge-commit boundaries to work from) into runs. A new run starts whenever
-// the primary category changes or a large time gap opens up — so "two weeks
+// the primary category changes or a large time gap opens up, so "two weeks
 // on auth, then a week on payments" becomes two segments rather than an
 // arbitrary N-way even split. Runs that are too granular are re-merged later
 // by consolidate().
@@ -189,7 +187,7 @@ func consolidate(groups [][]model.CommitSignal, max int) [][]model.CommitSignal 
 // commit count can bridge the gap.
 const crossCategoryPenalty = 1_000_000
 
-// mergeCost ranks how desirable it is to merge two adjacent groups — lower is
+// mergeCost ranks how desirable it is to merge two adjacent groups: lower is
 // more desirable. Same-category neighbours are cheapest (they are the same
 // area of work), and within each tier the smallest combined pair merges first
 // so large, meaningful milestones are preserved while trivial ones collapse.
@@ -207,9 +205,9 @@ type rankedCategory struct {
 }
 
 // categoryRanking scores every category across a group of commits and
-// returns them ranked highest-first, ties broken alphabetically — the single
+// returns them ranked highest-first, ties broken alphabetically: the single
 // source of truth for both a cluster's headline category (rank 0) and its
-// secondary category (rank 1, if significant — see buildCluster). Never
+// secondary category (rank 1, if significant, see buildCluster). Never
 // returns "Unclassified"; a group with no real signal falls back to
 // "Feature Development".
 func categoryRanking(commits []model.CommitSignal) []rankedCategory {
@@ -237,7 +235,7 @@ func categoryRanking(commits []model.CommitSignal) []rankedCategory {
 }
 
 // dominantCategoryOf returns the highest-scoring category across a group of
-// commits — the same rule buildCluster uses for a cluster's headline
+// commits, the same rule buildCluster uses for a cluster's headline
 // category, so consolidation and the final label always agree.
 func dominantCategoryOf(commits []model.CommitSignal) string {
 	return categoryRanking(commits)[0].name
@@ -291,15 +289,12 @@ func buildCluster(clusterCommits []model.CommitSignal, clusterIndex int) model.C
 // milestone title like "comments feature" for work that wasn't about
 // comments at all.
 //
-// Lowered from 0.4 to 0.2 after real dogfooding on a 188-commit repo: even
-// after adding file-path matching in phase2 (Classify) raised the overall
-// match rate from near-zero to 76% of commits, a 23-commit cluster whose
-// real theme was checkout work still landed at 5/23 = 21.7% share for
-// "checkout" — correct and non-coincidental (5 independent commits, not one
-// lucky match), just short of the old 0.25 floor. The minFeatureKeywordCount
-// floor below is what actually guards against coincidence at this share
-// level; the percentage alone doesn't need to be as strict once count is
-// enforced separately.
+// A genuinely correct, non-coincidental theme (several independent commits
+// converging on the same feature, not one lucky match) can still land at a
+// modest share in a larger cluster, so this floor is kept low; the
+// minFeatureKeywordCount floor below is what actually guards against
+// coincidence at this share level, the percentage alone doesn't need to be
+// as strict once count is enforced separately.
 const minFeatureKeywordShare = 0.2
 
 // minFeatureKeywordCount is an absolute floor alongside minFeatureKeywordShare:
@@ -310,10 +305,10 @@ const minFeatureKeywordShare = 0.2
 const minFeatureKeywordCount = 2
 
 // dominantFeatureKeyword returns the feature keyword(s) that appear on the
-// most commits in the cluster — a mode, not a score sum, since a keyword
+// most commits in the cluster: a mode, not a score sum, since a keyword
 // hitting several distinct commits is a stronger "this cluster is really
 // about X" signal than one commit matching it many times. Counts every
-// keyword a commit matched (model.CommitSignal.FeatureKeywords — phase2
+// keyword a commit matched (model.CommitSignal.FeatureKeywords: phase2
 // keeps every keyword that scored > 0 per commit, not just the top one), so
 // a cluster genuinely spanning two themes (e.g. "orders" and "delivery" both
 // independently well-represented) can say so instead of reporting only
@@ -323,10 +318,10 @@ const minFeatureKeywordCount = 2
 // Empty if no commit in the cluster matched any feature keyword, OR if the
 // winning keyword doesn't clear both minFeatureKeywordShare and
 // minFeatureKeywordCount (a weak, coincidental signal shouldn't drive the
-// milestone's name — the AI summary falls back to describing the milestone
+// milestone's name; the AI summary falls back to describing the milestone
 // generically by category + impact instead). A second keyword is appended
 // ("orders & delivery") only if it independently clears the same bar on its
-// own count — a weak runner-up dilutes the name rather than adding signal.
+// own count: a weak runner-up dilutes the name rather than adding signal.
 // Ties resolve alphabetically for determinism.
 func dominantFeatureKeyword(commits []model.CommitSignal) string {
 	if len(commits) == 0 {
@@ -376,9 +371,8 @@ func dominantFeatureKeyword(commits []model.CommitSignal) string {
 }
 
 // sampleReferenceShas returns up to 3 of this cluster's OWN commit SHAs
-// (first, middle, last, chronologically) as a representative sample — never
-// commits from a different cluster, unlike the backend's previous
-// index-arithmetic guess.
+// (first, middle, last, chronologically) as a representative sample, never
+// commits from a different cluster.
 func sampleReferenceShas(clusterCommits []model.CommitSignal) []string {
 	n := len(clusterCommits)
 	switch {
