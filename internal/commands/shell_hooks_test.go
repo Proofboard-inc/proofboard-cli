@@ -1,30 +1,40 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	statestore "github.com/proofboard/proofboard/internal/state"
 )
 
 func TestEnsureLineInFile_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".bashrc")
 
-	updated, err := ensureLineInFile(path, shellDetectionLine)
+	updated, migratedLegacy, err := ensureLineInFile(path, shellDetectionLine)
 	if err != nil {
 		t.Fatalf("ensureLineInFile first write failed: %v", err)
 	}
 	if !updated {
 		t.Fatalf("expected first write to report updated")
 	}
+	if migratedLegacy {
+		t.Fatalf("expected first write (no prior file) to not report a legacy migration")
+	}
 
-	updated, err = ensureLineInFile(path, shellDetectionLine)
+	updated, migratedLegacy, err = ensureLineInFile(path, shellDetectionLine)
 	if err != nil {
 		t.Fatalf("ensureLineInFile second write failed: %v", err)
 	}
 	if updated {
 		t.Fatalf("expected second write to be a no-op")
+	}
+	if migratedLegacy {
+		t.Fatalf("expected no-op second write to not report a legacy migration")
 	}
 
 	data, err := os.ReadFile(path)
@@ -45,9 +55,12 @@ func TestEnsureLineInFile_MigratesTrackedBackgroundJob(t *testing.T) {
 		t.Fatalf("write legacy hook: %v", err)
 	}
 
-	updated, err := ensureLineInFile(path, shellDetectionLine)
+	updated, migratedLegacy, err := ensureLineInFile(path, shellDetectionLine)
 	if err != nil || !updated {
 		t.Fatalf("migration = %v, %v", updated, err)
+	}
+	if !migratedLegacy {
+		t.Fatalf("expected migration from a legacy hook line to be reported")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -80,9 +93,12 @@ func TestEnsureLineInFile_MigratesLegacyBackgroundedDetectLine(t *testing.T) {
 		t.Fatalf("write legacy hook: %v", err)
 	}
 
-	updated, err := ensureLineInFile(path, shellDetectionLine)
+	updated, migratedLegacy, err := ensureLineInFile(path, shellDetectionLine)
 	if err != nil || !updated {
 		t.Fatalf("migration = %v, %v", updated, err)
+	}
+	if !migratedLegacy {
+		t.Fatalf("expected migration from a legacy backgrounded hook line to be reported")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -107,7 +123,7 @@ func TestEnsureShellDetectionHooksWritesBothDetectAndNoticeLines(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		for _, line := range []string{shellDetectionLine, noticeLine} {
-			if _, err := ensureLineInFile(path, line); err != nil {
+			if _, _, err := ensureLineInFile(path, line); err != nil {
 				t.Fatalf("ensureLineInFile(%q) run %d: %v", line, i, err)
 			}
 		}
@@ -128,6 +144,88 @@ func TestEnsureShellDetectionHooksWritesBothDetectAndNoticeLines(t *testing.T) {
 	// way detect is) so its output is actually visible on shell startup.
 	if strings.Contains(noticeLine, ">/dev/null 2>&1 &") {
 		t.Fatalf("notice line must not be backgrounded/fully silenced: %q", noticeLine)
+	}
+}
+
+// Regression test for the "upgrading the hook doesn't bring back the
+// message" bug: a developer whose rc file still had the legacy backgrounded/
+// silenced detect line had every not-yet-linked workspace silently marked
+// "prompted" without ever seeing the message. Running the (now-fixed) hook
+// maintenance must also clear those burned prompt markers, once, so the
+// fixed synchronous hook can actually surface "New repository detected"
+// again.
+func TestEnsureShellDetectionHooks_RecoversBurnedPromptsOnLegacyMigration(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("SHELL", "/bin/bash")
+
+	rcPath := filepath.Join(homeDir, ".bashrc")
+	if err := os.WriteFile(rcPath, []byte("# Proofboard Workspace Detection\n"+legacyBackgroundedShellDetectionLine+"\n"), 0o644); err != nil {
+		t.Fatalf("seed legacy rc file: %v", err)
+	}
+
+	store := statestore.NewStore(homeDir)
+	seeded := statestore.Default()
+	seeded.PromptedWorkspaces = map[string]time.Time{
+		"burned-workspace-key": time.Now().UTC(),
+	}
+	if err := store.Save(context.Background(), seeded); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if _, _, err := ensureShellDetectionHooks(context.Background()); err != nil {
+		t.Fatalf("ensureShellDetectionHooks: %v", err)
+	}
+
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load recovered state: %v", err)
+	}
+	if len(got.PromptedWorkspaces) != 0 {
+		t.Fatalf("expected burned prompt markers to be cleared, got: %v", got.PromptedWorkspaces)
+	}
+	if !got.RecoveredLegacyPrompts {
+		t.Fatalf("expected RecoveredLegacyPrompts to be set after recovery")
+	}
+}
+
+// Most real-world affected installs already had their rc file silently
+// migrated to the new synchronous line by an earlier CLI run, well before
+// this fix existed — by the time a developer upgrades, there is no legacy
+// line left to catch. Recovery must still run and heal already-burned state
+// in that case, not only when it happens to observe a live migration.
+func TestEnsureShellDetectionHooks_RecoversBurnedPromptsEvenWithoutLiveLegacyLine(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("SHELL", "/bin/bash")
+
+	rcPath := filepath.Join(homeDir, ".bashrc")
+	if err := os.WriteFile(rcPath, []byte("# Proofboard Workspace Detection\n"+shellDetectionLine+"\n"), 0o644); err != nil {
+		t.Fatalf("seed already-migrated rc file: %v", err)
+	}
+
+	store := statestore.NewStore(homeDir)
+	seeded := statestore.Default()
+	seeded.PromptedWorkspaces = map[string]time.Time{
+		"burned-workspace-key": time.Now().UTC(),
+	}
+	if err := store.Save(context.Background(), seeded); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if _, _, err := ensureShellDetectionHooks(context.Background()); err != nil {
+		t.Fatalf("ensureShellDetectionHooks: %v", err)
+	}
+
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load recovered state: %v", err)
+	}
+	if len(got.PromptedWorkspaces) != 0 {
+		t.Fatalf("expected burned prompt markers to be cleared even without a live legacy migration, got: %v", got.PromptedWorkspaces)
+	}
+	if !got.RecoveredLegacyPrompts {
+		t.Fatalf("expected RecoveredLegacyPrompts to be set after recovery")
 	}
 }
 

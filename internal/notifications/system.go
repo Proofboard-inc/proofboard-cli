@@ -8,6 +8,7 @@ import (
 
 	"github.com/gen2brain/beeep"
 	"github.com/proofboard/proofboard/internal/model"
+	"github.com/proofboard/proofboard/internal/style"
 )
 
 type Event struct {
@@ -25,17 +26,27 @@ func Dispatch(out io.Writer, event Event) {
 
 func PrintEvent(out io.Writer, event Event) {
 	if out != nil {
-		_, _ = fmt.Fprintln(out, renderTerminal(event))
+		_, _ = fmt.Fprint(out, renderTerminal(out, event))
 	}
 }
 
-func renderTerminal(event Event) string {
+// renderTerminal is the single rendering point for every notification the
+// CLI prints — session expiry, sync/milestone confirmations, remote
+// notifications surfaced by `proofboard notices`, etc. — so they all share
+// one consistent branded look (matching the "New repository detected"
+// prompt from `detect`): a green check, the bold-cyan "Proofboard" wordmark,
+// a bold headline, and muted body text. Falls back to plain, uncolored text
+// automatically for non-terminal output (style.Enabled handles that).
+func renderTerminal(w io.Writer, event Event) string {
 	var b strings.Builder
-	b.WriteString("Proofboard: ")
-	b.WriteString(event.Title)
+	fmt.Fprintf(&b, "%s %s %s\n",
+		style.Success(w, "✓"),
+		style.Brand(w, "Proofboard"),
+		style.Heading(w, "— "+event.Title))
 	if event.Body != "" {
-		b.WriteString("\n")
-		b.WriteString(event.Body)
+		for _, line := range strings.Split(event.Body, "\n") {
+			fmt.Fprintf(&b, "  %s\n", style.Muted(w, line))
+		}
 	}
 	// Deliberately no "Actions: X | Y | Z" line here — on this plain-text
 	// path (surfaced notifications, sync summaries) those aren't clickable,
