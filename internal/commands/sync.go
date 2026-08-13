@@ -590,7 +590,10 @@ func reportSyncOutcome(out io.Writer, receipt model.SyncReceipt, payload model.S
 			return err
 		}
 	case "regenerating":
-		if _, err := fmt.Fprintln(out, "✓ Regenerate requested for your milestone summaries. Refresh your dashboard shortly to see updated text."); err != nil {
+		if _, err := fmt.Fprintf(out, "%s %s %s\n",
+			style.Success(out, "✓"),
+			style.Brand(out, "Proofboard"),
+			style.Heading(out, "— Regenerate requested for your milestone summaries. Refresh your dashboard shortly to see updated text.")); err != nil {
 			return err
 		}
 	default:
@@ -608,10 +611,12 @@ func reportSyncOutcome(out io.Writer, receipt model.SyncReceipt, payload model.S
 		}
 		var err error
 		if len(payload.SHAs) == 0 && metadataOnly {
-			_, err = fmt.Fprintln(out, "Repository metadata synchronized.")
+			_, err = fmt.Fprintf(out, "%s %s %s\n",
+				style.Success(out, "✓"), style.Brand(out, "Proofboard"), style.Heading(out, "— Repository metadata synchronized."))
 		} else {
-			_, err = fmt.Fprintf(out, "%s Synced %d commits. Clusters detected: %d.\n",
-				style.Success(out, "✓"), len(payload.SHAs), len(payload.MilestoneClusters))
+			_, err = fmt.Fprintf(out, "%s %s %s\n",
+				style.Success(out, "✓"), style.Brand(out, "Proofboard"),
+				style.Heading(out, fmt.Sprintf("— Synced %d commits. Clusters detected: %d.", len(payload.SHAs), len(payload.MilestoneClusters))))
 		}
 		if err != nil {
 			return err

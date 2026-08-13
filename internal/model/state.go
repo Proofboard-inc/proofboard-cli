@@ -22,6 +22,11 @@ type State struct {
 	// (e.g. some non-standard terminal/session contexts), set via
 	// `proofboard config set keychain-disabled true`.
 	KeychainDisabled bool `json:"keychainDisabled,omitempty"`
+	// RecoveredLegacyPrompts marks that the one-time recovery from the
+	// legacy-backgrounded-shell-hook bug has already run (see
+	// state.RecoverBurnedWorkspacePrompts). Prevents that recovery from
+	// re-clearing PromptedWorkspaces on every subsequent hook migration.
+	RecoveredLegacyPrompts bool `json:"recoveredLegacyPrompts,omitempty"`
 }
 
 type LinkedRepo struct {
