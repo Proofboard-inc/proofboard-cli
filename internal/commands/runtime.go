@@ -17,6 +17,7 @@ import (
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/config"
 	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/state"
 	"github.com/proofboard/proofboard/internal/style"
@@ -130,17 +131,28 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 	if err != nil || credentials.Token == "" {
 		return
 	}
-	// The notifications route belongs to the web application API and does not
-	// accept CLI-scoped JWTs. Avoid a guaranteed 401 (and a misleading auth
-	// log entry) until the backend exposes a CLI notifications endpoint.
+	// The CLI's device-code-issued token is a completely separate auth
+	// strategy from the user session JWT (three independent JWT strategies —
+	// see backend CLAUDE.md), so it must call the CLI-guarded mirror
+	// (/api/v1/cli/notifications) rather than the user-session-only
+	// /api/v1/notifications route, which rejects it outright. This used to
+	// just bail out entirely for CLI scope — silently disabling sync-complete
+	// and milestone-ready notices for every real (device-code-authenticated)
+	// CLI install, which is nearly all of them.
+	isCliScope := false
 	if scope, scopeErr := crypto.JWTScope(credentials.Token); scopeErr == nil && scope == "cli" {
-		return
+		isCliScope = true
 	}
 	query := url.Values{}
 	query.Set("page", "1")
 	query.Set("limit", "20")
 	query.Set("isRead", "false")
-	res, err := runtime.api.GetNotifications(ctx, credentials.Token, query)
+	var res model.PaginatedNotifications
+	if isCliScope {
+		res, err = runtime.api.GetCliNotifications(ctx, credentials.Token, query)
+	} else {
+		res, err = runtime.api.GetNotifications(ctx, credentials.Token, query)
+	}
 	if err != nil {
 		return
 	}
@@ -163,7 +175,11 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 			// OS-level popup on top of it.
 			notifications.PrintEvent(out, notifications.RemoteNotification(n))
 		}
-		_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+		if isCliScope {
+			_ = runtime.api.MarkCliNotificationRead(ctx, credentials.Token, n.ID)
+		} else {
+			_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+		}
 	}
 }
 
@@ -183,30 +199,18 @@ func printMilestoneReady(out io.Writer, title string, commitCount int, hasCommit
 		}
 		countSuffix = fmt.Sprintf(" (%d %s)", commitCount, unit)
 	}
-	fmt.Fprintf(out, "%s Milestone ready: %q%s\n", style.Success(out, "✓"), title, countSuffix)
+	fmt.Fprintf(out, "%s %s %s\n",
+		style.Success(out, "✓"),
+		style.Brand(out, "Proofboard"),
+		style.Heading(out, fmt.Sprintf("— Milestone ready: %q%s", title, countSuffix)))
 	if strings.TrimSpace(bundleID) == "" {
 		// Nothing to act on without a bundle id — the caller has nothing
 		// further to run, so leave it at the headline.
 		return
 	}
-	type suggestedCommand struct {
-		command string
-		help    string
-	}
-	commands := []suggestedCommand{
-		{fmt.Sprintf("Run `proofboard milestone review %s`", bundleID), "inspect before publishing"},
-		{fmt.Sprintf("Run `proofboard milestone publish %s`", bundleID), "publish as-is"},
-		{fmt.Sprintf("Run `proofboard milestone skip %s`", bundleID), "dismiss this one"},
-	}
-	width := 0
-	for _, c := range commands {
-		if len(c.command) > width {
-			width = len(c.command)
-		}
-	}
-	for _, c := range commands {
-		fmt.Fprintf(out, "  %-*s — %s\n", width, c.command, c.help)
-	}
+	printCommandHint(out, fmt.Sprintf("proofboard milestone review %s", bundleID), "inspect before publishing")
+	printCommandHint(out, fmt.Sprintf("proofboard milestone publish %s", bundleID), "publish as-is")
+	printCommandHint(out, fmt.Sprintf("proofboard milestone skip %s", bundleID), "dismiss this one")
 }
 
 // notificationMetaInt is notificationMetaString's numeric counterpart: JSON

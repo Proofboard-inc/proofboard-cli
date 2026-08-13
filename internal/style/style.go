@@ -45,6 +45,11 @@ func Muted(w io.Writer, text string) string   { return wrap(w, gray, text) }
 func Heading(w io.Writer, text string) string { return wrap(w, bold, text) }
 func Accent(w io.Writer, text string) string  { return wrap(w, cyan, text) }
 
+// Brand renders the "Proofboard" wordmark bold + cyan — the one-off,
+// slightly heavier treatment reserved for naming the product itself in a
+// startup banner, distinct from Heading/Accent's single-attribute styling.
+func Brand(w io.Writer, text string) string { return wrap(w, bold+cyan, text) }
+
 type fileLike interface {
 	Stat() (os.FileInfo, error)
 }
