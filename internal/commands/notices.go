@@ -12,7 +12,7 @@ import (
 // complete, milestones ready to review, etc.) directly in the terminal. It is
 // invoked synchronously from the shell startup hook (unlike `detect`, which
 // stays backgrounded/silent) so the output is actually visible the next time
-// a terminal window opens — the same "subtle line on shell startup" pattern
+// a terminal window opens: the same "subtle line on shell startup" pattern
 // as a venv auto-activation hook, just for Proofboard status instead of a
 // Python environment.
 func newNoticesCommand(ctx context.Context, out io.Writer) *cobra.Command {
@@ -25,7 +25,7 @@ func newNoticesCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return nil
 			}
-			// Bounded the same way the startup version/dictionary checks are —
+			// Bounded the same way the startup version/dictionary checks are:
 			// a slow network must not noticeably delay a new shell prompt.
 			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()

@@ -17,7 +17,7 @@ type State struct {
 	AuthLoggedOut             bool                       `json:"authLoggedOut,omitempty"`
 	// KeychainDisabled forces device-signing-key storage to the plaintext
 	// ~/.proofboard/device.key file instead of the OS keychain. Zero-value
-	// (false) keeps the OS keychain as the default — this is an explicit
+	// (false) keeps the OS keychain as the default; this is an explicit
 	// opt-out for environments where OS keychain access isn't reachable
 	// (e.g. some non-standard terminal/session contexts), set via
 	// `proofboard config set keychain-disabled true`.
@@ -49,7 +49,7 @@ type LinkedRepoState struct {
 	ProductionBranches []string  `json:"productionBranches"`
 	MetadataHash       string    `json:"metadataHash,omitempty"`
 	// LastSyncPayload caches the exact payload most recently transmitted for
-	// this repo (post-Shredder — contains no commit text, same content that
+	// this repo (post-Shredder, contains no commit text, same content that
 	// already left the machine). Replayed verbatim by `sync --resync` so the
 	// resend's contentHash matches what the backend already has on file,
 	// without re-ingesting/re-classifying git history. Nil until the first

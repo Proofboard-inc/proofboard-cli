@@ -79,12 +79,11 @@ func ActivateWorkspaceAction(ctx context.Context, kind, workspace string, target
 		if kind == "publish" && actionTarget != "" {
 			return runMilestoneAction(ctx, "publish", actionTarget)
 		}
-		// FIX: this was hardcoded to "https://proofboard.io/dashboard" —
-		// proofboard.io isn't the deployed frontend app (that's
+		// Resolves the CLI's configured app base URL rather than a
+		// hardcoded domain, since proofboard.io is the release/download
+		// domain, not the deployed frontend app (that's
 		// config.DefaultAppBaseURL, proofboard-frontend.vercel.app, or
-		// whatever PROOFBOARD_APP_BASE_URL overrides it to); it's the
-		// release/download domain. Clicking "Review"/"Publish" opened the
-		// wrong site. Use the CLI's actual configured app base URL instead.
+		// whatever PROOFBOARD_APP_BASE_URL overrides it to).
 		dashboardURL := appBaseURL(ctx) + "/dashboard"
 		if actionTarget != "" {
 			dashboardURL += "?milestoneBundle=" + url.QueryEscape(actionTarget)
@@ -102,7 +101,7 @@ func ActivateWorkspaceAction(ctx context.Context, kind, workspace string, target
 
 // appBaseURL resolves the CLI's actual configured frontend URL (respecting
 // PROOFBOARD_APP_BASE_URL), falling back to the built-in default if config
-// can't load for any reason — never the wrong hardcoded domain.
+// can't load for any reason.
 func appBaseURL(ctx context.Context) string {
 	cfg, err := config.Load(ctx)
 	if err != nil || cfg.AppBaseURL == "" {
@@ -179,16 +178,15 @@ func runAgentAuth(ctx context.Context) error {
 	return cmd.Start()
 }
 
+// workspaceActionLabels only has one real case: an OS-level popup is reserved
+// for session expiry. Project-detected, sync-needed, and milestone-ready all
+// moved to plain terminal output (see detect.go and runtime.go) and no
+// longer trigger this path. The default case stays as a safety net for
+// showWorkspaceAction's callers, never as a path meant to be reached.
 func workspaceActionLabels(kind string) (title string, body string, primary string, secondary string, tertiary string) {
 	switch kind {
-	case "sync":
-		return "Project needs sync", "Proofboard can capture the latest work privately on this machine.", "Sync Project", "Not Now", "Never Ask Again"
-	case "link":
-		return "Project detected", "Would you like to add this project to your career record?", "Sync Project", "Not Now", "Never Ask Again"
 	case "reconnect":
 		return "Your Proofboard session has expired", "Reconnect to resume private background synchronization.", "Reconnect", "", ""
-	case "milestone":
-		return "Milestone detected", "Review this engineering milestone before publishing it.", "Review", "Publish", "Skip"
 	default:
 		return "Proofboard Career Agent", "Open Proofboard to continue.", "Open", "Not Now", "Never Ask Again"
 	}
@@ -198,8 +196,6 @@ func workspaceActionKeys(kind string) (primary string, secondary string, tertiar
 	switch kind {
 	case "reconnect":
 		return "reconnect", "", ""
-	case "milestone":
-		return "review", "publish", "ignore"
 	default:
 		return "sync", "dismiss", "suppress"
 	}

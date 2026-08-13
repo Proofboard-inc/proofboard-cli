@@ -56,18 +56,22 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 				Data: []model.Notification{
 					{
 						ID:     "notif-1",
+						Type:   "proofboard_viewed",
+						IsRead: false,
+						Meta:   map[string]any{"message": "A visitor opened your public Proofboard."},
+					},
+					// Proposals/Dealboard aren't part of the CLI experience —
+					// this must be marked read without ever being printed.
+					{
+						ID:     "notif-2",
 						Type:   "proposal_accepted",
 						IsRead: false,
-						Meta: map[string]any{
-							"roleTitle":   "Backend Engineer",
-							"companyName": "Fintech Labs",
-							"reason":      "14 authentication-related milestones",
-						},
+						Meta:   map[string]any{"roleTitle": "Backend Engineer"},
 					},
 				},
-				Meta: model.PaginationMeta{Total: 1, Page: 1, Limit: 20, TotalPages: 1},
+				Meta: model.PaginationMeta{Total: 2, Page: 1, Limit: 20, TotalPages: 1},
 			})
-		case "/api/v1/notifications/notif-1/read":
+		case "/api/v1/notifications/notif-1/read", "/api/v1/notifications/notif-2/read":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("expected PATCH on notification read, got %s", r.Method)
 			}
@@ -98,8 +102,11 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	if !strings.Contains(output, "Your Proofboard session has expired") {
 		t.Fatalf("expected expired-session notification, got: %q", output)
 	}
-	if !strings.Contains(output, "New opportunity match") {
-		t.Fatalf("expected inbound opportunity notification, got: %q", output)
+	if !strings.Contains(output, "Someone viewed your Proofboard") {
+		t.Fatalf("expected proofboard-viewed notification, got: %q", output)
+	}
+	if strings.Contains(output, "Backend Engineer") || strings.Contains(output, "opportunity") {
+		t.Fatalf("proposal notification must not be printed, got: %q", output)
 	}
 }
 

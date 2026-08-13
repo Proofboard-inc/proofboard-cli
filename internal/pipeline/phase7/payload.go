@@ -10,7 +10,7 @@ import (
 const (
 	maxPayloadCommits = 5000
 	// Phase4.Detect currently caps at 4 clusters per sync, so this is
-	// dead code today — but if that cap is ever raised without updating this
+	// dead code today. But if that cap is ever raised without updating this
 	// constant in lockstep, this truncation would silently drop clusters (and
 	// the commits inside them) from the transmitted payload, breaking the
 	// Σ cluster.CommitCount == len(commits) invariant phase4 guarantees
@@ -32,7 +32,7 @@ type AssemblyInput struct {
 	PreviousHead      string
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport
-	// IsDefaultBranch — see model.SyncPayload.IsDefaultBranch.
+	// IsDefaultBranch: see model.SyncPayload.IsDefaultBranch.
 	IsDefaultBranch bool
 }
 
@@ -136,7 +136,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 
 // canonicalCategories must stay in sync with the dictionary's category keys
 // (internal/dictionary/dictionary.json) and the backend's
-// CLI_CATEGORY_VOCABULARY (cli-dictionary.ts) — these are the only values
+// CLI_CATEGORY_VOCABULARY (cli-dictionary.ts): these are the only values
 // the backend accepts without a 400.
 var canonicalCategories = []string{
 	"Authentication & Security",
@@ -177,14 +177,13 @@ var canonicalCategoryByUpper = func() map[string]string {
 func normalizeCategory(cat string) string {
 	upper := strings.ToUpper(strings.TrimSpace(cat))
 
-	// The classifier (phase2/intent.go, via
-	// phase5's shredder) already produces the full canonical category name —
-	// e.g. "Authentication & Security" — not a short code. The switch below
-	// only ever matched short aliases like "AUTH", so every real
-	// classification result was silently falling through to the
-	// "Feature Development" default before this exact-match lookup was
-	// added, discarding all of phase2's classification work regardless of
-	// how detailed the dictionary is. Check the full canonical form first.
+	// The classifier (phase2/intent.go, via phase5's shredder) already
+	// produces the full canonical category name, e.g. "Authentication &
+	// Security", not a short code. The switch below only matches short
+	// aliases like "AUTH", so the full canonical form must be checked first
+	// or every real classification result would silently fall through to the
+	// "Feature Development" default, discarding all of phase2's
+	// classification work regardless of how detailed the dictionary is.
 	if canonical, ok := canonicalCategoryByUpper[upper]; ok {
 		return canonical
 	}
@@ -221,13 +220,11 @@ func normalizeCategory(cat string) string {
 	case "TOOLING", "DEVELOPER TOOLING":
 		return "Developer Tooling"
 	default:
-		// Never pass an unmapped/unknown category through raw — the
+		// Never pass an unmapped/unknown category through raw: the
 		// backend's CLI_CATEGORY_VOCABULARY rejects anything outside its
-		// ~25-value list with a 400, and an unmapped category here previously
-		// slipped straight through unnormalized. "Feature Development" is the
-		// same safe catch-all already used for the (dead, since ToUpper makes
-		// it match the FEATURE/UNCLASSIFIED case above) "Unclassified" check
-		// this replaces.
+		// ~25-value list with a 400. "Feature Development" is the same safe
+		// catch-all used for an "Unclassified" category (dead in practice,
+		// since ToUpper makes it match the FEATURE/UNCLASSIFIED case above).
 		return "Feature Development"
 	}
 }

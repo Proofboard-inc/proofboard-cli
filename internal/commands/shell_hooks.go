@@ -17,32 +17,29 @@ import (
 const (
 	legacyShellDetectionLine = "proofboard detect >/dev/null 2>&1 &"
 
-	// legacyBackgroundedShellDetectionLine was shellDetectionLine's value
-	// until the fix below: it ran `detect` backgrounded with BOTH stdout and
-	// stderr sent to /dev/null. That meant the "New repository detected"
-	// prompt it prints on a match (see printLinkDetected in detect.go) was
-	// discarded every single time — worse, detect at the time ALSO recorded
-	// the prompt as permanently "shown" the moment it ran, so this line
-	// silently burned the one-time prompt for every workspace without the
-	// developer ever having a chance to see it (that permanent-record
-	// behavior is gone now — see printLinkDetected, which only ever records
-	// anything on an explicit "never"). `detect` only ever does fast, local
-	// git plumbing (no network) with its own bounded timeout, so there is no
-	// real latency reason to background or silence it — see
-	// shellDetectionLine below, which now matches noticeLine's pattern
-	// (synchronous, stderr-only suppression) instead.
+	// legacyBackgroundedShellDetectionLine is a prior value of
+	// shellDetectionLine: it ran `detect` backgrounded with both stdout and
+	// stderr sent to /dev/null, discarding the "New repository detected"
+	// prompt it prints on a match (see printLinkDetected in detect.go) and
+	// silently burning the one-time prompt for every workspace, since detect
+	// records a prompt as permanently "shown" the moment it runs (see
+	// printLinkDetected, which only records anything on an explicit "never").
+	// `detect` only ever does fast, local git plumbing (no network) with its
+	// own bounded timeout, so there is no real latency reason to background
+	// or silence it; see shellDetectionLine below, which matches noticeLine's
+	// pattern (synchronous, stderr-only suppression) instead.
 	legacyBackgroundedShellDetectionLine = "(proofboard detect >/dev/null 2>&1 &)"
 	legacyFishBackgroundedDetectionLine  = "proofboard detect >/dev/null 2>&1 &\ndisown $last_pid"
 
-	// legacyPlainShellDetectionLine / legacyPlainNoticeLine were
-	// shellDetectionLine/noticeLine's values until the dedup fix below.
-	// Every shell target installs its lines into TWO rc files (e.g. zsh gets
-	// both ~/.zprofile and ~/.zshrc) so detection still works regardless of
-	// which one a given terminal app actually sources — but a new terminal
-	// window commonly sources BOTH (a login shell reads ~/.zprofile, then an
-	// interactive shell reads ~/.zshrc, in the same session), so an unguarded
-	// line in both files ran `detect`/`notices` twice and printed everything
-	// twice. The fix wraps each line in a check against an exported
+	// legacyPlainShellDetectionLine / legacyPlainNoticeLine are prior values
+	// of shellDetectionLine/noticeLine. Every shell target installs its lines
+	// into TWO rc files (e.g. zsh gets both ~/.zprofile and ~/.zshrc) so
+	// detection still works regardless of which one a given terminal app
+	// actually sources, but a new terminal window commonly sources BOTH (a
+	// login shell reads ~/.zprofile, then an interactive shell reads
+	// ~/.zshrc, in the same session), so an unguarded line in both files
+	// would run `detect`/`notices` twice and print everything twice. The
+	// guarded lines below wrap each command in a check against an exported
 	// per-session env var, so the second file's copy is a no-op once the
 	// first has already run in that shell.
 	legacyPlainShellDetectionLine = "proofboard detect 2>/dev/null"
@@ -54,7 +51,7 @@ const (
 	fishShellDetectionLine = "if not set -q PROOFBOARD_DETECTED; set -gx PROOFBOARD_DETECTED 1; proofboard detect 2>/dev/null; end"
 
 	// noticeLine runs synchronously, same as shellDetectionLine above, so its
-	// output is actually visible the moment a terminal starts up — the same
+	// output is actually visible the moment a terminal starts up: the same
 	// subtle "one line on shell startup" pattern as a venv auto-activation
 	// hook. Only stderr is suppressed; a slow network is already bounded by a
 	// short timeout inside the command itself.
@@ -126,13 +123,12 @@ func ensureShellDetectionHooks(ctx context.Context) (updated bool, inspected int
 		}
 	}
 	// Attempt recovery on every call, not just when this exact call catches
-	// a legacy line mid-migration: by the time this fix ships, most affected
-	// installs will already have had their rc file silently migrated to the
-	// synchronous line by an earlier CLI run — the burned PromptedWorkspaces
-	// entries persisted regardless, and there is no other reliable signal
-	// left to catch. Idempotent and near-free once RecoveredLegacyPrompts is
+	// a legacy line mid-migration: an install may already have had its rc
+	// file migrated to the synchronous line by an earlier CLI run, leaving
+	// burned PromptedWorkspaces entries with no other reliable signal left to
+	// catch. It is idempotent and near-free once RecoveredLegacyPrompts is
 	// set (see below), so calling it unconditionally here is cheap. Best
-	// effort — a failure must never block hook maintenance itself.
+	// effort: a failure must never block hook maintenance itself.
 	_ = recoverBurnedWorkspacePrompts(ctx)
 	return updated, inspected, nil
 }
@@ -159,10 +155,10 @@ func recoverBurnedWorkspacePrompts(ctx context.Context) error {
 }
 
 // legacyDetectionLines are every prior value of the shell startup detection
-// line, oldest first — checked in ensureLineInFile so an existing install
-// gets migrated onto the current line instead of ending up with two (or,
-// after this fix, silently keeping the still-broken backgrounded/silenced
-// one forever since it never matches "line already present").
+// line, oldest first, checked in ensureLineInFile so an existing install
+// gets migrated onto the current line instead of ending up with two, or
+// silently keeping a broken backgrounded/silenced one forever because it
+// never matches "line already present".
 var legacyDetectionLines = []string{
 	legacyShellDetectionLine,
 	legacyBackgroundedShellDetectionLine,
@@ -175,7 +171,7 @@ var legacyDetectionLines = []string{
 }
 
 // containsWholeLine reports whether legacy appears in content bounded by
-// newlines (or start/end of content) on both sides — i.e. as its own
+// newlines (or start/end of content) on both sides, i.e. as its own
 // previously-written line, not merely as a text fragment. A plain substring
 // check is not safe here: legacyPlainShellDetectionLine/legacyPlainNoticeLine
 // ("proofboard detect 2>/dev/null" / "proofboard notices 2>/dev/null") are
@@ -203,7 +199,7 @@ func containsWholeLine(content, legacy string) bool {
 // ensureLineInFile makes sure `line` is present in the rc file at `path`,
 // migrating it in place from any known legacy value first. migratedLegacy
 // reports specifically whether an old backgrounded/silenced hook line was
-// found and replaced — the caller uses this to trigger burned-prompt
+// found and replaced. The caller uses this to trigger burned-prompt
 // recovery (see recoverBurnedWorkspacePrompts), since every legacy line in
 // legacyDetectionLines silenced `detect`'s output while still recording its
 // one-time prompt as shown.
