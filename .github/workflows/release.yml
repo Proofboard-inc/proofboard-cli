@@ -262,15 +262,14 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Detects the project's tech stack locally and sends it as labels and counts only — languages, frameworks, and whether the project has CI, tests, containers, or infrastructure code. No file contents leave the machine.
-            - Classifies commits more accurately using symbols read from the working tree, and reworks how milestones are grouped.
-            - Connects and syncs projects regardless of the hosting provider, and adds a disconnect path through the API.
-            - Verifies provider ownership or attributed contributions before connecting a project.
-            - Ships a production npm launcher and points npm users at the repository guide.
-            - Shows progress while long commands run instead of appearing to hang.
-            - Adds an end-to-end journey that drives the compiled executable through installation, authorization, device-key registration, connection, sync, and background workspace detection, with the stand-in backend verifying every payload signature and rejecting any request carrying identifying data.
+            - Notifications now reach the terminal on real installs. The Career Agent authenticates with its own device-scoped credential, which the previous notifications route rejected outright, so nothing was ever surfaced; it now reads the matching endpoint and prints updates on shell startup.
+            - Repository detection no longer announces itself twice. Opening a terminal that reads both a login profile and an interactive profile ran detection once per file; a per-session guard means it runs once.
+            - Repositories silently skipped by older versions are offered again. Earlier builds ran detection with its output discarded while still recording the one-time prompt as shown, so projects were passed over without ever being mentioned. That record is cleared once on upgrade.
+            - A detected repository keeps being offered until you connect it or dismiss it with `proofboard link --dismiss`, instead of being mentioned once and never again.
+            - Project detection, sync, and milestone updates are plain terminal output. The operating-system popups are gone; only an expired session still raises one.
+            - Consistent, colour-aware terminal output across every message, falling back to plain text when output is piped or redirected.
 
-            This release passed live development-service auth/link/sync validation, uncached regression tests, the Go race detector, static analysis, npm wrapper tests, compiled-command testing, signature verification, and the full cross-compilation matrix.
+            Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
           files: |
             dist/proofboard-linux-amd64
             dist/proofboard-linux-amd64.sig
