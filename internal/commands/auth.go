@@ -26,11 +26,11 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return fmt.Errorf("auth: %w", err)
 			}
 			// Already authenticated: report status instead of forcing a fresh
-			// device-code network round trip. Previously this ran unconditionally,
-			// so a developer who was already connected but had a flaky/offline
-			// network got a hard "auth login: send request: ... timeout" error for
-			// a command that had nothing to actually do. --switch (or --rotate-key,
-			// which needs a live round trip to register the new key) bypasses this.
+			// device-code network round trip, so a developer who is already
+			// connected but has a flaky/offline network isn't shown a hard
+			// "auth login: send request: ... timeout" error for a command that
+			// has nothing to actually do. --switch (or --rotate-key, which needs
+			// a live round trip to register the new key) bypasses this.
 			if !switchAccount && !rotateKey {
 				if existing, loadErr := runtime.credentials.Load(ctx); loadErr == nil &&
 					existing.Token != "" && !credentialsCompletelyExpired(existing) {

@@ -11,13 +11,13 @@ import (
 )
 
 // sortedCategoryNames returns the dictionary's category names in a stable,
-// deterministic order. Go randomizes map iteration order per process, which
-// previously made Classify's tie-break (first category to reach the top
-// score wins, via strict `>`) non-deterministic whenever two categories tied
-// on score for the same commit. Iterating this sorted slice instead of
-// ranging the map directly fixes that: ties now always resolve to the
-// alphabetically-first tied category, consistent with the deterministic
-// tie-breaks already used in phase3 (scoring.go) and phase4 (milestones.go).
+// deterministic order. Go randomizes map iteration order per process, so
+// ranging the map directly would make Classify's tie-break (first category
+// to reach the top score wins, via strict `>`) non-deterministic whenever
+// two categories tied on score for the same commit. Iterating this sorted
+// slice instead means ties always resolve to the alphabetically-first tied
+// category, consistent with the deterministic tie-breaks already used in
+// phase3 (scoring.go) and phase4 (milestones.go).
 func sortedCategoryNames(categories map[string]model.Signals) []string {
 	names := make([]string, 0, len(categories))
 	for name := range categories {
@@ -44,11 +44,11 @@ func toLowerBytes(b []byte) []byte {
 
 // Classification signal weights, ordered by how much they can be trusted:
 //
-//   - pathWeight (strongest): a file-path match is structural — it reflects
+//   - pathWeight (strongest): a file-path match is structural, it reflects
 //     which files the commit actually changed, which the author can't fake in
 //     a message. It dominates, and also breaks score ties (see below).
 //   - subjectKeywordWeight: the subject line is the author's intentional
-//     one-line summary — a strong but text-based (spoofable) signal.
+//     one-line summary, a strong but text-based (spoofable) signal.
 //   - bodyKeywordWeight / symbolWeight (recall): the body and symbol-like
 //     identifiers add coverage when the subject is uninformative, but are
 //     noisier, so they count least.
@@ -67,8 +67,8 @@ var conventionalCommitPrefix = regexp.MustCompile(`^([a-zA-Z]+)(\([^)]*\))?!?:\s
 // type. This is a STRONGER signal than the category dictionary's default
 // impact for a matched category: the author explicitly declared what kind of
 // change this is, so it overrides the category-inferred guess rather than
-// the other way around — previously a "chore: bump dependency versions"
-// commit that happened to match e.g. the "API & Backend Services" category
+// the other way around. Without it, a "chore: bump dependency versions"
+// commit that happens to match e.g. the "API & Backend Services" category
 // by keyword coincidence would be classified impact "feature" (that
 // category's default), which is wrong regardless of what the category is.
 var conventionalCommitImpact = map[string]string{
@@ -106,7 +106,7 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 	for i := range commits {
 		commit := &commits[i]
 		subjectLowerBytes := toLowerBytes(commit.Subject)
-		// Body is a big accuracy lever — a subject like "updates" tells
+		// Body is a big accuracy lever: a subject like "updates" tells
 		// the classifier nothing, but the fuller body text often does. Weighted
 		// below the subject (subjects are the author's intentional summary,
 		// bodies add recall).
@@ -168,30 +168,30 @@ func Classify(commits []model.RawCommit, dictionary model.Dictionary) []model.Co
 		}
 
 		// A Conventional Commits type prefix ("chore:", "fix:", ...) is an
-		// explicit, author-declared signal — it overrides whatever impact the
+		// explicit, author-declared signal: it overrides whatever impact the
 		// matched category defaults to (see impactFromConventionalPrefix).
 		if declared := impactFromConventionalPrefix(subjectLowerBytes); declared != "" {
 			impact = declared
 		}
 
-		// FeatureKeyword(s): a separate, more specific signal than category —
+		// FeatureKeyword(s): a separate, more specific signal than category,
 		// see model.Dictionary.FeatureKeywords. Every keyword that scores > 0
-		// is kept (not just the single top-scorer) — a commit can legitimately
-		// touch more than one concept (e.g. an "orders" commit that also wires
-		// up "delivery"), and dropping every match but the best one was
-		// throwing that signal away, leaving milestone clusters with only one
-		// generic feature label even when several distinct ones were present
-		// across their commits. Sorted by descending score, then by dictionary
-		// order for a deterministic tie-break (not a map, so no extra sort key
-		// needed there).
+		// is kept, not just the single top-scorer, since a commit can
+		// legitimately touch more than one concept (e.g. an "orders" commit
+		// that also wires up "delivery"), and dropping every match but the
+		// best one would throw that signal away, leaving milestone clusters
+		// with only one generic feature label even when several distinct ones
+		// were present across their commits. Sorted by descending score, then
+		// by dictionary order for a deterministic tie-break (not a map, so no
+		// extra sort key needed there).
 		//
 		// File-path matching (weighted highest, same as category classification
-		// above) was added after real-world dogfooding showed most commit
-		// subjects are too terse ("fix bug", "update logic") to ever contain a
-		// feature phrase — but the module/folder a commit actually touches
-		// (src/modules/vendors/..., src/modules/delivery/...) reliably names the
-		// feature area regardless of how the author wrote the message, and can't
-		// be spoofed by a vague commit message the way subject/body text can.
+		// above) matters because most commit subjects are too terse ("fix bug",
+		// "update logic") to ever contain a feature phrase, but the
+		// module/folder a commit actually touches (src/modules/vendors/...,
+		// src/modules/delivery/...) reliably names the feature area regardless
+		// of how the author wrote the message, and can't be spoofed by a vague
+		// commit message the way subject/body text can.
 		type featureMatch struct {
 			keyword string
 			score   int

@@ -84,13 +84,12 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
-	// 0. Self-heal shell startup hooks onto the current line — cheap, local
+	// 0. Self-heal shell startup hooks onto the current line: cheap, local
 	// file I/O only (a small rc-file read + Contains check, no network), so
 	// unlike the checks below this doesn't need throttling. Without this, an
 	// existing install whose .zshrc/.bashrc/etc. still has an older hook
-	// value (e.g. the backgrounded-and-fully-silenced `detect` line replaced
-	// below) would never pick up the fix — hook-maintain only otherwise runs
-	// once, at `proofboard install` time.
+	// value would never pick up the current one, since hook-maintain
+	// otherwise only runs once, at `proofboard install` time.
 	_, _, _ = ensureShellDetectionHooks(checkCtx)
 
 	releases := api.NewReleaseClient(runCtx.config.ReleaseBaseURL)
@@ -101,14 +100,14 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
 	}
 
-	// 2. Check Dictionary Version — throttled to at most once per 6h.
+	// 2. Check Dictionary Version, throttled to at most once per 6h.
 	// This function runs on every command via PersistentPreRunE, and `sync`
 	// (fired by post-merge/post-pull git hooks on every commit/pull) is not
-	// in the exclusion list above — so without a cadence gate this was
-	// hitting the dictionary endpoint on every single commit/pull, risking
-	// 429s. The gate covers the ATTEMPT, not just successful updates: a
-	// failed check is throttled too, so a flaky/down release server can't
-	// turn into a check-on-every-command retry storm either.
+	// in the exclusion list above, so without a cadence gate this would hit
+	// the dictionary endpoint on every single commit/pull, risking 429s. The
+	// gate covers the ATTEMPT, not just successful updates: a failed check is
+	// throttled too, so a flaky/down release server can't turn into a
+	// check-on-every-command retry storm either.
 	stateData, err := runCtx.state.Load(checkCtx)
 	if err == nil && stateData.AutoUpdateDictionary &&
 		(stateData.LastDictionaryUpdateCheck.IsZero() || time.Since(stateData.LastDictionaryUpdateCheck) >= 6*time.Hour) {
@@ -123,12 +122,10 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 			case updateErr != nil && len(localDict.StackSignals) == 0:
 				// The locally cached dictionary predates stack-signal data (or
 				// was never successfully fetched at all) AND this refresh
-				// attempt just failed — previously this branch was silent, so
-				// tech-stack detection stayed permanently degraded (falling back
-				// to a ~15-entry built-in table) with no visible sign anything
-				// was wrong; a developer had no way to tell "up to date" from
-				// "stuck on a years-old empty cache". Surface it (still
-				// throttled to the same 6h cadence as the check itself).
+				// attempt just failed, so tech-stack detection would otherwise
+				// stay silently degraded (falling back to a ~15-entry built-in
+				// table) with no visible sign anything is wrong. Surface it
+				// (still throttled to the same 6h cadence as the check itself).
 				fmt.Fprintf(cmd.OutOrStdout(), "Warning: could not refresh the category/tech-stack dictionary (%v).\nTech-stack detection will be incomplete until this succeeds — check your connection and try again.\n", updateErr)
 				_ = logging.WriteSyncLog(runCtx.homeDir, "", "startup", "dictionary check", "failure", updateErr.Error())
 			case updateErr != nil:

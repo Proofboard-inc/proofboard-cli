@@ -9,8 +9,8 @@ import (
 // Language-aware regex sets for extracting symbol-like identifiers
 // (function/class/method names, import module names) from a commit's message
 // body. This is a coarse, best-effort signal derived from prose the author
-// wrote — not real diff/AST parsing (explicitly out of scope per the
-// pure-Go, no-parser-dependency decision) — used only to add a small amount
+// wrote, not real diff/AST parsing (explicitly out of scope per the
+// pure-Go, no-parser-dependency decision), used only to add a small amount
 // of extra classification signal beyond the subject line and file paths.
 //
 // Patterns are matched against an already-lowercased byte slice (see
@@ -63,7 +63,7 @@ var symbolPatternsByExtension = map[string][]*regexp.Regexp{
 // ExtractSymbols scans an already-lowercased commit body for symbol-like
 // identifiers, using regex sets selected by the file extensions present in
 // filePaths. Only matched identifiers (short substrings) are copied into new
-// strings — bodyLower itself is never copied wholesale, and the caller
+// strings; bodyLower itself is never copied wholesale, and the caller
 // remains responsible for zeroing bodyLower after use (see intent.go), same
 // as Subject.
 func ExtractSymbols(bodyLower []byte, filePaths []string) []string {

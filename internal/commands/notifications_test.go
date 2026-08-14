@@ -56,18 +56,22 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 				Data: []model.Notification{
 					{
 						ID:     "notif-1",
+						Type:   "proofboard_viewed",
+						IsRead: false,
+						Meta:   map[string]any{"message": "A visitor opened your public Proofboard."},
+					},
+					// Proposals/Dealboard aren't part of the CLI experience —
+					// this must be marked read without ever being printed.
+					{
+						ID:     "notif-2",
 						Type:   "proposal_accepted",
 						IsRead: false,
-						Meta: map[string]any{
-							"roleTitle":   "Backend Engineer",
-							"companyName": "Fintech Labs",
-							"reason":      "14 authentication-related milestones",
-						},
+						Meta:   map[string]any{"roleTitle": "Backend Engineer"},
 					},
 				},
-				Meta: model.PaginationMeta{Total: 1, Page: 1, Limit: 20, TotalPages: 1},
+				Meta: model.PaginationMeta{Total: 2, Page: 1, Limit: 20, TotalPages: 1},
 			})
-		case "/api/v1/notifications/notif-1/read":
+		case "/api/v1/notifications/notif-1/read", "/api/v1/notifications/notif-2/read":
 			if r.Method != http.MethodPatch {
 				t.Fatalf("expected PATCH on notification read, got %s", r.Method)
 			}
@@ -98,12 +102,22 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	if !strings.Contains(output, "Your Proofboard session has expired") {
 		t.Fatalf("expected expired-session notification, got: %q", output)
 	}
-	if !strings.Contains(output, "New opportunity match") {
-		t.Fatalf("expected inbound opportunity notification, got: %q", output)
+	if !strings.Contains(output, "Someone viewed your Proofboard") {
+		t.Fatalf("expected proofboard-viewed notification, got: %q", output)
+	}
+	if strings.Contains(output, "Backend Engineer") || strings.Contains(output, "opportunity") {
+		t.Fatalf("proposal notification must not be printed, got: %q", output)
 	}
 }
 
-func TestStartupUpdateChecksSkipsWebNotificationsForCLIToken(t *testing.T) {
+// A CLI-scoped token is a completely separate auth strategy from the user
+// session JWT (see backend CLAUDE.md's "Three independent JWT strategies"),
+// so it must call the CLI-guarded mirror /api/v1/cli/notifications rather
+// than the user-session-only /api/v1/notifications, which rejects it
+// outright. This used to just skip surfacing notifications entirely for CLI
+// tokens — silently disabling sync-complete/milestone-ready notices for
+// every real (device-code-authenticated) CLI install.
+func TestStartupUpdateChecksUsesCliScopedRouteForCLIToken(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
@@ -127,15 +141,35 @@ func TestStartupUpdateChecksSkipsWebNotificationsForCLIToken(t *testing.T) {
 		t.Fatalf("save state: %v", err)
 	}
 
-	notificationCalls := 0
+	webNotificationCalls := 0
+	cliNotificationCalls := 0
+	markReadCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/latest.json":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"version": %q, "url": "https://proofboard.io/%s"}`, version.Version, version.Version)))
 		case "/api/v1/notifications":
-			notificationCalls++
+			webNotificationCalls++
 			http.Error(w, "CLI tokens must not call this route", http.StatusUnauthorized)
+		case "/api/v1/cli/notifications":
+			cliNotificationCalls++
+			if got := r.URL.Query().Get("isRead"); got != "false" {
+				t.Fatalf("expected isRead=false, got %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(model.PaginatedNotifications{
+				Data: []model.Notification{
+					{ID: "notif-1", Type: "cli_sync_complete", IsRead: false, Meta: map[string]any{}},
+				},
+				Meta: model.PaginationMeta{Total: 1, Page: 1, Limit: 20, TotalPages: 1},
+			})
+		case "/api/v1/cli/notifications/notif-1/read":
+			markReadCalls++
+			if r.Method != http.MethodPatch {
+				t.Fatalf("expected PATCH on cli notification read, got %s", r.Method)
+			}
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}
@@ -146,15 +180,25 @@ func TestStartupUpdateChecksSkipsWebNotificationsForCLIToken(t *testing.T) {
 	t.Setenv("PROOFBOARD_RELEASE_LATEST_VERSION_PATH", "/latest.json")
 	t.Setenv("PROOFBOARD_API_BASE_URL", srv.URL)
 
+	var out bytes.Buffer
 	cmd := &cobra.Command{Use: "status"}
 	parent := &cobra.Command{Use: "proofboard"}
 	parent.AddCommand(cmd)
-	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetOut(&out)
 	if err := runStartupUpdateChecks(context.Background(), cmd); err != nil {
 		t.Fatalf("runStartupUpdateChecks: %v", err)
 	}
-	if notificationCalls != 0 {
-		t.Fatalf("notification endpoint called %d times with a CLI-scoped token", notificationCalls)
+	if webNotificationCalls != 0 {
+		t.Fatalf("web notification endpoint called %d times with a CLI-scoped token", webNotificationCalls)
+	}
+	if cliNotificationCalls != 1 {
+		t.Fatalf("expected exactly one call to the CLI notifications endpoint, got %d", cliNotificationCalls)
+	}
+	if markReadCalls != 1 {
+		t.Fatalf("expected the surfaced notification to be marked read via the CLI route, got %d calls", markReadCalls)
+	}
+	if !strings.Contains(out.String(), "Proofboard") {
+		t.Fatalf("expected the CLI-scoped notification to be printed, got: %q", out.String())
 	}
 }
 

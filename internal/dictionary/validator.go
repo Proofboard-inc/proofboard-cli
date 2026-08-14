@@ -18,7 +18,7 @@ func Validate(dictionary Dictionary) error {
 		}
 	}
 	// A real backend response always includes stack signals (see
-	// CLI_DICTIONARY_RESPONSE) — rejecting one that doesn't means a
+	// CLI_DICTIONARY_RESPONSE); rejecting one that doesn't means a
 	// truncated/malformed/regressed response can never get installed and
 	// silently degrade tech-stack detection down to the tiny built-in
 	// fallback table with no visible error anywhere in the chain.

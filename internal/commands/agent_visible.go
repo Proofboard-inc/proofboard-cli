@@ -15,7 +15,7 @@ func init() {
 // runInVisibleTerminal runs the Career Agent binary with the given args in
 // workspace's directory inside a real, visible terminal window, instead of
 // silently in the background. This backs actions explicitly chosen from the
-// workspace-detection dialog/notification (e.g. "Sync Project") — the user
+// workspace-detection dialog/notification (e.g. "Sync Project"): the user
 // asked for that action; they should see it actually run, not wonder whether
 // anything happened.
 func runInVisibleTerminal(ctx context.Context, workspace string, args ...string) error {

@@ -94,7 +94,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "unlinked repo in hook")
 					return nil
 				}
-				notifications.Dispatch(out, notifications.NewProjectDetected(identity.Repo))
+				notifications.PrintEvent(out, notifications.NewProjectDetected(identity.Repo))
 				fmt.Fprintln(out, "Preparing this project for automatic tracking...")
 				linkCmd := newLinkCommand(ctx, out)
 				if fromAgent {
@@ -136,7 +136,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			if resync {
 				// Pure replay of the last transmitted payload: no git ingest,
-				// no reclassification, no pipeline run — just re-sign the
+				// no reclassification, no pipeline run, just re-sign the
 				// cached content with `Regenerate: true` and resend it.
 				if repoState.LastSyncPayload == nil {
 					if _, printErr := fmt.Fprintln(out, `Nothing to resync yet — run "proofboard sync" first.`); printErr != nil {
@@ -356,7 +356,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintln(out, "Phases 2-5: classify, score, cluster, shred")
 			}
 			// Best-effort local stack detection, refreshed on every
-			// sync — never block or fail a sync over a detection error.
+			// sync; never block or fail a sync over a detection error.
 			var stack *model.StackReport
 			if report, detectErr := detection.DetectStack(repo.Path, dict); detectErr == nil {
 				stack = &report
@@ -366,7 +366,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// logistics integration called over raw HTTP, no matching npm
 			// dependency). Merge in whatever commit-subject text also
 			// resolves, before raw is handed to the pipeline below (whose
-			// Phase 2 zeroes Subject as part of shredding) — manifest matches
+			// Phase 2 zeroes Subject as part of shredding): manifest matches
 			// first (stronger signal), then any additional subject-based
 			// matches not already present, capped at the same limit.
 			if stack != nil {
@@ -388,7 +388,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			// Was this sync's commits captured from the repo's actual
 			// detected default branch, or a manually-`add-branch`'d one?
-			// Never sent as a branch name — just this boolean — so the
+			// Never sent as a branch name, just this boolean, so the
 			// backend can weight SHA-proof trust accordingly without the
 			// CLI transmitting anything proprietary/identifying. Fails open
 			// (true) only when the current branch itself can't be determined
@@ -436,7 +436,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				fmt.Fprintln(out, "Phase 6: transmit")
 			}
 			// receipt/transmittedPayload are populated by transmitSyncPayload
-			// on a successful call to runtime.api.Sync — read after it
+			// on a successful call to runtime.api.Sync, read after it
 			// returns to decide what the final print should say (see the
 			// receipt.Status branch inside reportSyncOutcome) and to cache
 			// the exact signed payload that left the machine for a future
@@ -473,7 +473,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "save state", "failure", err.Error())
 				return err
 			}
-			// The backend's response to this sync's payload — not the
+			// The backend's response to this sync's payload, not the
 			// earlier "nothing to send at all" short-circuit above (that
 			// one never reaches the network). A server-reported dedup/
 			// regenerate status means the CLI DID transmit a payload, but
@@ -516,7 +516,7 @@ func transmitSyncPayload(ctx context.Context, out io.Writer, runtime runtimeCont
 			return fmt.Errorf("missing authentication token")
 		}
 		signedPayload := payload
-		// Device signing is mandatory — the backend unconditionally
+		// Device signing is mandatory: the backend unconditionally
 		// rejects any sync payload missing deviceKeyId/deviceSignature
 		// (cli-ingest.service.ts), so there is no optional path here.
 		keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
@@ -590,28 +590,31 @@ func reportSyncOutcome(out io.Writer, receipt model.SyncReceipt, payload model.S
 			return err
 		}
 	case "regenerating":
-		if _, err := fmt.Fprintln(out, "✓ Regenerate requested for your milestone summaries. Refresh your dashboard shortly to see updated text."); err != nil {
+		if _, err := fmt.Fprintf(out, "%s %s %s\n",
+			style.Success(out, "✓"),
+			style.Brand(out, "Proofboard"),
+			style.Heading(out, "— Regenerate requested for your milestone summaries. Refresh your dashboard shortly to see updated text.")); err != nil {
 			return err
 		}
 	default:
 		// Print one live line per detected cluster as they're found, so
-		// every category synced this run is visible in real time —
-		// previously this only ever reported payload.MilestoneClusters[0],
-		// silently dropping every other category from the terminal output.
-		// This is informational only: the backend's clustering/AI-summary
-		// pass is still async at this point, so there's nothing to review
-		// yet — the actionable "ready to review" prompt surfaces later,
-		// once that finishes, via the sync-complete notification (see
+		// every category synced this run is visible in real time. This is
+		// informational only: the backend's clustering/AI-summary pass is
+		// still async at this point, so there's nothing to review yet.
+		// The actionable "ready to review" prompt surfaces later, once
+		// that finishes, via the sync-complete notification (see
 		// `proofboard notices`, wired into shell startup).
 		for _, cluster := range payload.MilestoneClusters {
 			fmt.Fprintln(out, style.ClusterLine(out, cluster.Category, cluster.ImpactType, cluster.ImpactScale, cluster.CommitCount))
 		}
 		var err error
 		if len(payload.SHAs) == 0 && metadataOnly {
-			_, err = fmt.Fprintln(out, "Repository metadata synchronized.")
+			_, err = fmt.Fprintf(out, "%s %s %s\n",
+				style.Success(out, "✓"), style.Brand(out, "Proofboard"), style.Heading(out, "— Repository metadata synchronized."))
 		} else {
-			_, err = fmt.Fprintf(out, "%s Synced %d commits. Clusters detected: %d.\n",
-				style.Success(out, "✓"), len(payload.SHAs), len(payload.MilestoneClusters))
+			_, err = fmt.Fprintf(out, "%s %s %s\n",
+				style.Success(out, "✓"), style.Brand(out, "Proofboard"),
+				style.Heading(out, fmt.Sprintf("— Synced %d commits. Clusters detected: %d.", len(payload.SHAs), len(payload.MilestoneClusters))))
 		}
 		if err != nil {
 			return err
