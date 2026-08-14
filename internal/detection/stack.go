@@ -12,10 +12,10 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-// Pure-Go, no-dependency stack detection — extension histograms and
+// Pure-Go, no-dependency stack detection: extension histograms and
 // manifest text scans only, no go-enry/tree-sitter/CGO (decided scope: kept
 // dependency-free, consistent with the CLI's fully pure-Go dependency graph
-// and cross-compile requirements). Labels/counts only leave the machine —
+// and cross-compile requirements). Labels/counts only leave the machine,
 // never file contents.
 
 var extensionToLanguage = map[string]string{
@@ -45,14 +45,10 @@ var extensionToLanguage = map[string]string{
 }
 
 // defaultNpmFrameworkLabels is the fallback used only before the first
-// dictionary fetch ever succeeds (fresh install, offline first run) — once a
+// dictionary fetch ever succeeds (fresh install, offline first run). Once a
 // real dictionary is loaded, its StackSignals (server-driven, far larger,
-// see cli-dictionary.ts) takes over entirely. Previously this ~15-entry map
-// was the ONLY source, with no fallback bucket for anything outside it —
-// which is why a NestJS+MongoDB+Stripe+Redis backend detected as just
-// "Jest, NestJS": none of mongoose/stripe/ioredis/passport/aws-sdk were in
-// this list, and unlisted dependencies were silently dropped, not merely
-// deprioritized.
+// see cli-dictionary.ts) takes over entirely, so this small built-in table
+// only needs to cover the most common frameworks.
 var defaultNpmFrameworkLabels = map[string]string{
 	"react":            "React",
 	"next":             "Next.js",
@@ -83,11 +79,11 @@ func stackSignalsOrDefault(dict model.Dictionary) map[string]string {
 }
 
 // manifestFrameworkLabels is the small built-in fallback for every non-npm
-// manifest, used only before the first dictionary fetch ever succeeds — same
+// manifest, used only before the first dictionary fetch ever succeeds, same
 // "before first fetch" contract as defaultNpmFrameworkLabels above. Once a
 // real dictionary is loaded, its ManifestStackSignals (server-driven, far
 // larger, see cli-dictionary.ts) takes over entirely per manifest. Keyed by
-// manifest identifier — an exact basename, or a "*.ext" suffix pattern for
+// manifest identifier: an exact basename, or a "*.ext" suffix pattern for
 // manifests whose basename varies per project (see manifestKeyForFile).
 var manifestFrameworkLabels = map[string]map[string]string{
 	"go.mod": {
@@ -105,7 +101,7 @@ var manifestFrameworkLabels = map[string]map[string]string{
 
 // manifestExactKeys are manifest basenames matched exactly. Manifests whose
 // basename varies per project (e.g. MyApp.csproj) are matched by suffix
-// instead — see manifestKeyForFile.
+// instead, see manifestKeyForFile.
 var manifestExactKeys = map[string]bool{
 	"go.mod":           true,
 	"requirements.txt": true,
@@ -124,8 +120,8 @@ var manifestExactKeys = map[string]bool{
 
 // manifestKeyForFile maps an actual tracked file's basename to the manifest
 // identifier used to key both the dictionary's ManifestStackSignals and the
-// manifestFrameworkLabels fallback — "" if the file isn't a recognized
-// manifest. package.json is handled separately (parsePackageJSONSignals,
+// manifestFrameworkLabels fallback ("" if the file isn't a recognized
+// manifest). package.json is handled separately (parsePackageJSONSignals,
 // needs real JSON parsing to separate deps from devDeps).
 func manifestKeyForFile(base string) string {
 	if manifestExactKeys[base] {
@@ -143,7 +139,7 @@ func manifestKeyForFile(base string) string {
 // manifestSignalsOrDefault prefers the dictionary's server-driven
 // ManifestStackSignals for a given manifest identifier and only falls back
 // to the small built-in table for that identifier when no dictionary has
-// been loaded yet — same pattern as stackSignalsOrDefault for the npm
+// been loaded yet, the same pattern as stackSignalsOrDefault for the npm
 // ecosystem.
 func manifestSignalsOrDefault(manifestKey string, dict model.Dictionary) map[string]string {
 	if table, ok := dict.ManifestStackSignals[manifestKey]; ok && len(table) > 0 {
@@ -156,7 +152,7 @@ func manifestSignalsOrDefault(manifestKey string, dict model.Dictionary) map[str
 // returns language/framework labels plus structural flags. Best-effort: a
 // detection failure (e.g. not a git repo) returns a zero-value report and an
 // error the caller may safely ignore. dict supplies the server-driven
-// stack/industry signal tables (see stackSignalsOrDefault) — pass the
+// stack/industry signal tables (see stackSignalsOrDefault); pass the
 // zero-value model.Dictionary{} to use the small built-in fallback only.
 func DetectStack(repoPath string, dict model.Dictionary) (model.StackReport, error) {
 	report := model.StackReport{Languages: map[string]int{}}
@@ -204,11 +200,11 @@ func detectLanguages(report *model.StackReport, files []string) {
 // already-collected `git ls-files` list, no extra I/O), not just at repo
 // root, so a monorepo (apps/frontend/package.json, apps/backend/go.mod, no
 // manifest at the actual root) is detected. Capped at maxManifestsScanned to
-// avoid a pathological monorepo making link/sync slow — raised from 20 to 30
-// now that manifest coverage spans many more ecosystems (Python, Go, Rust,
-// PHP, Ruby, Java, .NET, Flutter, iOS, Elixir), so a genuinely polyglot repo
-// has more manifests competing for the same budget. Entirely best-effort: a
-// parse failure on one manifest (handled inside parsePackageJSONSignals/
+// avoid a pathological monorepo making link/sync slow. Manifest coverage
+// spans many ecosystems (Python, Go, Rust, PHP, Ruby, Java, .NET, Flutter,
+// iOS, Elixir), so a genuinely polyglot repo can have many manifests
+// competing for the same budget. Entirely best-effort: a parse failure on
+// one manifest (handled inside parsePackageJSONSignals/
 // scanTextManifestForFrameworks, which already return nil on read/parse
 // error) never aborts detection for the others.
 const maxManifestsScanned = 30
@@ -250,7 +246,7 @@ func detectFrameworks(report *model.StackReport, repoPath string, files []string
 
 	// Folder/module names (e.g. src/modules/vendors, src/modules/delivery)
 	// are matched against every tracked file, not just the manifest-scan
-	// budget above — no I/O involved (already-collected path strings only),
+	// budget above (no I/O involved, already-collected path strings only),
 	// and often the single strongest industry signal a repo has: its own
 	// module names describe its business domain more precisely than a
 	// payment-processor dependency ever could.
@@ -264,7 +260,7 @@ func detectFrameworks(report *model.StackReport, repoPath string, files []string
 
 // countIndustryPathMatches scans every tracked file's path (case-
 // insensitive) for dict.IndustryPathKeywords matches and increments counts
-// per matched industry label — at most once per file even if multiple
+// per matched industry label, at most once per file even if multiple
 // keywords for the same industry match (e.g. a path containing both
 // "orders" and "cart" only counts once toward E-commerce), so a single
 // deeply-nested file can't dominate the ranking over genuinely distinct
@@ -290,15 +286,15 @@ func countIndustryPathMatches(files []string, dict model.Dictionary, counts map[
 }
 
 // maxIndustryHints caps how many industry labels DetectStack/
-// IndustryHintsFromCommits will ever report — a project can genuinely span
+// IndustryHintsFromCommits will ever report. A project can genuinely span
 // more than one (e.g. an e-commerce backend that also handles logistics),
 // but an unbounded list stops being a useful "hint" and starts looking like
-// noise. Raised from 3 to 5: with manifest-dependency and path-keyword
-// counts merged into one ranking, a real domain signal (e.g. path matches
-// for "orders"/"delivery") could previously be crowded out of the top 3 by
-// two unrelated single-dependency matches (e.g. a notification SDK, an
-// analytics SDK) that had nothing to do with the project's actual business
-// domain — 5 slots gives real multi-domain signals room to all surface.
+// noise. With manifest-dependency and path-keyword counts merged into one
+// ranking, a real domain signal (e.g. path matches for "orders"/"delivery")
+// can otherwise be crowded out by unrelated single-dependency matches (e.g.
+// a notification SDK, an analytics SDK) that have nothing to do with the
+// project's actual business domain, so 5 slots gives real multi-domain
+// signals room to all surface.
 const maxIndustryHints = 5
 
 // topIndustries ranks industry labels by match count, most-frequent first,
@@ -320,16 +316,16 @@ func topIndustries(counts map[string]int, max int) []string {
 }
 
 // IndustryHintsFromCommits derives best-effort industry labels by matching
-// commit subjects against dict.IndustrySubjectKeywords — pure substring
+// commit subjects against dict.IndustrySubjectKeywords: pure substring
 // containment against a fixed, server-curated phrase list, exactly like the
 // existing feature-keyword matching in phase2. Never derives a label that
 // isn't already one of the dictionary's pre-approved keys; never returns
 // anything but those exact label strings. Must be called with raw commits
 // whose Subject field is still populated (i.e. before Phase 2's shredding
-// zeroes it) — this function does not mutate or retain the input.
+// zeroes it); this function does not mutate or retain the input.
 //
 // Fills in industries manifest-based detection (DetectStack / topIndustries
-// above, matched against dependency names) couldn't see — e.g. a repo that
+// above, matched against dependency names) couldn't see, e.g. a repo that
 // talks to an industry-specific API over raw HTTP with no matching npm
 // dependency. Only the resolved labels ever leave this function; the
 // matched phrase and raw subject text never do.
@@ -356,7 +352,7 @@ func IndustryHintsFromCommits(raw []model.RawCommit, dict model.Dictionary) []st
 		}
 	}
 	// Same alphabetical-tie-break, most-frequent-match ranking as the
-	// manifest-based path above — one shared, deterministic policy for
+	// manifest-based path above: one shared, deterministic policy for
 	// ordering multiple matched industry labels.
 	return topIndustries(counts, maxIndustryHints)
 }
@@ -367,8 +363,8 @@ type packageJSONManifest struct {
 }
 
 // parsePackageJSONSignals matches every dependency (regular + dev) against
-// the given stack/industry signal tables. Only labels/industries — never the
-// dependency list itself — are returned to the caller.
+// the given stack/industry signal tables. Only labels/industries, never the
+// dependency list itself, are returned to the caller.
 func parsePackageJSONSignals(
 	path string, stackSignals, industrySignals map[string]string,
 ) (frameworks []string, industries []string) {

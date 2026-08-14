@@ -2,7 +2,7 @@ package main
 
 // A stand-in Proofboard backend. It behaves the way the real service is
 // documented to behave, and additionally verifies every sync payload signature
-// with the public key the Career Agent registered — the same check the real
+// with the public key the Career Agent registered, the same check the real
 // backend performs, so a canonicalization mistake fails the test here.
 
 import (
@@ -108,7 +108,7 @@ func (s *server) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/cli-auth":
 		// The authorization page. Deliberately carries the framework's
 		// not-found text in its payload, the way a real single page
-		// application does, to prove the CLI no longer rejects it.
+		// application does, to verify the CLI doesn't reject it.
 		_, _ = w.Write([]byte(`<!DOCTYPE html><html><head>` +
 			`<title>Proofboard | Verified Career Infrastructure for Engineers</title></head>` +
 			`<body><div id="cli-auth">Authorize this device</div>` +

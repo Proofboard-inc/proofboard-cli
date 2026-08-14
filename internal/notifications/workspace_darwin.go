@@ -13,7 +13,7 @@ import (
 
 // showWorkspaceAction prefers a real Notification Center banner via the
 // optional `terminal-notifier` tool (https://github.com/julienXX/terminal-notifier,
-// `brew install terminal-notifier`) — corner-positioned and non-blocking,
+// `brew install terminal-notifier`), corner-positioned and non-blocking,
 // unlike the AppleScript `display dialog` fallback below, which is always
 // centered and modal with no way to reposition it. Falls back automatically
 // to the dialog whenever terminal-notifier isn't on PATH, or fails for any
@@ -49,7 +49,7 @@ func showWorkspaceActionViaTerminalNotifier(ctx context.Context, action Workspac
 	}
 
 	// -wait blocks until the user interacts (or the notification expires) and
-	// -json prints the result as structured JSON on stdout — this process is
+	// -json prints the result as structured JSON on stdout. This process is
 	// already a detached, dedicated `proofboard notify` subprocess (see
 	// notify.go/agent.go), so blocking here is the same safe pattern already
 	// used by the dialog fallback's own blocking `giving up after 120`.
@@ -75,7 +75,7 @@ func showWorkspaceActionViaTerminalNotifier(ctx context.Context, action Workspac
 	})
 	if !ok {
 		// Dismissed, timed out, or the notification body was clicked without
-		// picking a specific action from the dropdown — nothing to activate.
+		// picking a specific action from the dropdown: nothing to activate.
 		return nil
 	}
 	return ActivateWorkspaceAction(ctx, kind, action.Workspace, action.Target)
@@ -135,8 +135,8 @@ func appleScriptSafeText(s string) string {
 	return b.String()
 }
 
-// showWorkspaceActionViaDialog is the original AppleScript `display dialog`
-// implementation — centered, modal, no position control. Kept as the
+// showWorkspaceActionViaDialog is the AppleScript `display dialog`
+// implementation: centered, modal, no position control. Used as the
 // automatic fallback for machines without terminal-notifier installed.
 func showWorkspaceActionViaDialog(ctx context.Context, action WorkspaceAction) error {
 	title, body, primary, secondary, tertiary := workspaceActionLabels(action.Kind)

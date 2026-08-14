@@ -12,7 +12,6 @@ import (
 
 	"github.com/proofboard/proofboard/internal/detection"
 	"github.com/proofboard/proofboard/internal/logging"
-	statestore "github.com/proofboard/proofboard/internal/state"
 	"github.com/proofboard/proofboard/internal/style"
 	"github.com/spf13/cobra"
 )
@@ -35,12 +34,11 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				workspace = runtime.workingDir
 			}
 
-			// detect now runs synchronously from shell startup (see
-			// shell_hooks.go) rather than backgrounded, so its output is
-			// actually visible in the new terminal instead of being discarded.
-			// Inspect only does local git plumbing, no network, but this bound
-			// still protects shell startup from ever hanging on a pathological
-			// repo — same pattern as the other startup checks in root.go.
+			// detect runs synchronously from shell startup (see shell_hooks.go),
+			// so its output is visible in the new terminal. Inspect only does
+			// local git plumbing, no network, but this bound still protects
+			// shell startup from ever hanging on a pathological repo, the same
+			// pattern as the other startup checks in root.go.
 			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 
@@ -59,17 +57,16 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", string(result.Action), reason, "")
 			if result.Action == detection.ActionLink {
-				// Record the prompt before showing it so a second terminal
-				// opening at the same moment cannot raise it twice.
-				if err := recordWorkspacePrompt(ctx, runtime, result.WorkspacePath); err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, result.RepoHash, "detect", "failure", "record workspace prompt", err.Error())
-					return nil
-				}
 				// `detect` runs inside the very terminal the shell-open hook
 				// just backgrounded it from, so an OS-level popup is
-				// unnecessary machinery here — print straight to that
+				// unnecessary machinery here: print straight to that
 				// terminal instead. (See printLinkDetected.) Skipped in
 				// --json mode, which must emit nothing but the JSON payload.
+				// Nothing is recorded here on the "ask again later" paths,
+				// so the workspace keeps being offered on every future terminal
+				// until the developer either links it or explicitly says
+				// "never" (same effect as `proofboard link --dismiss`,
+				// which is the only thing that silences it for good).
 				if !jsonOutput {
 					printLinkDetected(cmd.OutOrStdout())
 				}
@@ -98,19 +95,6 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return cmd
 }
 
-func recordWorkspacePrompt(ctx context.Context, runtime runtimeContext, workspace string) error {
-	store := statestore.NewStore(runtime.homeDir)
-	current, err := store.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("load state: %w", err)
-	}
-	updated, err := statestore.RecordWorkspacePrompt(current, workspace, time.Now())
-	if err != nil {
-		return fmt.Errorf("record workspace prompt: %w", err)
-	}
-	return store.Save(ctx, updated)
-}
-
 func launchWorkspaceSync(ctx context.Context, workspace string) error {
 	execPath, err := os.Executable()
 	if err != nil {
@@ -133,20 +117,54 @@ func isNotGitRepoError(err error) bool {
 }
 
 // printLinkDetected replaces the OS-level "Project detected" notification
-// for the plain `detect` path. The repo/org name is deliberately left out —
+// for the plain `detect` path. The repo/org name is deliberately left out:
 // it's not needed to make the message actionable, and detect.go otherwise
 // keeps that identity out of anything it prints or logs locally (see the
 // sync.log entry above, which only ever carries RepoHash).
+//
+// This is deliberately print-only: it must NEVER read from stdin. `detect`
+// runs synchronously from the shell startup hook (see shell_hooks.go), so
+// blocking here waiting for keyboard input would hold up the shell prompt
+// itself on every single terminal opened in an unconnected repo. The "y/n"
+// happens after the fact instead, as two ordinary commands the developer
+// runs on their own time: `proofboard sync` is the yes, it authenticates,
+// connects, and syncs in one step, the full flow `link` alone doesn't cover
+// on its own, and `proofboard link --dismiss` is the "never ask again for
+// this project." Neither answer is required before the terminal is usable.
 func printLinkDetected(out io.Writer) {
-	fmt.Fprintf(out, "%s New repository detected\n", style.Success(out, "✓"))
-	fmt.Fprintln(out, "  Run `proofboard link` to add this to your career record.")
-	fmt.Fprintln(out, "  Run `proofboard link --dismiss` if you don't want to be asked about this workspace again.")
+	fmt.Fprintf(out, "%s %s %s\n",
+		style.Success(out, "✓"),
+		style.Brand(out, "Proofboard"),
+		style.Heading(out, "— New repository detected. Sync it?"))
+	printCommandHint(out, "proofboard sync", "yes — connect and sync")
+	printCommandHint(out, "proofboard link --dismiss", "never ask again for this project")
+	fmt.Fprintln(out, style.Muted(out, "  (do nothing to be asked again next time)"))
+}
+
+// printCommandHint renders one "command   description" row, keeping the
+// description column aligned regardless of the command's own ANSI escape
+// codes (padding is computed from the plain command text, then the colored
+// version is substituted in (coloring first and padding after would count
+// invisible escape bytes toward the column width and break alignment).
+func printCommandHint(out io.Writer, command, description string) {
+	const column = 30
+	pad := column - len(command)
+	if pad < 2 {
+		pad = 2
+	}
+	fmt.Fprintf(out, "    %s%s%s\n",
+		style.Accent(out, command),
+		strings.Repeat(" ", pad),
+		style.Muted(out, description))
 }
 
 // printSyncNeeded replaces the OS-level "Project needs sync" notification.
 // The sync itself is already kicked off in the background by
-// launchWorkspaceSync above (unchanged) — this is purely informational.
+// launchWorkspaceSync above; this is purely informational.
 func printSyncNeeded(out io.Writer) {
-	fmt.Fprintf(out, "%s Project needs sync\n", style.Success(out, "✓"))
-	fmt.Fprintln(out, "  Syncing the latest commits privately in the background — no action needed.")
+	fmt.Fprintf(out, "%s %s %s\n",
+		style.Success(out, "✓"),
+		style.Brand(out, "Proofboard"),
+		style.Heading(out, "— project needs sync"))
+	fmt.Fprintln(out, style.Muted(out, "  Syncing the latest commits privately in the background — no action needed."))
 }

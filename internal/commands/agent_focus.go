@@ -9,7 +9,7 @@ import (
 // discoverIDEWorkspaces/configuredIDENames) to the substrings that name shows
 // up as in a frontmost/foreground GUI application name on macOS or Windows.
 // Terminal-based editors (vim/nvim) have no distinct GUI frontmost app of
-// their own — their host terminal is what's actually frontmost — so they are
+// their own (their host terminal is what's actually frontmost), so they are
 // intentionally not matched by the focus check.
 var ideFrontmostAliases = map[string][]string{
 	"code":          {"code", "visual studio code"},
@@ -49,7 +49,7 @@ func matchesFrontmostIDEName(frontApp string, ideNames []string) bool {
 // like it belongs to the given workspace path, by checking for the
 // workspace's folder name. Best-effort: if the title couldn't be read, we
 // can't disambiguate between multiple windows of the same IDE, so this fails
-// open — an app-level focus match is treated as sufficient rather than
+// open: an app-level focus match is treated as sufficient rather than
 // silently going dark whenever the window-title API doesn't cooperate.
 func windowTitleMatchesWorkspace(windowTitle, workspace string) bool {
 	if windowTitle == "" {

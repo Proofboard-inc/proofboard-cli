@@ -9,7 +9,7 @@ func Shred(commits []model.RawCommit, signals []model.CommitSignal) []model.Safe
 	for i := range commits {
 		crypto.ZeroBytes(commits[i].Subject)
 		commits[i].Subject = nil
-		// Defensive second pass, mirroring Subject — Body is already
+		// Defensive second pass, mirroring Subject: Body is already
 		// zeroed in phase2.Classify, but this guards against any future path
 		// that reaches phase5 without going through Classify first.
 		crypto.ZeroBytes(commits[i].Body)

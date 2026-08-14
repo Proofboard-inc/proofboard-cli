@@ -87,7 +87,7 @@ func (s DeviceKeyStore) Load(ctx context.Context) (DeviceKeyRecord, error) {
 // load additionally reports whether the record came from the OS keychain
 // (fromKeychain) vs. the on-disk file fallback. Ensure uses this to decide
 // whether a migration write to the keychain is actually needed, rather than
-// writing to it — and prompting the OS keychain access dialog — on every call.
+// writing to it (and prompting the OS keychain access dialog) on every call.
 func (s DeviceKeyStore) load(ctx context.Context) (record DeviceKeyRecord, fromKeychain bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return DeviceKeyRecord{}, false, fmt.Errorf("load device key: %w", err)
@@ -183,10 +183,10 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 		}
 		// Only write back when the record didn't already come from the OS
 		// keychain (a one-time migration of a legacy on-disk key). Writing on
-		// every Ensure() call — even when nothing changed — meant every
-		// retryAfterAuth retry re-triggered the OS keychain access prompt,
-		// which on macOS can surface as a repeated password/allow dialog on
-		// every single sync.
+		// every Ensure() call, even when nothing changed, would re-trigger the
+		// OS keychain access prompt on every retryAfterAuth retry, which on
+		// macOS can surface as a repeated password/allow dialog on every
+		// single sync.
 		if !fromKeychain {
 			if err := s.Save(ctx, record); err != nil {
 				return DeviceKeyRecord{}, err

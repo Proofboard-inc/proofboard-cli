@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,9 +16,9 @@ import (
 	pbauth "github.com/proofboard/proofboard/internal/auth"
 	"github.com/proofboard/proofboard/internal/config"
 	"github.com/proofboard/proofboard/internal/crypto"
+	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/state"
-	"github.com/proofboard/proofboard/internal/style"
 )
 
 type runtimeContext struct {
@@ -130,114 +129,54 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 	if err != nil || credentials.Token == "" {
 		return
 	}
-	// The notifications route belongs to the web application API and does not
-	// accept CLI-scoped JWTs. Avoid a guaranteed 401 (and a misleading auth
-	// log entry) until the backend exposes a CLI notifications endpoint.
+	// The CLI's device-code-issued token is a completely separate auth
+	// strategy from the user session JWT (three independent JWT strategies;
+	// see backend CLAUDE.md), so it must call the CLI-guarded mirror
+	// (/api/v1/cli/notifications) rather than the user-session-only
+	// /api/v1/notifications route, which rejects it outright.
+	isCliScope := false
 	if scope, scopeErr := crypto.JWTScope(credentials.Token); scopeErr == nil && scope == "cli" {
-		return
+		isCliScope = true
 	}
 	query := url.Values{}
 	query.Set("page", "1")
 	query.Set("limit", "20")
 	query.Set("isRead", "false")
-	res, err := runtime.api.GetNotifications(ctx, credentials.Token, query)
+	var res model.PaginatedNotifications
+	if isCliScope {
+		res, err = runtime.api.GetCliNotifications(ctx, credentials.Token, query)
+	} else {
+		res, err = runtime.api.GetNotifications(ctx, credentials.Token, query)
+	}
 	if err != nil {
 		return
 	}
 	for _, n := range res.Data {
-		if n.Type == "milestone_bundle_ready" {
-			bundleID := notificationMetaString(n.Meta, "bundleId", "milestoneBundleId", "id")
-			title := notificationMetaString(n.Meta, "title", "milestoneTitle", "name")
-			commitCount, hasCommitCount := notificationMetaInt(n.Meta, "commitCount", "commitsCount", "count")
-			// Milestones are rare enough, and reviewable purely from the
-			// terminal (review/publish/skip are all real commands below), so
-			// this no longer also raises an OS-level popup the way it used
-			// to — the terminal print, with the next commands spelled out
-			// literally, is the only surface now.
-			printMilestoneReady(out, title, commitCount, hasCommitCount, bundleID)
-		} else {
+		switch n.Type {
+		case "milestone_bundle_ready":
+			// A sync can produce several milestone clusters at once, each
+			// raising its own milestone_bundle_ready notification server
+			// side, so printing one line per bundle here would be noisy. The
+			// cli_sync_complete/vcs_sync_completed notification already
+			// tells the developer their work was captured; these are marked
+			// read below without printing anything.
+		case "proposal_viewed", "proposal_accepted", "proposal_declined":
+			// Proposals/Dealboard aren't part of the CLI experience right
+			// now: marked read below without printing anything.
+		default:
 			// Terminal-only: these are routine, already-happened confirmations
 			// (sync completed, someone viewed your proofboard, etc.) surfaced
-			// the next time the user happens to run a command — not the kind
+			// the next time the user happens to run a command, not the kind
 			// of time-sensitive prompt that warrants interrupting them with an
 			// OS-level popup on top of it.
 			notifications.PrintEvent(out, notifications.RemoteNotification(n))
 		}
-		_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+		if isCliScope {
+			_ = runtime.api.MarkCliNotificationRead(ctx, credentials.Token, n.ID)
+		} else {
+			_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+		}
 	}
 }
 
-// printMilestoneReady prints the milestone-ready block that used to be an
-// OS-level notification with Review/Publish/Skip buttons. With no buttons to
-// click anymore, the three actions are spelled out as literal, runnable
-// `proofboard milestone ...` commands instead.
-func printMilestoneReady(out io.Writer, title string, commitCount int, hasCommitCount bool, bundleID string) {
-	if strings.TrimSpace(title) == "" {
-		title = "Engineering milestone"
-	}
-	countSuffix := ""
-	if hasCommitCount {
-		unit := "commit"
-		if commitCount != 1 {
-			unit = "commits"
-		}
-		countSuffix = fmt.Sprintf(" (%d %s)", commitCount, unit)
-	}
-	fmt.Fprintf(out, "%s Milestone ready: %q%s\n", style.Success(out, "✓"), title, countSuffix)
-	if strings.TrimSpace(bundleID) == "" {
-		// Nothing to act on without a bundle id — the caller has nothing
-		// further to run, so leave it at the headline.
-		return
-	}
-	type suggestedCommand struct {
-		command string
-		help    string
-	}
-	commands := []suggestedCommand{
-		{fmt.Sprintf("Run `proofboard milestone review %s`", bundleID), "inspect before publishing"},
-		{fmt.Sprintf("Run `proofboard milestone publish %s`", bundleID), "publish as-is"},
-		{fmt.Sprintf("Run `proofboard milestone skip %s`", bundleID), "dismiss this one"},
-	}
-	width := 0
-	for _, c := range commands {
-		if len(c.command) > width {
-			width = len(c.command)
-		}
-	}
-	for _, c := range commands {
-		fmt.Fprintf(out, "  %-*s — %s\n", width, c.command, c.help)
-	}
-}
-
-// notificationMetaInt is notificationMetaString's numeric counterpart: JSON
-// metadata decodes numbers as float64, but a backend that serializes it as a
-// string is tolerated too.
-func notificationMetaInt(meta map[string]any, keys ...string) (int, bool) {
-	for _, key := range keys {
-		value, ok := meta[key]
-		if !ok {
-			continue
-		}
-		switch v := value.(type) {
-		case float64:
-			return int(v), true
-		case int:
-			return v, true
-		case string:
-			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-				return n, true
-			}
-		}
-	}
-	return 0, false
-}
-
-func notificationMetaString(meta map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
 
