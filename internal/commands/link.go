@@ -62,8 +62,8 @@ func promptForBranch(in io.Reader, out io.Writer) string {
 
 // frontendStackSignals / backendStackSignals / mobileLanguageSignals back
 // inferRoleTitle's heuristic: it only reads labels detection.DetectStack
-// already produced (framework/tool names, language extension counts) — never
-// file contents — consistent with the same "local detection surfaces a
+// already produced (framework/tool names, language extension counts), never
+// file contents, consistent with the same "local detection surfaces a
 // value, human confirms" rule the org/company prompt follows.
 var frontendStackSignals = map[string]bool{
 	"React": true, "Next.js": true, "Vue": true, "Angular": true,
@@ -79,7 +79,7 @@ var mobileLanguageSignals = map[string]bool{
 	"Swift": true, "Kotlin": true, "Objective-C": true,
 }
 
-// inferRoleTitle suggests a role from the locally-detected tech stack — never
+// inferRoleTitle suggests a role from the locally-detected tech stack, never
 // asserted outright, only offered as an editable default the user confirms
 // or overrides in promptForCompanyAndRole.
 func inferRoleTitle(stack *model.StackReport) string {
@@ -117,13 +117,13 @@ func inferRoleTitle(stack *model.StackReport) string {
 
 // promptForCompanyAndRole is the interactive, human-confirmed company/role
 // autofill: it never guesses from repo/org *content* (commit messages, file
-// structure) — only the org name already computed locally by
+// structure); only the org name already computed locally by
 // pbgit.ParseRemote, and the tech-stack labels already computed locally by
 // detection.DetectStack, are offered back to the user to confirm or edit.
 // Nothing is sent unless the user confirms. Callers must skip this entirely
 // in non-interactive/agent runs.
 //
-// Declining the detected organisation does not skip the prompt outright —
+// Declining the detected organisation does not skip the prompt outright:
 // the user still gets to type their own company name and confirm/edit a
 // role title, so there's always a chance to fill both in rather than leave
 // them at the backend's placeholder.
@@ -164,10 +164,10 @@ func promptForCompanyAndRole(in io.Reader, out io.Writer, org string, stack *mod
 
 // sanitizeTypedInput cleans a line read via a raw bufio.Reader from an
 // interactive prompt. Unlike a shell's readline, a bufio.Reader does no line
-// editing — pressing an arrow key (or any other special key) while typing
+// editing: pressing an arrow key (or any other special key) while typing
 // inserts its raw ANSI/terminal escape sequence (e.g. ESC '[' 'A' for Up)
 // literally into the buffer instead of moving a cursor, so a mid-input
-// keystroke can end up prefixed onto — or embedded in — the text that gets
+// keystroke can end up prefixed onto, or embedded in, the text that gets
 // sent to the backend as companyName/roleTitle. This strips ANSI CSI escape
 // sequences and other non-printable control bytes before trimming
 // surrounding whitespace.
@@ -176,7 +176,7 @@ func sanitizeTypedInput(s string) string {
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if c == 0x1b { // ESC — drop it and, if present, the whole CSI sequence it starts
+		if c == 0x1b { // ESC: drop it and, if present, the whole CSI sequence it starts
 			if i+1 < len(s) && s[i+1] == '[' {
 				j := i + 2
 				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
@@ -282,10 +282,10 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					}
 					if checkErr == nil && !checkRes.IsLinked {
 						// Backend genuinely doesn't have this repo linked (e.g. it
-						// was removed some other way) — fall through to the normal
+						// was removed some other way), so fall through to the normal
 						// link flow below, prompts and all.
 					} else {
-						// The backend couldn't be reached to verify — a network
+						// The backend couldn't be reached to verify: a network
 						// blip is not the same as "not linked". Local state already
 						// says this repo is connected, so trust it instead of
 						// silently re-running the full interactive flow (re-asking
@@ -297,11 +297,11 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 			}
 
-			// Best-effort local stack detection — never block or fail
+			// Best-effort local stack detection: never block or fail
 			// link on a detection error, the repo may simply not be a
 			// perfectly clean git checkout yet.
 			var stack *model.StackReport
-			// Best-effort local dictionary load (no network call — reads the
+			// Best-effort local dictionary load (no network call, reads the
 			// already-persisted ~/.proofboard/dictionary.json, or the bundled
 			// embedded fallback on a fresh install). Same "never block on this"
 			// contract as DetectStack itself: an empty dictionary just falls
@@ -312,8 +312,8 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 
 			// Human-confirmed company/role autofill. Only offered
-			// interactively — never in --non-interactive/agent-triggered
-			// runs — and only applied by the backend if this request ends up
+			// interactively, never in --non-interactive/agent-triggered
+			// runs, and only applied by the backend if this request ends up
 			// creating a brand new project (never overwrites an existing
 			// one's values).
 			var companyName, roleTitle string
@@ -477,12 +477,10 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return cmd
 }
 
-// dismissWorkspacePrompt is the terminal-invokable equivalent of the "Never
-// Ask Again" button the old "Project detected" OS notification used to
-// offer. It writes the same suppression-state entry
-// (AddWorkspaceSuppression) that button used to write, keyed on the current
-// working directory — the same workspace path `detect`/the Career Agent
-// hash when deciding whether to prompt again.
+// dismissWorkspacePrompt is the terminal-invokable "Never Ask Again" for a
+// workspace. It writes a suppression-state entry (AddWorkspaceSuppression)
+// keyed on the current working directory, the same workspace path
+// `detect`/the Career Agent hash when deciding whether to prompt again.
 func dismissWorkspacePrompt(ctx context.Context, out io.Writer) error {
 	runtime, err := loadRuntime(ctx)
 	if err != nil {

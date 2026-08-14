@@ -17,20 +17,19 @@ type UpdateResult struct {
 	// Updated is true only when a newer dictionary was downloaded, validated,
 	// and atomically installed.
 	Updated bool
-	// Version is the resulting local dictionary version — the newly-applied
+	// Version is the resulting local dictionary version: the newly-applied
 	// one if Updated, otherwise the version that was already local.
 	Version string
 }
 
 // Update checks for a newer dictionary and, if available, downloads,
 // validates, and atomically installs it (replacing ~/.proofboard/dictionary.json).
-// This is the same atomic download+validate+rename flow previously duplicated
-// between the `update-dictionary` command and the root command's startup
-// check — now a single shared implementation.
+// This is the shared atomic download+validate+rename flow used by both the
+// `update-dictionary` command and the root command's startup check.
 //
 // The dictionary is fetched directly from the backend's GET /cli/dictionary
 // endpoint (dictionaryURL, already APIBaseURL+DictionaryPath at both call
-// sites) in a single request — the endpoint is @Public()/@SkipCliAuth(), so
+// sites) in a single request. The endpoint is @Public()/@SkipCliAuth(), so
 // no device/CLI auth token is needed, and it returns the full category
 // signal data (keywords/paths/impact) plus the feature-keyword vocabulary
 // directly, not just a version/URL pointer to a separate CDN download. This
@@ -38,8 +37,8 @@ type UpdateResult struct {
 // the backend without a CLI release, reusing this same periodic check.
 //
 // Callers are responsible for their own throttling (see
-// commands/root.go's 6h gate via state.LastDictionaryUpdateCheck) — Update
-// itself always performs one real fetch when called; it does not rate-limit
+// commands/root.go's 6h gate via state.LastDictionaryUpdateCheck); Update
+// itself always performs one real fetch when called, it does not rate-limit
 // on its own.
 func Update(ctx context.Context, homeDir, dictionaryURL string, local Dictionary) (UpdateResult, error) {
 	remote, err := fetchDictionary(ctx, dictionaryURL)
@@ -86,10 +85,10 @@ func Update(ctx context.Context, homeDir, dictionaryURL string, local Dictionary
 
 // fetchDictionary performs the single GET against the backend's public
 // dictionary endpoint and decodes the response body directly as a
-// Dictionary — the endpoint returns { version, categories, featureKeywords,
+// Dictionary: the endpoint returns { version, categories, featureKeywords,
 // updatedAt } verbatim, with no auth header and no success/data envelope
 // (unlike the rest of the API, this route intentionally returns the raw
-// payload — see cli-repos.controller.ts's getDictionary()).
+// payload; see cli-repos.controller.ts's getDictionary()).
 func fetchDictionary(ctx context.Context, dictionaryURL string) (Dictionary, error) {
 	parsed, err := url.Parse(dictionaryURL)
 	if err != nil {
@@ -123,9 +122,8 @@ func fetchDictionary(ctx context.Context, dictionaryURL string) (Dictionary, err
 
 // CompareVersions returns -1/0/1 as left is less than/equal to/greater than
 // right, comparing dot-separated numeric version segments (an optional
-// leading "v" is ignored). Moved here from internal/commands so both the
-// `update-dictionary` command and Update (used by the root command's startup
-// check) share one implementation.
+// leading "v" is ignored). Shared by the `update-dictionary` command and
+// Update (used by the root command's startup check).
 func CompareVersions(left, right string) (int, error) {
 	parse := func(value string) ([]int, error) {
 		value = strings.TrimPrefix(strings.TrimSpace(value), "v")

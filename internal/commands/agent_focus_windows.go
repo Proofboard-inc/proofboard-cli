@@ -10,7 +10,7 @@ import (
 
 // isWorkspaceFocused reports whether the given workspace's IDE window is the
 // one currently in the foreground. Uses a small inline P/Invoke snippet via
-// PowerShell (GetForegroundWindow/GetWindowThreadProcessId/GetWindowText) —
+// PowerShell (GetForegroundWindow/GetWindowThreadProcessId/GetWindowText):
 // no extra Go dependency needed for a one-shot lookup like this.
 // workspaceCount is the number of IDE workspaces the agent is currently
 // tracking this tick (see discoverIDEWorkspaces); it bounds the fail-open

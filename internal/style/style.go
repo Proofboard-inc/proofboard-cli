@@ -45,6 +45,11 @@ func Muted(w io.Writer, text string) string   { return wrap(w, gray, text) }
 func Heading(w io.Writer, text string) string { return wrap(w, bold, text) }
 func Accent(w io.Writer, text string) string  { return wrap(w, cyan, text) }
 
+// Brand renders the "Proofboard" wordmark bold + cyan: the one-off,
+// slightly heavier treatment reserved for naming the product itself in a
+// startup banner, distinct from Heading/Accent's single-attribute styling.
+func Brand(w io.Writer, text string) string { return wrap(w, bold+cyan, text) }
+
 type fileLike interface {
 	Stat() (os.FileInfo, error)
 }
@@ -63,7 +68,7 @@ func isTerminal(w io.Writer) bool {
 
 // ClusterLine formats one detected milestone cluster as a single colored
 // progress line, meant to be printed live as each cluster is found during a
-// sync — every category detected shows up as it's found, not just the first.
+// sync: every category detected shows up as it's found, not just the first.
 func ClusterLine(w io.Writer, category, impactType, impactScale string, commitCount int) string {
 	impactColor := green
 	switch strings.ToLower(impactType) {

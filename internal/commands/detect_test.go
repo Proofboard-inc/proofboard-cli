@@ -58,8 +58,8 @@ func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
 	if !strings.Contains(printed, "New repository detected") {
 		t.Fatalf("expected link prompt in terminal output, got: %q", printed)
 	}
-	if !strings.Contains(printed, "Run `proofboard link`") {
-		t.Fatalf("expected suggested `proofboard link` command in terminal output, got: %q", printed)
+	if !strings.Contains(printed, "proofboard sync") {
+		t.Fatalf("expected suggested `proofboard sync` command in terminal output, got: %q", printed)
 	}
 	// The real privacy invariant is "never print the actual repo/org
 	// identifier" (here, the test remote's "org/repo") — not "never use the
