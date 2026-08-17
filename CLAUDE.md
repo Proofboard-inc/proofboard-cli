@@ -2,12 +2,22 @@
 
 Sync changes here across the following locations:
 - (project root)/AGENTS.md
+- (project root)/AGENT.md
 - (project root)/GEMINI.md
 - (project root)/CLAUDE.md
-- (project root)/.kiro/steering/project-rules.md
+- (project root)/CONVENTIONS.md
+- (project root)/.clinerules
 - (project root)/.cursorrules
+- (project root)/.cursor/rules/project-rules.mdc
 - (project root)/.windsurfrules
+- (project root)/.kiro/steering/project-rules.md
 - (project root)/.github/copilot-instructions.md
+
+Those eleven carry the same body. Ten are byte-identical;
+`.cursor/rules/project-rules.mdc` prefixes it with the YAML frontmatter Cursor
+requires to apply a rule to every request. A twelfth file,
+`(project root)/.aider.conf.yml`, is not a copy — it is aider's config and
+points aider at `CONVENTIONS.md`.
 
 Read the product and architecture documentation in `(project root)/README.md`
 before changing behavior. The normative specification is
