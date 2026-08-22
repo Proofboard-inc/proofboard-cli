@@ -58,6 +58,16 @@ Keep project detection and synchronization repository-agnostic: provider
 tooling, repository visibility, and public-provider signals must never become
 user-facing requirements or block local analysis.
 
+Workspace detection re-checks on every directory change within an already-open
+shell, not just at shell startup: each shell's rc/profile installs a chpwd
+(zsh)/`PROMPT_COMMAND` (bash)/`--on-variable PWD` (fish)/prompt-wrap
+(PowerShell) hook alongside the startup line, caching the last-seen git root
+so a `cd` within the same repo never re-invokes the CLI — only crossing into a
+genuinely different repo does. Plain POSIX `sh` (the `.profile` fallback) has
+no such hook and stays startup-only, since it has no directory-change event to
+hook into. `sync` (like `detect`) must surface a friendly "not a git
+repository" message instead of a raw Go error when run outside a repo.
+
 Use `Proofboard Career Agent` as the user-facing name. Do not present `CLI`,
 `auth`, `link`, or `sync` as required product concepts.
 

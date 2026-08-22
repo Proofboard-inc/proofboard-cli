@@ -177,6 +177,11 @@ func TestDetectStackPathKeywordsOutrankGenericPaymentProcessorDependency(t *test
 	writeFile(t, dir, "src/modules/orders/orders.service.ts", "export class OrdersService {}")
 	writeFile(t, dir, "src/modules/carts/carts.service.ts", "export class CartsService {}")
 	writeFile(t, dir, "src/modules/delivery/delivery.service.ts", "export class DeliveryService {}")
+	// A second, distinct Logistics-matching directory: the confidence floor
+	// (minIndustryMatches) requires 2+ distinct directory matches before an
+	// industry is reported at all, so a single "delivery" dir alone would
+	// no longer clear it.
+	writeFile(t, dir, "src/modules/shipment/shipment.service.ts", "export class ShipmentService {}")
 	commitAll(t, dir)
 
 	dict := model.Dictionary{
@@ -200,13 +205,70 @@ func TestDetectStackPathKeywordsOutrankGenericPaymentProcessorDependency(t *test
 		t.Fatalf("IndustryHints = %v, want E-commerce/Logistics detected from folder names", report.IndustryHints)
 	}
 	if report.IndustryHints[0] != "E-commerce" {
-		t.Errorf("IndustryHints = %v, want E-commerce ranked first (4 distinct module matches vs 1 delivery match)", report.IndustryHints)
+		t.Errorf("IndustryHints = %v, want E-commerce ranked first (4 distinct module matches vs 2 Logistics matches)", report.IndustryHints)
 	}
 	if !contains(report.IndustryHints, "Logistics") {
 		t.Errorf("IndustryHints = %v, want Logistics also present", report.IndustryHints)
 	}
 	if contains(report.IndustryHints, "Fintech") {
 		t.Errorf("IndustryHints = %v, must NOT contain Fintech — stripe alone doesn't make this a financial product", report.IndustryHints)
+	}
+}
+
+// Regression test for "a pure-Go CLI tool has no path to any industry
+// signal at all" — go.mod (a non-npm manifest) resolving two of its own
+// dependencies to the same industry label must clear the 2-match confidence
+// floor on its own, the same way package.json already could.
+func TestDetectStackNonNpmManifestIndustrySignalsClearConfidenceFloor(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	writeFile(t, dir, "go.mod", "module example.com/tool\n\nrequire (\n\tgithub.com/spf13/cobra v1.8.0\n\tgithub.com/spf13/viper v1.18.0\n)\n")
+	writeFile(t, dir, "main.go", "package main\nfunc main() {}\n")
+	commitAll(t, dir)
+
+	dict := model.Dictionary{
+		Version: "2.4.0",
+		Categories: map[string]model.Signals{
+			"Feature Development": {Impact: "feature"},
+		},
+		IndustrySignals: map[string]string{
+			"github.com/spf13/cobra":  "Developer Tools & Infrastructure",
+			"github.com/spf13/viper": "Developer Tools & Infrastructure",
+		},
+	}
+
+	report, err := DetectStack(dir, dict)
+	if err != nil {
+		t.Fatalf("DetectStack() error: %v", err)
+	}
+	if !contains(report.IndustryHints, "Developer Tools & Infrastructure") {
+		t.Errorf("IndustryHints = %v, want Developer Tools & Infrastructure (2 matching deps in go.mod)", report.IndustryHints)
+	}
+}
+
+// Pins the confidence-floor behavior directly: a single incidental path
+// match (one file, one directory) must never produce an industry hint on
+// its own — this is the exact false-positive shape from the original bug
+// report (one PaymentTracker.tsx file wrongly tagging an entire repo
+// E-commerce).
+func TestDetectStackSingleIncidentalPathMatchProducesNoIndustryHint(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	writeFile(t, dir, "src/proposals/PaymentTracker.tsx", "export {}")
+	commitAll(t, dir)
+
+	dict := model.Dictionary{
+		IndustryPathKeywords: map[string][]string{
+			"E-commerce": {"payment", "checkout"},
+		},
+	}
+
+	report, err := DetectStack(dir, dict)
+	if err != nil {
+		t.Fatalf("DetectStack() error: %v", err)
+	}
+	if len(report.IndustryHints) != 0 {
+		t.Errorf("IndustryHints = %v, want empty (single match must not clear the floor)", report.IndustryHints)
 	}
 }
 
