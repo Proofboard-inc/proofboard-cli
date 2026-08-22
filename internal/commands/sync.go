@@ -56,6 +56,9 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			repo, err := pbgit.Discover(ctx, runtime.workingDir)
 			if err != nil {
+				if isNotGitRepoError(err) {
+					return fmt.Errorf("not a git repository (or any parent up to the filesystem root) — run `proofboard sync` from inside a git repository")
+				}
 				return err
 			}
 			remoteURL, err := pbgit.OriginURL(ctx, repo)
@@ -371,7 +374,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// matches not already present, capped at the same limit.
 			if stack != nil {
 				for _, hint := range detection.IndustryHintsFromCommits(raw, dict) {
-					if len(stack.IndustryHints) >= 3 {
+					if len(stack.IndustryHints) >= detection.MaxIndustryHints {
 						break
 					}
 					already := false
