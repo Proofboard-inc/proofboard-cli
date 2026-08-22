@@ -12,12 +12,6 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-// Pure-Go, no-dependency stack detection: extension histograms and
-// manifest text scans only, no go-enry/tree-sitter/CGO (decided scope: kept
-// dependency-free, consistent with the CLI's fully pure-Go dependency graph
-// and cross-compile requirements). Labels/counts only leave the machine,
-// never file contents.
-
 var extensionToLanguage = map[string]string{
 	".go":    "Go",
 	".ts":    "TypeScript",
@@ -44,11 +38,6 @@ var extensionToLanguage = map[string]string{
 	".vue":   "Vue",
 }
 
-// defaultNpmFrameworkLabels is the fallback used only before the first
-// dictionary fetch ever succeeds (fresh install, offline first run). Once a
-// real dictionary is loaded, its StackSignals (server-driven, far larger,
-// see cli-dictionary.ts) takes over entirely, so this small built-in table
-// only needs to cover the most common frameworks.
 var defaultNpmFrameworkLabels = map[string]string{
 	"react":            "React",
 	"next":             "Next.js",
@@ -67,10 +56,6 @@ var defaultNpmFrameworkLabels = map[string]string{
 	"@playwright/test": "Playwright",
 }
 
-// stackSignalsOrDefault prefers the dictionary's server-driven StackSignals
-// (kept current via dictionary version bumps, no CLI release needed) and
-// only falls back to the small built-in table when no dictionary has been
-// loaded yet.
 func stackSignalsOrDefault(dict model.Dictionary) map[string]string {
 	if len(dict.StackSignals) > 0 {
 		return dict.StackSignals
@@ -78,13 +63,6 @@ func stackSignalsOrDefault(dict model.Dictionary) map[string]string {
 	return defaultNpmFrameworkLabels
 }
 
-// manifestFrameworkLabels is the small built-in fallback for every non-npm
-// manifest, used only before the first dictionary fetch ever succeeds, same
-// "before first fetch" contract as defaultNpmFrameworkLabels above. Once a
-// real dictionary is loaded, its ManifestStackSignals (server-driven, far
-// larger, see cli-dictionary.ts) takes over entirely per manifest. Keyed by
-// manifest identifier: an exact basename, or a "*.ext" suffix pattern for
-// manifests whose basename varies per project (see manifestKeyForFile).
 var manifestFrameworkLabels = map[string]map[string]string{
 	"go.mod": {
 		"github.com/gin-gonic/gin": "Gin",
@@ -99,9 +77,6 @@ var manifestFrameworkLabels = map[string]map[string]string{
 	"composer.json":    {"laravel/framework": "Laravel", "symfony/symfony": "Symfony"},
 }
 
-// manifestExactKeys are manifest basenames matched exactly. Manifests whose
-// basename varies per project (e.g. MyApp.csproj) are matched by suffix
-// instead, see manifestKeyForFile.
 var manifestExactKeys = map[string]bool{
 	"go.mod":           true,
 	"requirements.txt": true,
@@ -118,11 +93,6 @@ var manifestExactKeys = map[string]bool{
 	"mix.exs":          true,
 }
 
-// manifestKeyForFile maps an actual tracked file's basename to the manifest
-// identifier used to key both the dictionary's ManifestStackSignals and the
-// manifestFrameworkLabels fallback ("" if the file isn't a recognized
-// manifest). package.json is handled separately (parsePackageJSONSignals,
-// needs real JSON parsing to separate deps from devDeps).
 func manifestKeyForFile(base string) string {
 	if manifestExactKeys[base] {
 		return base
@@ -136,11 +106,6 @@ func manifestKeyForFile(base string) string {
 	return ""
 }
 
-// manifestSignalsOrDefault prefers the dictionary's server-driven
-// ManifestStackSignals for a given manifest identifier and only falls back
-// to the small built-in table for that identifier when no dictionary has
-// been loaded yet, the same pattern as stackSignalsOrDefault for the npm
-// ecosystem.
 func manifestSignalsOrDefault(manifestKey string, dict model.Dictionary) map[string]string {
 	if table, ok := dict.ManifestStackSignals[manifestKey]; ok && len(table) > 0 {
 		return table
@@ -148,12 +113,6 @@ func manifestSignalsOrDefault(manifestKey string, dict model.Dictionary) map[str
 	return manifestFrameworkLabels[manifestKey]
 }
 
-// DetectStack inspects a repo's tracked files (via `git ls-files`) and
-// returns language/framework labels plus structural flags. Best-effort: a
-// detection failure (e.g. not a git repo) returns a zero-value report and an
-// error the caller may safely ignore. dict supplies the server-driven
-// stack/industry signal tables (see stackSignalsOrDefault); pass the
-// zero-value model.Dictionary{} to use the small built-in fallback only.
 func DetectStack(repoPath string, dict model.Dictionary) (model.StackReport, error) {
 	report := model.StackReport{Languages: map[string]int{}}
 
@@ -196,17 +155,6 @@ func detectLanguages(report *model.StackReport, files []string) {
 	}
 }
 
-// Matches manifests by basename anywhere in the tree (still via the
-// already-collected `git ls-files` list, no extra I/O), not just at repo
-// root, so a monorepo (apps/frontend/package.json, apps/backend/go.mod, no
-// manifest at the actual root) is detected. Capped at maxManifestsScanned to
-// avoid a pathological monorepo making link/sync slow. Manifest coverage
-// spans many ecosystems (Python, Go, Rust, PHP, Ruby, Java, .NET, Flutter,
-// iOS, Elixir), so a genuinely polyglot repo can have many manifests
-// competing for the same budget. Entirely best-effort: a parse failure on
-// one manifest (handled inside parsePackageJSONSignals/
-// scanTextManifestForFrameworks, which already return nil on read/parse
-// error) never aborts detection for the others.
 const maxManifestsScanned = 30
 
 func detectFrameworks(report *model.StackReport, repoPath string, files []string, dict model.Dictionary) {
@@ -237,98 +185,111 @@ func detectFrameworks(report *model.StackReport, repoPath string, files []string
 			continue
 		}
 		if key := manifestKeyForFile(base); key != "" {
-			if labels := manifestSignalsOrDefault(key, dict); len(labels) > 0 {
-				addAll(scanTextManifestForFrameworks(filepath.Join(repoPath, f), labels))
+			labels := manifestSignalsOrDefault(key, dict)
+			// Non-npm manifests (go.mod, requirements.txt, Cargo.toml, etc.)
+			// now resolve industries the same way package.json always did —
+			// dict.IndustrySignals is matched by raw substring against the
+			// manifest text regardless of ecosystem, so a Go CLI's go.mod
+			// dependency on cobra/urfave-cli, or a Rust CLI's Cargo.toml
+			// dependency on clap, can now surface a "Developer Tools &
+			// Infrastructure" hint the same way an npm project's package.json
+			// already could for its own industry signals. Previously this
+			// code path only ever resolved framework labels — a Go CLI tool
+			// (like this CLI's own repo) had literally no way to contribute
+			// an industry signal from its manifest at all.
+			if len(labels) > 0 || len(dict.IndustrySignals) > 0 {
+				fwLabels, industries := scanTextManifestForFrameworks(
+					filepath.Join(repoPath, f), labels, dict.IndustrySignals,
+				)
+				addAll(fwLabels)
+				for _, ind := range industries {
+					industryCounts[ind]++
+				}
 			}
 			scanned++
 		}
 	}
 
-	// Folder/module names (e.g. src/modules/vendors, src/modules/delivery)
-	// are matched against every tracked file, not just the manifest-scan
-	// budget above (no I/O involved, already-collected path strings only),
-	// and often the single strongest industry signal a repo has: its own
-	// module names describe its business domain more precisely than a
-	// payment-processor dependency ever could.
 	countIndustryPathMatches(files, dict, industryCounts)
 
 	for label := range found {
 		report.TechStack = append(report.TechStack, label)
 	}
-	report.IndustryHints = topIndustries(industryCounts, maxIndustryHints)
+	report.IndustryHints = topIndustriesConfident(industryCounts, MaxIndustryHints)
 }
 
-// countIndustryPathMatches scans every tracked file's path (case-
-// insensitive) for dict.IndustryPathKeywords matches and increments counts
-// per matched industry label, at most once per file even if multiple
-// keywords for the same industry match (e.g. a path containing both
-// "orders" and "cart" only counts once toward E-commerce), so a single
-// deeply-nested file can't dominate the ranking over genuinely distinct
-// modules.
+// countIndustryPathMatches scans every tracked file's path for
+// dict.IndustryPathKeywords matches, counting DISTINCT containing
+// directories per label (immediate parent dir, not top-level segment —
+// top-level-only dedup breaks on repos where most files share one root,
+// e.g. Next.js app router under app/).
 func countIndustryPathMatches(files []string, dict model.Dictionary, counts map[string]int) {
 	if len(dict.IndustryPathKeywords) == 0 {
 		return
 	}
+	seenDirs := make(map[string]map[string]bool)
 	for _, f := range files {
 		lower := strings.ToLower(f)
+		dir := ""
+		if idx := strings.LastIndex(lower, "/"); idx >= 0 {
+			dir = lower[:idx]
+		}
 		for label, keywords := range dict.IndustryPathKeywords {
 			for _, kw := range keywords {
 				if kw == "" {
 					continue
 				}
 				if strings.Contains(lower, strings.ToLower(kw)) {
-					counts[label]++
+					if seenDirs[label] == nil {
+						seenDirs[label] = make(map[string]bool)
+					}
+					seenDirs[label][dir] = true
 					break
 				}
 			}
 		}
 	}
+	for label, dirs := range seenDirs {
+		counts[label] = len(dirs)
+	}
 }
 
-// maxIndustryHints caps how many industry labels DetectStack/
-// IndustryHintsFromCommits will ever report. A project can genuinely span
-// more than one (e.g. an e-commerce backend that also handles logistics),
-// but an unbounded list stops being a useful "hint" and starts looking like
-// noise. With manifest-dependency and path-keyword counts merged into one
-// ranking, a real domain signal (e.g. path matches for "orders"/"delivery")
-// can otherwise be crowded out by unrelated single-dependency matches (e.g.
-// a notification SDK, an analytics SDK) that have nothing to do with the
-// project's actual business domain, so 5 slots gives real multi-domain
-// signals room to all surface.
-const maxIndustryHints = 5
+// MaxIndustryHints caps how many industry labels DetectStack/IndustryHintsFromCommits
+// will report at once; exported so callers outside this package (sync.go's
+// subject-hint merge) can share the same cap instead of hardcoding their own.
+const MaxIndustryHints = 5
+const minIndustryMatches = 2
 
-// topIndustries ranks industry labels by match count, most-frequent first,
-// alphabetical tie-break for determinism, capped at max. A hint, not a hard
-// classification. Empty slice if nothing matched.
-func topIndustries(counts map[string]int, max int) []string {
-	keys := make([]string, 0, len(counts))
-	for k := range counts {
-		keys = append(keys, k)
+func topIndustriesConfident(counts map[string]int, max int) []string {
+	type entry struct {
+		label string
+		count int
 	}
-	sort.Strings(keys)
-	sort.SliceStable(keys, func(i, j int) bool {
-		return counts[keys[i]] > counts[keys[j]]
+	var entries []entry
+	for k, c := range counts {
+		if c >= minIndustryMatches {
+			entries = append(entries, entry{k, c})
+		}
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].count != entries[j].count {
+			return entries[i].count > entries[j].count
+		}
+		return entries[i].label < entries[j].label
 	})
-	if len(keys) > max {
-		keys = keys[:max]
+	if len(entries) > max {
+		entries = entries[:max]
 	}
-	return keys
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.label
+	}
+	return out
 }
 
-// IndustryHintsFromCommits derives best-effort industry labels by matching
-// commit subjects against dict.IndustrySubjectKeywords: pure substring
-// containment against a fixed, server-curated phrase list, exactly like the
-// existing feature-keyword matching in phase2. Never derives a label that
-// isn't already one of the dictionary's pre-approved keys; never returns
-// anything but those exact label strings. Must be called with raw commits
-// whose Subject field is still populated (i.e. before Phase 2's shredding
-// zeroes it); this function does not mutate or retain the input.
-//
-// Fills in industries manifest-based detection (DetectStack / topIndustries
-// above, matched against dependency names) couldn't see, e.g. a repo that
-// talks to an industry-specific API over raw HTTP with no matching npm
-// dependency. Only the resolved labels ever leave this function; the
-// matched phrase and raw subject text never do.
 func IndustryHintsFromCommits(raw []model.RawCommit, dict model.Dictionary) []string {
 	if len(dict.IndustrySubjectKeywords) == 0 {
 		return nil
@@ -351,10 +312,7 @@ func IndustryHintsFromCommits(raw []model.RawCommit, dict model.Dictionary) []st
 			}
 		}
 	}
-	// Same alphabetical-tie-break, most-frequent-match ranking as the
-	// manifest-based path above: one shared, deterministic policy for
-	// ordering multiple matched industry labels.
-	return topIndustries(counts, maxIndustryHints)
+	return topIndustriesConfident(counts, MaxIndustryHints)
 }
 
 type packageJSONManifest struct {
@@ -362,9 +320,6 @@ type packageJSONManifest struct {
 	DevDependencies map[string]string `json:"devDependencies"`
 }
 
-// parsePackageJSONSignals matches every dependency (regular + dev) against
-// the given stack/industry signal tables. Only labels/industries, never the
-// dependency list itself, are returned to the caller.
 func parsePackageJSONSignals(
 	path string, stackSignals, industrySignals map[string]string,
 ) (frameworks []string, industries []string) {
@@ -393,19 +348,28 @@ func parsePackageJSONSignals(
 	return frameworks, industries
 }
 
-func scanTextManifestForFrameworks(path string, labels map[string]string) []string {
+// scanTextManifestForFrameworks now also resolves industries, mirroring
+// parsePackageJSONSignals — see the call site comment in detectFrameworks
+// for why this matters for non-npm (Go/Rust/Python/etc.) manifests.
+func scanTextManifestForFrameworks(
+	path string, labels, industrySignals map[string]string,
+) (frameworks []string, industries []string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	content := strings.ToLower(string(data))
-	var found []string
 	for pkg, label := range labels {
 		if strings.Contains(content, strings.ToLower(pkg)) {
-			found = append(found, label)
+			frameworks = append(frameworks, label)
 		}
 	}
-	return found
+	for pkg, industry := range industrySignals {
+		if strings.Contains(content, strings.ToLower(pkg)) {
+			industries = append(industries, industry)
+		}
+	}
+	return frameworks, industries
 }
 
 func detectStructuralFlags(report *model.StackReport, files []string) {
