@@ -61,6 +61,79 @@ const (
 
 	legacyPSDetectionLine = "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"
 	psDetectionLine       = `if (-not $env:PROOFBOARD_DETECTED) { $env:PROOFBOARD_DETECTED = "1"; proofboard detect 2>$null }`
+
+	// zshChpwdHook, bashChpwdHook, fishChpwdHook, psChpwdHook close a gap the
+	// startup-only lines above cannot: shellDetectionLine/fishShellDetectionLine/
+	// psDetectionLine only run once per shell session, at startup, so `cd`-ing
+	// into a different repository inside an already-open terminal never
+	// re-triggers `detect`. Each hook caches the last-seen git top-level in a
+	// shell variable so a `cd` WITHIN the same repo (the common case) costs one
+	// cheap `git rev-parse --show-toplevel` and never actually invokes the CLI.
+	// Each is wrapped in its own installed-once guard (mirroring
+	// PROOFBOARD_DETECTED above) so `ensureLineInFile`'s whole-line substring
+	// dedup makes re-running install idempotent, and appending these as NEW
+	// entries in shellHookTargets' Lines slices leaves the legacy-migration
+	// path (legacyDetectionLines, ensureLineInFile, containsWholeLine)
+	// completely untouched.
+	zshChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
+export PROOFBOARD_CHPWD_INSTALLED=1
+typeset -g _proofboard_last_root=""
+_proofboard_chpwd() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$root" ] && [ "$root" != "$_proofboard_last_root" ]; then
+    _proofboard_last_root="$root"
+    proofboard detect 2>/dev/null
+  fi
+}
+autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd _proofboard_chpwd
+fi`
+
+	bashChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
+export PROOFBOARD_CHPWD_INSTALLED=1
+_proofboard_last_root=""
+_proofboard_chpwd() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$root" ] && [ "$root" != "$_proofboard_last_root" ]; then
+    _proofboard_last_root="$root"
+    proofboard detect 2>/dev/null
+  fi
+}
+PROMPT_COMMAND="_proofboard_chpwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+fi`
+
+	fishChpwdHook = `if not set -q PROOFBOARD_CHPWD_INSTALLED
+set -gx PROOFBOARD_CHPWD_INSTALLED 1
+set -g _proofboard_last_root ""
+function _proofboard_chpwd --on-variable PWD
+    set -l root (git rev-parse --show-toplevel 2>/dev/null)
+    if test -n "$root"; and test "$root" != "$_proofboard_last_root"
+        set -g _proofboard_last_root $root
+        proofboard detect 2>/dev/null
+    end
+end
+end`
+
+	// PowerShell has no native chpwd/PWD-change event; wrapping the prompt
+	// function is the standard idiom. This chains to whatever prompt function
+	// was already defined at install time (custom prompt, oh-my-posh, etc.)
+	// so it never clobbers an existing prompt.
+	psChpwdHook = `if (-not $env:PROOFBOARD_CHPWD_INSTALLED) {
+    $env:PROOFBOARD_CHPWD_INSTALLED = "1"
+    $global:_proofboardLastRoot = ""
+    $global:_proofboardPrevPrompt = $function:prompt
+    function global:prompt {
+        try {
+            $root = git rev-parse --show-toplevel 2>$null
+            if ($root -and $root -ne $global:_proofboardLastRoot) {
+                $global:_proofboardLastRoot = $root
+                proofboard detect 2>$null
+            }
+        } catch {}
+        & $global:_proofboardPrevPrompt
+    }
+}`
 )
 
 func newShellHookMaintenanceCommand(ctx context.Context, out io.Writer) *cobra.Command {
@@ -258,30 +331,32 @@ func shellHookTargets() ([]detectHookTarget, error) {
 	switch shell {
 	case "bash":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".bashrc"), Lines: []string{shellDetectionLine, noticeLine}},
-			{Path: filepath.Join(homeDir, ".bash_profile"), Lines: []string{shellDetectionLine, noticeLine}},
+			{Path: filepath.Join(homeDir, ".bashrc"), Lines: []string{shellDetectionLine, noticeLine, bashChpwdHook}},
+			{Path: filepath.Join(homeDir, ".bash_profile"), Lines: []string{shellDetectionLine, noticeLine, bashChpwdHook}},
 		}, nil
 	case "zsh":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".zshrc"), Lines: []string{shellDetectionLine, noticeLine}},
-			{Path: filepath.Join(homeDir, ".zprofile"), Lines: []string{shellDetectionLine, noticeLine}},
+			{Path: filepath.Join(homeDir, ".zshrc"), Lines: []string{shellDetectionLine, noticeLine, zshChpwdHook}},
+			{Path: filepath.Join(homeDir, ".zprofile"), Lines: []string{shellDetectionLine, noticeLine, zshChpwdHook}},
 		}, nil
 	case "fish":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Lines: []string{fishShellDetectionLine, fishNoticeLine}},
+			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Lines: []string{fishShellDetectionLine, fishNoticeLine, fishChpwdHook}},
 		}, nil
 	case "powershell", "pwsh":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
-			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
+			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
+			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
 		}, nil
 	default:
 		if os.Getenv("OS") == "Windows_NT" {
 			return []detectHookTarget{
-				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
-				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine}},
+				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
+				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
 			}, nil
 		}
+		// Plain POSIX sh (.profile fallback) has no chpwd/PROMPT_COMMAND
+		// equivalent; startup-only detection remains correct here.
 		return []detectHookTarget{
 			{Path: filepath.Join(homeDir, ".profile"), Lines: []string{shellDetectionLine, noticeLine}},
 		}, nil

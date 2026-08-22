@@ -1,7 +1,12 @@
 package model
 
 type Dictionary struct {
-	Version    string             `json:"version"`
+	Version string `json:"version"`
+	// UpdatedAt is display metadata only (e.g. for `proofboard sync` to show
+	// "Dictionary updated to version X on <date>") — never used in any
+	// detection/classification logic. Previously sent by the backend and
+	// silently dropped since this struct had no matching field.
+	UpdatedAt  string             `json:"updatedAt,omitempty"`
 	Categories map[string]Signals `json:"categories"`
 	// FeatureKeywords is a separate, flat vocabulary of generic, resume-style
 	// feature nouns ("dashboard", "checkout", "onboarding"), not another
