@@ -556,11 +556,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Signing out is now `proofboard logout`, as well as `proofboard auth logout`. Both do the same thing.
-            - One naming convention across the whole download list. The plain executables are now published as Proofboard-Career-Agent-<platform>-<architecture>, matching every installer package. The previous lowercase names are still published alongside them, because versions up to 1.13.2 look for that exact filename when they update themselves and would otherwise be stranded.
-            - The MSI now asks for administrator rights up front and installs for all users, rather than failing partway through writing to Program Files. It also refuses a per-user install instead of starting one it cannot finish.
-
-            The MSIX cannot request administrator rights: the format installs per-user into a sandboxed location by design. To deploy it for every user on a machine, an administrator provisions it with Add-AppxProvisionedPackage, which is what Intune and Store deployment do. Anyone needing a per-machine install with an elevation prompt should use the MSI.
+            - The activity log now says why something failed. It previously reduced every error to "[details redacted]", so a sync that failed showed only that it failed, with no way for anyone — including support — to find out more. It now keeps the status code and the transport or verification failure, and still discards everything else, so nothing identifying is written down.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 

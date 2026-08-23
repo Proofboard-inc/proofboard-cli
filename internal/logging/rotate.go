@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -152,6 +153,27 @@ func sanitizeLegacyLog(path string) error {
 	return nil
 }
 
+// safeLogDetailPatterns describe failure information that is safe to keep in
+// the log: an HTTP status, a transport failure, a verification failure. None
+// of them can carry a token, an email address, a repository or organisation
+// name, or anything shredded out of a commit.
+//
+// This exists because the log previously kept a short allowlist of exact
+// phrases and reduced every other detail to "[details redacted]" — including
+// the status code behind a failed sync. A developer whose sync returned 400
+// had no way to find out anything at all about why, and neither did anyone
+// helping them. Redacting the reason a request failed protects nothing.
+var safeLogDetailPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bAPI returned (\d{3})\b`),
+	regexp.MustCompile(`(?i)\breturned status (\d{3})\b`),
+	regexp.MustCompile(`(?i)\bstatus code (\d{3})\b`),
+	regexp.MustCompile(`(?i)\b(context deadline exceeded|context canceled)\b`),
+	regexp.MustCompile(`(?i)\b(no such host|connection refused|connection reset|i/o timeout|TLS handshake timeout|certificate)\b`),
+	regexp.MustCompile(`(?i)\b(signature verification failed|invalid signature)\b`),
+	regexp.MustCompile(`(?i)\b(dictionary must define stack signals|compare dictionary versions)\b`),
+	regexp.MustCompile(`(?i)\b(missing authentication token|device key|unauthorized|forbidden|rate limit)\b`),
+}
+
 func safeLogDetail(detail string) string {
 	if detail == "" {
 		return ""
@@ -167,7 +189,24 @@ func safeLogDetail(detail string) string {
 		"workspace detection hook installed",
 		"workspace detection hook already present":
 		return detail
-	default:
+	}
+	// Keep the parts that identify the failure, drop the rest of the string
+	// rather than trying to decide whether the remainder is safe. What comes
+	// back is assembled from the matches only, so nothing from the original
+	// message survives except the recognised fragments.
+	var kept []string
+	seen := map[string]bool{}
+	for _, pattern := range safeLogDetailPatterns {
+		for _, m := range pattern.FindAllString(detail, -1) {
+			m = strings.ToLower(strings.TrimSpace(m))
+			if !seen[m] {
+				seen[m] = true
+				kept = append(kept, m)
+			}
+		}
+	}
+	if len(kept) == 0 {
 		return redactedLogDetail
 	}
+	return strings.Join(kept, "; ")
 }
