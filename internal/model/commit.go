@@ -46,8 +46,8 @@ type CommitSignal struct {
 	// descending match score.
 	FeatureKeywords []string
 	ImpactType      string
-	NoiseScore     float64
-	SignatureValid bool
+	NoiseScore      float64
+	SignatureValid  bool
 }
 
 type SafeCommit struct {

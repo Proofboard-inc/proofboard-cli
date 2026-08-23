@@ -91,7 +91,6 @@ func TestConfigBranchOperations(t *testing.T) {
 	}
 }
 
-
 func createTempGitRepo(t *testing.T) string {
 	repoDir := t.TempDir()
 	cmd := exec.Command("git", "init", "-b", "main")

@@ -122,6 +122,12 @@ func runAgent(ctx context.Context) error {
 	if err := inspectIDEWorkspaces(ctx, runtime, seenUnlinked, lastSyncLaunch); err != nil {
 		_ = logging.WriteSyncLog(runtime.homeDir, "career-agent", "agent", "workspace scan", "failure", err.Error())
 	}
+	// Executable auto-update rides this loop rather than a timer of its own:
+	// the agent is already the thing that runs unattended, and
+	// maybeAutoUpdateCLI is internally throttled to once a day, so calling it
+	// every scan costs a state read and nothing else. It never blocks — the
+	// installer is started detached and abandoned.
+	maybeAutoUpdateCLI(ctx, runtime)
 
 	ticker := time.NewTicker(agentScanInterval)
 	defer ticker.Stop()
@@ -133,6 +139,7 @@ func runAgent(ctx context.Context) error {
 			if err := inspectIDEWorkspaces(ctx, runtime, seenUnlinked, lastSyncLaunch); err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, "career-agent", "agent", "workspace scan", "failure", err.Error())
 			}
+			maybeAutoUpdateCLI(ctx, runtime)
 		}
 	}
 }

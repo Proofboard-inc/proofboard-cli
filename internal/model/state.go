@@ -22,6 +22,16 @@ type State struct {
 	// (e.g. some non-standard terminal/session contexts), set via
 	// `proofboard config set keychain-disabled true`.
 	KeychainDisabled bool `json:"keychainDisabled,omitempty"`
+	// AutoUpdateCLIDisabled opts this machine out of the daily background
+	// executable update. The field is negative on purpose: its zero value
+	// leaves auto-update ON, so an existing state.json written before this
+	// field existed keeps the intended default rather than silently opting
+	// out every install that upgrades into it.
+	AutoUpdateCLIDisabled bool `json:"autoUpdateCliDisabled,omitempty"`
+	// LastCLIUpdateCheck throttles that check to once a day. Separate from
+	// LastDictionaryUpdateCheck because the two run on different cadences and
+	// a failure in one must not defer the other.
+	LastCLIUpdateCheck time.Time `json:"lastCliUpdateCheck,omitempty"`
 	// RecoveredLegacyPrompts marks that the one-time recovery from the
 	// legacy-backgrounded-shell-hook bug has already run (see
 	// state.RecoverBurnedWorkspacePrompts). Prevents that recovery from
