@@ -20,7 +20,7 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "set key true|false",
-		Short: "Set a Proofboard configuration value (auto-update-dictionary, keychain-disabled)",
+		Short: "Set a Proofboard configuration value (auto-update, auto-update-dictionary, keychain-disabled)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			value, err := strconv.ParseBool(args[1])
@@ -44,6 +44,11 @@ func newConfigCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				// keychain access isn't reachable; falls back to a
 				// 0600-permission ~/.proofboard/device.key file instead.
 				current.KeychainDisabled = value
+			case "auto-update":
+				// Phrased positively for the user ("auto-update false")
+				// while the stored field is negative, so an older
+				// state.json without the field still defaults to enabled.
+				current.AutoUpdateCLIDisabled = !value
 			default:
 				return fmt.Errorf("unsupported config key %q", args[0])
 			}

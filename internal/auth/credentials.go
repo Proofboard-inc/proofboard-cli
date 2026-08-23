@@ -133,9 +133,13 @@ func (s CredentialStore) Delete(ctx context.Context) error {
 		return fmt.Errorf("delete credentials: %w", err)
 	}
 	if !s.keychainDisabled(ctx) && s.secretStore != nil {
-		if err := s.secretStore.Delete(credentialsKeychainService, credentialsKeychainAccount); err != nil && err != keyring.ErrNotFound {
-			return fmt.Errorf("delete credentials from OS keychain: %w", err)
-		}
+		// Best-effort, deliberately not fatal. Save and Load both fall back to
+		// the credentials file when no OS keyring is reachable, so making
+		// Delete the one operation that hard-fails meant `auth logout` aborted
+		// on headless Linux, in containers and over SSH — leaving the
+		// credentials it was asked to remove sitting on disk. Removing the
+		// file below is what actually logs the machine out.
+		_ = s.secretStore.Delete(credentialsKeychainService, credentialsKeychainAccount)
 	}
 	if err := os.Remove(s.Path()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete credentials: %w", err)

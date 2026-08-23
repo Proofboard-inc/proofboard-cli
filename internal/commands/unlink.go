@@ -59,7 +59,7 @@ func newUnlinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				// the log, not the terminal: the person doesn't need "dial tcp:
 				// lookup api-dev.proofboard.io: no such host" printed at them to
 				// understand "couldn't reach the server".
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, "unlink", "failure", "confirm unlink with backend", unlinkErr.Error())
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, "unlink", "confirm unlink with backend", "failure", unlinkErr.Error())
 			}
 
 			current, err := runtime.state.Load(ctx)

@@ -178,5 +178,3 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 		}
 	}
 }
-
-

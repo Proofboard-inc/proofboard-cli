@@ -232,7 +232,7 @@ func TestDetectStackNonNpmManifestIndustrySignalsClearConfidenceFloor(t *testing
 			"Feature Development": {Impact: "feature"},
 		},
 		IndustrySignals: map[string]string{
-			"github.com/spf13/cobra":  "Developer Tools & Infrastructure",
+			"github.com/spf13/cobra": "Developer Tools & Infrastructure",
 			"github.com/spf13/viper": "Developer Tools & Infrastructure",
 		},
 	}

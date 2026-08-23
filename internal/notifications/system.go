@@ -49,7 +49,6 @@ func renderTerminal(w io.Writer, event Event) string {
 	return b.String()
 }
 
-
 func RemoteNotification(n model.Notification) Event {
 	meta := n.Meta
 	get := func(keys ...string) string {

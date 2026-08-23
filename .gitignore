@@ -1,4 +1,9 @@
-build/
+# Only the compiled output directory is ignored. A bare `build/` also shadowed
+# build/goreleaser.yaml, build/checksums.sh and build/install.sh, which are
+# tracked release tooling — any tool that cleans ignored paths deleted them off
+# disk while git still expected them.
+build/dist/
+build/out/
 proofboard
 proofboard.exe
 dist/

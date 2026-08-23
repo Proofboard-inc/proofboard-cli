@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -232,15 +233,30 @@ func recoverBurnedWorkspacePrompts(ctx context.Context) error {
 // gets migrated onto the current line instead of ending up with two, or
 // silently keeping a broken backgrounded/silenced one forever because it
 // never matches "line already present".
-var legacyDetectionLines = []string{
-	legacyShellDetectionLine,
-	legacyBackgroundedShellDetectionLine,
+// Ordered LONGEST FIRST, which is load-bearing rather than cosmetic.
+// legacyShellDetectionLine is a complete line inside the two-line fish value,
+// so checking it first replaced only fish's first line and left a bare
+// `disown $last_pid` behind — a job-control builtin with no job to act on,
+// which errored on every new fish shell. Longest-first makes the most
+// specific value win.
+var legacyDetectionLines = sortedLongestFirst([]string{
 	legacyFishBackgroundedDetectionLine,
+	legacyBackgroundedShellDetectionLine,
 	legacyPSDetectionLine,
+	legacyShellDetectionLine,
 	legacyPlainShellDetectionLine,
 	legacyPlainNoticeLine,
 	legacyPlainPSDetectionLine,
 	legacyPlainPSNoticeLine,
+})
+
+// sortedLongestFirst keeps the ordering guarantee above true by construction,
+// so appending a new legacy value in the wrong place cannot reintroduce the
+// fish bug.
+func sortedLongestFirst(values []string) []string {
+	out := append([]string{}, values...)
+	sort.SliceStable(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	return out
 }
 
 // containsWholeLine reports whether legacy appears in content bounded by

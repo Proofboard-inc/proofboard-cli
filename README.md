@@ -20,6 +20,7 @@ The four explicit static binaries remain attached to every release for power use
 Power users can also install with a package manager:
 
 ```bash
+brew tap proofboard-inc/tap
 brew install proofboard
 npm install -g proofboard-cli
 ```
