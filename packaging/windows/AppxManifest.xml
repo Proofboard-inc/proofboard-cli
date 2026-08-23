@@ -12,8 +12,9 @@
 -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-         IgnorableNamespaces="uap desktop">
+         IgnorableNamespaces="uap uap3 desktop">
 
   <Identity Name="Proofboard.CareerAgent"
             Publisher="CN=Proofboard"
@@ -46,12 +47,14 @@
       <Extensions>
         <!-- Exposes `proofboard` as a command on PATH, which is the whole
              point of shipping a command-line tool in this format. -->
-        <uap:Extension Category="windows.appExecutionAlias" Executable="proofboard.exe"
-                       EntryPoint="Windows.FullTrustApplication">
-          <uap:AppExecutionAlias>
+        <!-- appExecutionAlias is defined in the uap3 namespace; declaring it
+             under uap fails manifest validation outright. -->
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="proofboard.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
             <desktop:ExecutionAlias Alias="proofboard.exe" />
-          </uap:AppExecutionAlias>
-        </uap:Extension>
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
       </Extensions>
     </Application>
   </Applications>
