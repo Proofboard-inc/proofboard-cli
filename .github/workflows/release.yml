@@ -556,6 +556,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
+            - Signing out is now `proofboard logout`, as well as `proofboard auth logout`. Both do the same thing.
             - One naming convention across the whole download list. The plain executables are now published as Proofboard-Career-Agent-<platform>-<architecture>, matching every installer package. The previous lowercase names are still published alongside them, because versions up to 1.13.2 look for that exact filename when they update themselves and would otherwise be stranded.
             - The MSI now asks for administrator rights up front and installs for all users, rather than failing partway through writing to Program Files. It also refuses a per-user install instead of starting one it cannot finish.
 

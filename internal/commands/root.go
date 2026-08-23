@@ -43,6 +43,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 	cmd.SetErr(errOut)
 	cmd.AddCommand(
 		newAuthCommand(ctx, out),
+		newLogoutCommand(ctx, out),
 		newLinkCommand(ctx, out),
 		newUnlinkCommand(ctx, out),
 		newSyncCommand(ctx, out),
