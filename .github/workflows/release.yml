@@ -520,6 +520,14 @@ jobs:
             "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
           cd dist
           sha256sum \
+            Proofboard-Career-Agent-linux-amd64 \
+            Proofboard-Career-Agent-linux-amd64.sig \
+            Proofboard-Career-Agent-darwin-amd64 \
+            Proofboard-Career-Agent-darwin-amd64.sig \
+            Proofboard-Career-Agent-darwin-arm64 \
+            Proofboard-Career-Agent-darwin-arm64.sig \
+            Proofboard-Career-Agent-windows-amd64.exe \
+            Proofboard-Career-Agent-windows-amd64.exe.sig \
             Proofboard-Career-Agent-linux-amd64.deb \
             Proofboard-Career-Agent-darwin-amd64.pkg \
             Proofboard-Career-Agent-darwin-arm64.pkg \
@@ -536,6 +544,26 @@ jobs:
             install.bat \
             proofboard-cli-*.tgz \
             latest.json > checksums.txt
+          # The list above is hand-maintained and has already lost entries
+          # once, which is invisible: a checksums file missing the very
+          # downloads people verify still looks complete. Fail the release
+          # instead of publishing a partial one.
+          for required in \
+            Proofboard-Career-Agent-linux-amd64 \
+            Proofboard-Career-Agent-darwin-amd64 \
+            Proofboard-Career-Agent-darwin-arm64 \
+            Proofboard-Career-Agent-windows-amd64.exe
+          do
+            grep -q " ${required}$" checksums.txt || {
+              echo "checksums.txt is missing ${required}" >&2
+              exit 1
+            }
+            grep -q " ${required}.sig$" checksums.txt || {
+              echo "checksums.txt is missing ${required}.sig" >&2
+              exit 1
+            }
+          done
+          echo "checksums.txt covers $(wc -l < checksums.txt) files"
       - uses: softprops/action-gh-release@v2
         with:
           name: Proofboard Career Agent ${{ github.ref_name }}
@@ -543,10 +571,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - One name per download. The executables were briefly published under two names at once, which put the same four files on the page twice and read worse than the inconsistency it was meant to fix. Every download is now Proofboard-Career-Agent-<platform>-<architecture>, with the format's extension where it has one.
-            - install.bat is published alongside install.cmd, since that is the name people look for on Windows. They are the same file.
-
-            Anyone still on 1.13.2 or earlier updates once by hand, because those versions look for the previous lowercase filename and cannot find it. 1.14.0 and later ask for the new name and are unaffected.
+            - The checksums file lists the executables again. It had quietly lost them, which is the worst way for it to be wrong: a checksums file missing the very downloads people verify still looks complete. The release now refuses to publish if any executable or its signature is absent from it.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
