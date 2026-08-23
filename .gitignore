@@ -13,3 +13,21 @@ PR-DESCRIPTION.md
 
 bundle.js
 proofboard-cli.txt
+
+# Compiled release binaries. These belong in GitHub Releases, which the release
+# workflow already builds and attaches them to; two full copies were previously
+# committed here. The bare `proofboard`/`proofboard.exe` names above did not
+# cover the per-platform ones the build actually produces.
+dist_original/
+proofboard-darwin-*
+proofboard-linux-*
+proofboard-windows-*
+*.sig
+
+# Agent session scratch state and working notes. Build-process exhaust, not
+# project history.
+.agents/
+handoff.md
+progress.md
+error-report.md
+temp_changes.txt
