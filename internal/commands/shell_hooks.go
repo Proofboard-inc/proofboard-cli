@@ -76,7 +76,7 @@ const (
 	// path (legacyDetectionLines, ensureLineInFile, containsWholeLine)
 	// completely untouched.
 	zshChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
-export PROOFBOARD_CHPWD_INSTALLED=1
+PROOFBOARD_CHPWD_INSTALLED=1
 typeset -g _proofboard_last_root=""
 _proofboard_chpwd() {
   local root
@@ -90,7 +90,7 @@ autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd _proofboard_chpwd
 fi`
 
 	bashChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
-export PROOFBOARD_CHPWD_INSTALLED=1
+PROOFBOARD_CHPWD_INSTALLED=1
 _proofboard_last_root=""
 _proofboard_chpwd() {
   local root
@@ -104,7 +104,7 @@ PROMPT_COMMAND="_proofboard_chpwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 fi`
 
 	fishChpwdHook = `if not set -q PROOFBOARD_CHPWD_INSTALLED
-set -gx PROOFBOARD_CHPWD_INSTALLED 1
+set -g PROOFBOARD_CHPWD_INSTALLED 1
 set -g _proofboard_last_root ""
 function _proofboard_chpwd --on-variable PWD
     set -l root (git rev-parse --show-toplevel 2>/dev/null)
