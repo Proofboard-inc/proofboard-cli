@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
 	"github.com/proofboard/proofboard/internal/crypto"
@@ -21,28 +22,99 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// localDefaultBranchTimeout bounds `git symbolic-ref`, which reads a local ref
+// file and needs no network. Generous for what it does, but finite so a
+// pathological repository cannot stall a sync.
+const localDefaultBranchTimeout = 5 * time.Second
+
+// remoteDefaultBranchTimeout bounds `git remote show origin`, which contacts
+// the remote. Without a bound, git waits indefinitely whenever the remote
+// needs credentials it cannot obtain non-interactively — a private repo whose
+// helper has nothing cached, or an unreachable host. Sync runs from
+// post-commit and post-merge hooks and from the background agent, so an
+// unbounded call there left one stuck git process per commit.
+const remoteDefaultBranchTimeout = 10 * time.Second
+
+// gitWaitDelay is what actually makes the timeouts above effective.
+// exec.CommandContext kills only the git process it started, while
+// cmd.Output() waits for the stdout pipe to reach EOF — and git's own
+// helpers (git-remote-https, a credential helper) inherit that pipe, so
+// killing the parent leaves Output() blocked on grandchildren that are still
+// holding it open. WaitDelay forces those pipes closed shortly after the
+// context is done, which is the difference between a bounded call and one
+// that hangs forever.
+const gitWaitDelay = 2 * time.Second
+
+// detectDefaultBranch resolves the repository's default branch, consulting the
+// remote when the local ref is absent. Use it only where waiting on the
+// network is acceptable and a person is present — `link` is interactive and a
+// pause there is visible and explicable.
 func detectDefaultBranch(ctx context.Context, repoPath string) string {
-	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err == nil {
-		str := strings.TrimSpace(string(out))
-		if strings.HasPrefix(str, "refs/remotes/origin/") {
-			return strings.TrimPrefix(str, "refs/remotes/origin/")
-		}
+	if branch := localDefaultBranch(ctx, repoPath); branch != "" {
+		return branch
 	}
-	cmd = exec.CommandContext(ctx, "git", "remote", "show", "origin")
+	return remoteDefaultBranch(ctx, repoPath)
+}
+
+// localDefaultBranch reads refs/remotes/origin/HEAD, which `git clone` writes
+// and `git init` plus `git remote add` does not. Purely local: no network, no
+// credential helper, nothing that can block.
+func localDefaultBranch(ctx context.Context, repoPath string) string {
+	callCtx, cancel := context.WithTimeout(ctx, localDefaultBranchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(callCtx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = repoPath
-	out, err = cmd.Output()
-	if err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "HEAD branch:") {
-				return strings.TrimSpace(strings.TrimPrefix(line, "HEAD branch:"))
-			}
+	cmd.WaitDelay = gitWaitDelay
+	// Never inherit a terminal. Combined with the prompt suppression below it
+	// guarantees git fails fast instead of waiting for input that will not come.
+	cmd.Stdin = nil
+	cmd.Env = nonInteractiveGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	str := strings.TrimSpace(string(out))
+	if strings.HasPrefix(str, "refs/remotes/origin/") {
+		return strings.TrimPrefix(str, "refs/remotes/origin/")
+	}
+	return ""
+}
+
+// remoteDefaultBranch asks the remote. Bounded, and run with prompting
+// disabled so an unauthenticated private remote errors immediately rather
+// than blocking on a credential prompt no one can answer.
+func remoteDefaultBranch(ctx context.Context, repoPath string) string {
+	callCtx, cancel := context.WithTimeout(ctx, remoteDefaultBranchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(callCtx, "git", "remote", "show", "origin")
+	cmd.Dir = repoPath
+	cmd.WaitDelay = gitWaitDelay
+	cmd.Stdin = nil
+	cmd.Env = nonInteractiveGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "HEAD branch:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "HEAD branch:"))
 		}
 	}
 	return ""
+}
+
+// nonInteractiveGitEnv stops git and its credential helpers from prompting.
+// GIT_TERMINAL_PROMPT=0 covers git's own username/password prompt;
+// GIT_ASKPASS and SSH_ASKPASS pointing at a command that exits non-zero stop
+// a helper from opening a GUI prompt instead.
+func nonInteractiveGitEnv() []string {
+	return append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=/bin/false",
+		"SSH_ASKPASS=/bin/false",
+		"GCM_INTERACTIVE=never",
+	)
 }
 
 func promptForBranch(in io.Reader, out io.Writer) string {

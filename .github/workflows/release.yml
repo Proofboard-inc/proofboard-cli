@@ -262,12 +262,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - The Career Agent now keeps itself up to date. It checks once a day in the background and, when a newer release exists, runs the same signed installer a first-time user runs. Nothing blocks, and it is off with `proofboard config set auto-update false`.
-            - Repository detection follows you between projects. Changing directory into a different repository inside a terminal that is already open now offers to connect it, instead of only checking when the terminal first opened.
-            - Terminal windows opened from another terminal detect repositories again. The install guard was inherited by child shells, which then skipped installing the hook entirely, so detection was silent in editor terminals and multiplexer panes.
-            - Industry detection combines what the dependencies say with what the project's own modules are called, instead of letting one overwrite the other.
-            - fish users no longer see an error on every new shell, left behind by an older version of the startup hook.
-            - Signing out works on machines with no system keychain, including containers and remote sessions, where it previously failed and left the credentials in place.
+            - Fixes a hang. Capturing work consults the repository's default branch, and where that is not recorded locally — which is normal for a repository created with `git init` rather than cloned — it asked the remote and waited indefinitely when the remote wanted credentials it could not obtain. Capture runs automatically after commits and merges, so this left a stuck process behind each time. It now reads only local data and never waits on the network.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 
