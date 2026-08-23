@@ -396,14 +396,18 @@ jobs:
             echo "promoted $(basename "$target") to the code-signed build"
           done
 
-      - name: Publish the executables under the product name as well
+      - name: Publish the executables under the product name
         run: |
           # Every installer on the release page is named for the product, so
-          # the bare executables are too. The lowercase names stay alongside
-          # them because versions up to 1.13.2 build that exact filename to
-          # find their own update and fail outright when it is missing;
-          # removing them would strand those installs. Both names are the same
-          # bytes, and both are signed below.
+          # the bare executables are renamed to match. They were briefly
+          # published under both names, which put the same four binaries on
+          # the page twice and made the list harder to read than the
+          # inconsistency it was meant to fix.
+          #
+          # Versions up to 1.13.2 look for the old lowercase name and cannot
+          # self-update without it, so they update once by hand and then track
+          # normally. 1.14.0 and later ask for the product name first, so
+          # nothing from here on is affected.
           cd dist
           for f in proofboard-linux-amd64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe; do
             case "$f" in
@@ -411,8 +415,8 @@ jobs:
               *)     product="Proofboard-Career-Agent-${f}" ;;
             esac
             product=$(printf '%s' "$product" | sed 's/Proofboard-Career-Agent-proofboard-/Proofboard-Career-Agent-/')
-            cp "$f" "$product"
-            echo "published $f also as $product"
+            mv "$f" "$product"
+            echo "published $f as $product"
           done
 
       - name: Sign and verify update binaries
@@ -433,10 +437,6 @@ jobs:
             Proofboard-Career-Agent-darwin-arm64.sig \
             Proofboard-Career-Agent-windows-amd64.exe \
             Proofboard-Career-Agent-windows-amd64.exe.sig \
-            proofboard-linux-amd64 \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-arm64 \
-            proofboard-windows-amd64.exe \
             Proofboard-Career-Agent-linux-amd64 \
             Proofboard-Career-Agent-darwin-amd64 \
             Proofboard-Career-Agent-darwin-arm64 \
@@ -471,14 +471,6 @@ jobs:
           test -f dist/Proofboard-Career-Agent-darwin-arm64.sig
           test -f dist/Proofboard-Career-Agent-windows-amd64.exe
           test -f dist/Proofboard-Career-Agent-windows-amd64.exe.sig
-          test -f dist/proofboard-linux-amd64
-          test -f dist/proofboard-linux-amd64.sig
-          test -f dist/proofboard-darwin-amd64
-          test -f dist/proofboard-darwin-amd64.sig
-          test -f dist/proofboard-darwin-arm64
-          test -f dist/proofboard-darwin-arm64.sig
-          test -f dist/proofboard-windows-amd64.exe
-          test -f dist/proofboard-windows-amd64.exe.sig
           test -f dist/Proofboard-Career-Agent-linux-amd64.deb
           test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
           test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
@@ -508,17 +500,19 @@ jobs:
           cp scripts/install.sh dist/install.sh
           cp scripts/install.ps1 dist/install.ps1
           cp scripts/install.cmd dist/install.cmd
+          # Windows treats .bat and .cmd the same, but people look for
+          # install.bat, so both are published rather than expecting anyone to
+          # know they are equivalent.
+          cp scripts/install.cmd dist/install.bat
+          # The npm package bundles the executables under the lowercase names
+          # its launcher looks for internally, while the release assets carry
+          # the product name. Copy across, translating the name.
           mkdir -p npm-package/vendor
-          cp \
-            dist/proofboard-linux-amd64 \
-            dist/proofboard-linux-amd64.sig \
-            dist/proofboard-darwin-amd64 \
-            dist/proofboard-darwin-amd64.sig \
-            dist/proofboard-darwin-arm64 \
-            dist/proofboard-darwin-arm64.sig \
-            dist/proofboard-windows-amd64.exe \
-            dist/proofboard-windows-amd64.exe.sig \
-            npm-package/vendor/
+          for bundled in proofboard-linux-amd64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe; do
+            asset="Proofboard-Career-Agent-${bundled#proofboard-}"
+            cp "dist/$asset" "npm-package/vendor/$bundled"
+            cp "dist/$asset.sig" "npm-package/vendor/$bundled.sig"
+          done
           npm pack ./npm-package --pack-destination dist
           test -n "$(find dist -maxdepth 1 -type f -name 'proofboard-cli-*.tgz' -print -quit)"
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
@@ -526,14 +520,6 @@ jobs:
             "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
           cd dist
           sha256sum \
-            proofboard-linux-amd64 \
-            proofboard-linux-amd64.sig \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-amd64.sig \
-            proofboard-darwin-arm64 \
-            proofboard-darwin-arm64.sig \
-            proofboard-windows-amd64.exe \
-            proofboard-windows-amd64.exe.sig \
             Proofboard-Career-Agent-linux-amd64.deb \
             Proofboard-Career-Agent-darwin-amd64.pkg \
             Proofboard-Career-Agent-darwin-arm64.pkg \
@@ -547,6 +533,7 @@ jobs:
             install.sh \
             install.ps1 \
             install.cmd \
+            install.bat \
             proofboard-cli-*.tgz \
             latest.json > checksums.txt
       - uses: softprops/action-gh-release@v2
@@ -556,9 +543,10 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - An expired session can recover on its own again. When the service rejected the stored credentials, the Career Agent's automatic reconnect ran sign-in, sign-in replied that you were already connected because credentials were present, and synchronisation retried with the very credentials that had just been rejected. It now signs in properly instead of reporting success without doing anything, so a stale session no longer needs to be cleared by hand.
-            - Signing out now clears everything this device held for the account: the credentials, the activity log, and the device signing key that identified this machine. The shared dictionary is kept, since it is public reference data and identical for everyone.
-            - The activity log records why a request failed rather than reducing everything to "[details redacted]". It keeps the status code and the transport or verification failure, and still discards anything that could identify a repository, an organisation or an account.
+            - One name per download. The executables were briefly published under two names at once, which put the same four files on the page twice and read worse than the inconsistency it was meant to fix. Every download is now Proofboard-Career-Agent-<platform>-<architecture>, with the format's extension where it has one.
+            - install.bat is published alongside install.cmd, since that is the name people look for on Windows. They are the same file.
+
+            Anyone still on 1.13.2 or earlier updates once by hand, because those versions look for the previous lowercase filename and cannot find it. 1.14.0 and later ask for the new name and are unaffected.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
@@ -571,14 +559,6 @@ jobs:
             dist/Proofboard-Career-Agent-darwin-arm64.sig
             dist/Proofboard-Career-Agent-windows-amd64.exe
             dist/Proofboard-Career-Agent-windows-amd64.exe.sig
-            dist/proofboard-linux-amd64
-            dist/proofboard-linux-amd64.sig
-            dist/proofboard-darwin-amd64
-            dist/proofboard-darwin-amd64.sig
-            dist/proofboard-darwin-arm64
-            dist/proofboard-darwin-arm64.sig
-            dist/proofboard-windows-amd64.exe
-            dist/proofboard-windows-amd64.exe.sig
             dist/Proofboard-Career-Agent-linux-amd64.deb
             dist/Proofboard-Career-Agent-darwin-amd64.pkg
             dist/Proofboard-Career-Agent-darwin-arm64.pkg
@@ -593,6 +573,7 @@ jobs:
             dist/install.sh
             dist/install.ps1
             dist/install.cmd
+            dist/install.bat
             dist/proofboard-cli-*.tgz
             dist/latest.json
           fail_on_unmatched_files: true

@@ -41,6 +41,15 @@ function getBinaryName(platform = os.type(), arch = os.arch()) {
     return `proofboard-${osName}-${archName}${osName === 'windows' ? '.exe' : ''}`;
 }
 
+// Release assets are named for the product, matching every installer on the
+// release page. getBinaryName above still returns the lowercase form because
+// that is what the bundled vendor/ files are called inside this package; only
+// the name used to fetch from a release differs.
+function getReleaseAssetName(platform = os.type(), arch = os.arch()) {
+    return `Proofboard-Career-Agent-${getBinaryName(platform, arch)
+        .replace(/^proofboard-/, '')}`;
+}
+
 function fetchBuffer(url, redirectsRemaining = 5) {
     return new Promise((resolve) => {
         let parsedURL;
@@ -156,10 +165,12 @@ async function ensureBinary(options = {}) {
     const cacheDir = options.cacheDir || path.join(os.homedir(), '.proofboard', 'bin', version);
     const binaryPath = path.join(cacheDir, binaryName);
     const signaturePath = `${binaryPath}.sig`;
-    const downloadUrl = options.downloadUrl || `${release.url.replace(/\/$/, '')}/${binaryName}`;
+    // Fetched under the release asset name, cached under the bundled name.
+    const assetName = options.assetName || getReleaseAssetName(options.platform, options.arch);
+    const downloadUrl = options.downloadUrl || `${release.url.replace(/\/$/, '')}/${assetName}`;
     const signatureUrl = options.signatureUrl || `${downloadUrl}.sig`;
     const releaseTag = version.startsWith('v') ? version : `v${version}`;
-    const githubDownloadUrl = `https://github.com/Proofboard-inc/proofboard-cli/releases/download/${releaseTag}/${binaryName}`;
+    const githubDownloadUrl = `https://github.com/Proofboard-inc/proofboard-cli/releases/download/${releaseTag}/${assetName}`;
 
     if (!fs.existsSync(cacheDir)) {
         fs.mkdirSync(cacheDir, { recursive: true });
@@ -214,6 +225,7 @@ module.exports = {
     DEFAULT_RELEASES_URL,
     GITHUB_LATEST_RELEASE_URL,
     getBinaryName,
+    getReleaseAssetName,
     getLatestRelease,
     getLatestReleaseInfo,
     downloadBinary,
