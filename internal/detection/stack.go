@@ -250,7 +250,7 @@ func countIndustryPathMatches(files []string, dict model.Dictionary, counts map[
 		}
 	}
 	for label, dirs := range seenDirs {
-		counts[label] = len(dirs)
+		counts[label] += len(dirs)
 	}
 }
 
