@@ -215,6 +215,20 @@ jobs:
           test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
           test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
           test -f dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+      - name: Stamp the installer fallback version
+        run: |
+          # The installers carry a pinned version used only when neither
+          # latest.json nor the GitHub API can be reached. Hand-maintained it
+          # goes stale silently — it sat at v1.10.0 across four releases,
+          # which would have installed a downgrade on any machine that hit
+          # the fallback path. Stamping it here means it cannot drift again.
+          TAG="${GITHUB_REF_NAME}"
+          sed -i "s/^PINNED_VERSION=\".*\"$/PINNED_VERSION=\"${TAG}\"/" scripts/install.sh
+          sed -i "s/^\$PinnedVersion = '.*'$/\$PinnedVersion = '${TAG}'/" scripts/install.ps1
+          grep -q "PINNED_VERSION=\"${TAG}\"" scripts/install.sh
+          grep -q "PinnedVersion = '${TAG}'" scripts/install.ps1
+          echo "installer fallback pinned to ${TAG}"
+
       - name: Stage installers
         run: |
           cp scripts/install.sh dist/install.sh
@@ -262,8 +276,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Milestones waiting for a decision are now listed with the exact commands that act on them. Reviewing, publishing and skipping each need an identifier the Career Agent had stopped printing anywhere, which left those actions impossible to reach.
-            - Notifications the Career Agent does not display are no longer marked as read. They were being consumed here and cleared from the dashboard, where they are shown, without anyone having seen them.
+            - Fixes a downgrade risk in the background updater. The installer resolves the newest release itself and, when it cannot reach either source, falls back to a version written inside the script — which had not been updated in four releases. An update running unattended could therefore have installed an older build over a newer one, and done it again the next day. The updater now names the exact release it decided on, and the fallback version is stamped automatically when a release is built so it cannot fall behind again.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 

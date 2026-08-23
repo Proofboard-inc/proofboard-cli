@@ -1,6 +1,6 @@
 {
   "name": "proofboard-cli",
-  "version": "1.12.2",
+  "version": "1.12.3",
   "description": "Thin npm launcher for the signed Proofboard Career Agent release",
   "main": "./index.js",
   "bin": {
