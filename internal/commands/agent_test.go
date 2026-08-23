@@ -52,24 +52,20 @@ func TestMatchesIDEProcess(t *testing.T) {
 	}
 }
 
-func TestPruneInactiveWorkspaceSessionsResetsNotNowAfterWorkspaceCloses(t *testing.T) {
-	seenUnlinked := map[string]bool{
-		"/workspace/open":   true,
-		"/workspace/closed": true,
-	}
+func TestPruneInactiveWorkspaceSessionsDropsThrottleWhenWorkspaceCloses(t *testing.T) {
+	// The throttle exists to stop a workspace being synced repeatedly while
+	// its editor is open. Once the editor closes, the entry must go: keeping
+	// it would suppress the first sync after the workspace is reopened.
 	lastSyncLaunch := map[string]time.Time{
 		"/workspace/open":   time.Now(),
 		"/workspace/closed": time.Now(),
 	}
 	active := map[string]bool{"/workspace/open": true}
 
-	pruneInactiveWorkspaceSessions(seenUnlinked, lastSyncLaunch, active)
+	pruneInactiveWorkspaceSessions(lastSyncLaunch, active)
 
-	if !seenUnlinked["/workspace/open"] {
-		t.Fatal("active workspace prompt session was removed")
-	}
-	if seenUnlinked["/workspace/closed"] {
-		t.Fatal("closed workspace remained dismissed after its IDE session ended")
+	if _, exists := lastSyncLaunch["/workspace/open"]; !exists {
+		t.Fatal("throttle for a still-open workspace was dropped, so it can be re-synced immediately")
 	}
 	if _, exists := lastSyncLaunch["/workspace/closed"]; exists {
 		t.Fatal("closed workspace retained its sync throttle")

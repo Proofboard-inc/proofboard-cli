@@ -262,7 +262,8 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Fixes a hang. Capturing work consults the repository's default branch, and where that is not recorded locally — which is normal for a repository created with `git init` rather than cloned — it asked the remote and waited indefinitely when the remote wanted credentials it could not obtain. Capture runs automatically after commits and merges, so this left a stuck process behind each time. It now reads only local data and never waits on the network.
+            - Milestones waiting for a decision are now listed with the exact commands that act on them. Reviewing, publishing and skipping each need an identifier the Career Agent had stopped printing anywhere, which left those actions impossible to reach.
+            - Notifications the Career Agent does not display are no longer marked as read. They were being consumed here and cleared from the dashboard, where they are shown, without anyone having seen them.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 
