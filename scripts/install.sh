@@ -31,7 +31,7 @@ set -e
 #   PROOFBOARD_SYSTEM_INSTALL       install for every account (needs sudo)
 
 REPO="Proofboard-inc/proofboard-cli"
-PINNED_VERSION="v1.13.2"
+PINNED_VERSION="v1.14.0"
 PUBLIC_DOWNLOAD_HOST="https://proofboard.io"
 
 log() {
@@ -142,7 +142,12 @@ if [ "$OS" = "linux" ] && [ "$ARCH" = "arm64" ]; then
     fail "Linux arm64 is not available yet. Supported Linux architecture: amd64."
 fi
 
-BINARY_NAME="proofboard-${OS}-${ARCH}"
+# The release carries the executable under both names. The product name
+# matches every installer package on the release page; the lowercase name is
+# what versions up to 1.13.2 look for and is kept so those can still update.
+# Preferred first, legacy second.
+BINARY_NAME="Proofboard-Career-Agent-${OS}-${ARCH}"
+LEGACY_BINARY_NAME="proofboard-${OS}-${ARCH}"
 
 # Resolve the release to install. An explicit download base short-circuits
 # every remote lookup so pinned and offline installs stay deterministic.
@@ -195,7 +200,12 @@ TEMP_PUBLIC_KEY="${TEMP_DIR}/proofboard-release-public.pem"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 log "Downloading ${BINARY_NAME} ${RELEASE_TAG}..."
-download_asset "$BINARY_NAME" "$TEMP_BINARY"
+# Whichever name resolves, the signature has to come from the same one, or
+# verification compares the binary against a different file's signature.
+if ! download_asset "$BINARY_NAME" "$TEMP_BINARY" 2>/dev/null; then
+    BINARY_NAME="$LEGACY_BINARY_NAME"
+    download_asset "$BINARY_NAME" "$TEMP_BINARY"
+fi
 download_asset "${BINARY_NAME}.sig" "$TEMP_SIGNATURE"
 
 printf '%s\n' \

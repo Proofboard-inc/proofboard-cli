@@ -396,6 +396,25 @@ jobs:
             echo "promoted $(basename "$target") to the code-signed build"
           done
 
+      - name: Publish the executables under the product name as well
+        run: |
+          # Every installer on the release page is named for the product, so
+          # the bare executables are too. The lowercase names stay alongside
+          # them because versions up to 1.13.2 build that exact filename to
+          # find their own update and fail outright when it is missing;
+          # removing them would strand those installs. Both names are the same
+          # bytes, and both are signed below.
+          cd dist
+          for f in proofboard-linux-amd64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe; do
+            case "$f" in
+              *.exe) product="Proofboard-Career-Agent-${f%.exe}.exe" ;;
+              *)     product="Proofboard-Career-Agent-${f}" ;;
+            esac
+            product=$(printf '%s' "$product" | sed 's/Proofboard-Career-Agent-proofboard-/Proofboard-Career-Agent-/')
+            cp "$f" "$product"
+            echo "published $f also as $product"
+          done
+
       - name: Sign and verify update binaries
         env:
           PROOFBOARD_RELEASE_PRIVATE_KEY: ${{ secrets.PROOFBOARD_RELEASE_PRIVATE_KEY }}
@@ -406,10 +425,22 @@ jobs:
           printf '%s\n' "$PROOFBOARD_RELEASE_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
           chmod 0600 "$SIGNING_KEY_FILE"
           for binary in \
+            Proofboard-Career-Agent-linux-amd64 \
+            Proofboard-Career-Agent-linux-amd64.sig \
+            Proofboard-Career-Agent-darwin-amd64 \
+            Proofboard-Career-Agent-darwin-amd64.sig \
+            Proofboard-Career-Agent-darwin-arm64 \
+            Proofboard-Career-Agent-darwin-arm64.sig \
+            Proofboard-Career-Agent-windows-amd64.exe \
+            Proofboard-Career-Agent-windows-amd64.exe.sig \
             proofboard-linux-amd64 \
             proofboard-darwin-amd64 \
             proofboard-darwin-arm64 \
-            proofboard-windows-amd64.exe
+            proofboard-windows-amd64.exe \
+            Proofboard-Career-Agent-linux-amd64 \
+            Proofboard-Career-Agent-darwin-amd64 \
+            Proofboard-Career-Agent-darwin-arm64 \
+            Proofboard-Career-Agent-windows-amd64.exe
           do
             go run scripts/sign.go "$SIGNING_KEY_FILE" "dist/$binary"
             go run ./scripts/verify_signature "dist/$binary" "dist/$binary.sig"
@@ -432,6 +463,14 @@ jobs:
       # consistent on <os>-<arch> across every packaging format.
       - name: Verify complete release matrix
         run: |
+          test -f dist/Proofboard-Career-Agent-linux-amd64
+          test -f dist/Proofboard-Career-Agent-linux-amd64.sig
+          test -f dist/Proofboard-Career-Agent-darwin-amd64
+          test -f dist/Proofboard-Career-Agent-darwin-amd64.sig
+          test -f dist/Proofboard-Career-Agent-darwin-arm64
+          test -f dist/Proofboard-Career-Agent-darwin-arm64.sig
+          test -f dist/Proofboard-Career-Agent-windows-amd64.exe
+          test -f dist/Proofboard-Career-Agent-windows-amd64.exe.sig
           test -f dist/proofboard-linux-amd64
           test -f dist/proofboard-linux-amd64.sig
           test -f dist/proofboard-darwin-amd64
@@ -517,12 +556,22 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Operating-system code signing is now wired into the release. When the Apple and Windows certificates are in place, the executables, the installer package, the disk image, the setup program, the MSI and the MSIX are all signed, and the macOS files are notarized and stapled so they validate offline.
-            - Until those certificates exist the signing steps are skipped, and they say so loudly in the build log rather than passing quietly. This release is therefore still unsigned: macOS reports that the developer cannot be verified, Windows SmartScreen warns, and the MSIX cannot be installed at all. docs/code-signing.md lists exactly what to obtain and which secrets to set.
+            - One naming convention across the whole download list. The plain executables are now published as Proofboard-Career-Agent-<platform>-<architecture>, matching every installer package. The previous lowercase names are still published alongside them, because versions up to 1.13.2 look for that exact filename when they update themselves and would otherwise be stranded.
+            - The MSI now asks for administrator rights up front and installs for all users, rather than failing partway through writing to Program Files. It also refuses a per-user install instead of starting one it cannot finish.
 
-            Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
+            The MSIX cannot request administrator rights: the format installs per-user into a sandboxed location by design. To deploy it for every user on a machine, an administrator provisions it with Add-AppxProvisionedPackage, which is what Intune and Store deployment do. Anyone needing a per-machine install with an elevation prompt should use the MSI.
+
+            Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
           files: |
+            dist/Proofboard-Career-Agent-linux-amd64
+            dist/Proofboard-Career-Agent-linux-amd64.sig
+            dist/Proofboard-Career-Agent-darwin-amd64
+            dist/Proofboard-Career-Agent-darwin-amd64.sig
+            dist/Proofboard-Career-Agent-darwin-arm64
+            dist/Proofboard-Career-Agent-darwin-arm64.sig
+            dist/Proofboard-Career-Agent-windows-amd64.exe
+            dist/Proofboard-Career-Agent-windows-amd64.exe.sig
             dist/proofboard-linux-amd64
             dist/proofboard-linux-amd64.sig
             dist/proofboard-darwin-amd64
