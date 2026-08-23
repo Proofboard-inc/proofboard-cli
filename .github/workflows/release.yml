@@ -162,7 +162,10 @@ jobs:
           # trusting that hdiutil exited zero.
           hdiutil attach -nobrowse -readonly -mountpoint /tmp/pbdmg \
             "dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg"
-          ls "/tmp/pbdmg/Proofboard Career Agent/proofboard"
+          # -srcfolder copies the folder CONTENTS to the volume root, so the
+          # executable sits at the top level rather than in a nested folder.
+          ls /tmp/pbdmg/proofboard
+          ls /tmp/pbdmg/*.pkg
           hdiutil detach /tmp/pbdmg
       - uses: actions/upload-artifact@v4
         with:
