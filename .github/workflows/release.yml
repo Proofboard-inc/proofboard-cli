@@ -262,14 +262,15 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Notifications now reach the terminal on real installs. The Career Agent authenticates with its own device-scoped credential, which the previous notifications route rejected outright, so nothing was ever surfaced; it now reads the matching endpoint and prints updates on shell startup.
-            - Repository detection no longer announces itself twice. Opening a terminal that reads both a login profile and an interactive profile ran detection once per file; a per-session guard means it runs once.
-            - Repositories silently skipped by older versions are offered again. Earlier builds ran detection with its output discarded while still recording the one-time prompt as shown, so projects were passed over without ever being mentioned. That record is cleared once on upgrade.
-            - A detected repository keeps being offered until you connect it or dismiss it with `proofboard link --dismiss`, instead of being mentioned once and never again.
-            - Project detection, sync, and milestone updates are plain terminal output. The operating-system popups are gone; only an expired session still raises one.
-            - Consistent, colour-aware terminal output across every message, falling back to plain text when output is piped or redirected.
+            - The Career Agent now keeps itself up to date. It checks once a day in the background and, when a newer release exists, runs the same signed installer a first-time user runs. Nothing blocks, and it is off with `proofboard config set auto-update false`.
+            - Repository detection follows you between projects. Changing directory into a different repository inside a terminal that is already open now offers to connect it, instead of only checking when the terminal first opened.
+            - Terminal windows opened from another terminal detect repositories again. The install guard was inherited by child shells, which then skipped installing the hook entirely, so detection was silent in editor terminals and multiplexer panes.
+            - Industry detection combines what the dependencies say with what the project's own modules are called, instead of letting one overwrite the other.
+            - fish users no longer see an error on every new shell, left behind by an older version of the startup hook.
+            - Signing out works on machines with no system keychain, including containers and remote sessions, where it previously failed and left the credentials in place.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
+
           files: |
             dist/proofboard-linux-amd64
             dist/proofboard-linux-amd64.sig
