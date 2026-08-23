@@ -24,9 +24,8 @@ proofboard-linux-*
 proofboard-windows-*
 *.sig
 
-# Agent session scratch state and working notes. Build-process exhaust, not
-# project history.
-.agents/
+# Root-level session working notes. The .agents/ directory is deliberately
+# tracked and kept.
 handoff.md
 progress.md
 error-report.md
