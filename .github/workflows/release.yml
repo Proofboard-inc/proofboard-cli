@@ -571,8 +571,8 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Synchronisation works against the live service. Three faults combined to break it: a repository with no new commits still sent a request the service rejects, milestone clusters were sent as null instead of an empty list when there were none, and when the service explained what was wrong the Career Agent discarded the explanation and reported only a status code.
-            - Failures now say what happened. A rejected request explains itself instead of showing a number, and a repository with nothing to send says so rather than reporting an error.
+            - The category dictionary updates again. Its download shared a single two-second allowance with the version check that ran immediately before it, so whatever that took was taken from the dictionary, which then failed on every command with a timeout despite being reachable and small. Each check now has its own allowance, and both finish in under half a second.
+            - The version check no longer runs on every command. It ran before every invocation, including the sync a commit triggers, so each one paid for a network round trip. It is now checked periodically, like the dictionary.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
