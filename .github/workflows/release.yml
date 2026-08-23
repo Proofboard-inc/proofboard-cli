@@ -247,12 +247,6 @@ jobs:
           name: proofboard-career-agent-windows-packages
           path: |
             dist/Proofboard-Career-Agent-windows-amd64-setup.exe
-            dist/Proofboard-Career-Agent-linux-x86_64.rpm
-            dist/Proofboard-Career-Agent-x86_64.AppImage
-            dist/Proofboard-Career-Agent-darwin-amd64.dmg
-            dist/Proofboard-Career-Agent-darwin-arm64.dmg
-            dist/Proofboard-Career-Agent-windows-amd64.msi
-            dist/Proofboard-Career-Agent-windows-amd64.msix
             dist/Proofboard-Career-Agent-windows-amd64.msi
             dist/Proofboard-Career-Agent-windows-amd64.msix
           if-no-files-found: error
@@ -401,6 +395,12 @@ jobs:
             dist/Proofboard-Career-Agent-darwin-amd64.pkg
             dist/Proofboard-Career-Agent-darwin-arm64.pkg
             dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+            dist/Proofboard-Career-Agent-windows-amd64.msi
+            dist/Proofboard-Career-Agent-windows-amd64.msix
+            dist/Proofboard-Career-Agent-linux-x86_64.rpm
+            dist/Proofboard-Career-Agent-x86_64.AppImage
+            dist/Proofboard-Career-Agent-darwin-amd64.dmg
+            dist/Proofboard-Career-Agent-darwin-arm64.dmg
             dist/checksums.txt
             dist/install.sh
             dist/install.ps1
