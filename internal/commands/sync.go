@@ -435,6 +435,39 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if len(raw) == 0 && metadataChanged {
 				payload.AntiFraudSignals.LowCommitCount = false
 			}
+			// A payload with no commits is rejected: the service requires
+			// shas and timestamps to be non-empty, so sending a
+			// metadata-only sync produced a 400 and no explanation of what
+			// the developer should do about it. There is nothing to
+			// transmit, so the metadata hash is recorded locally and the
+			// next sync with real commits carries it.
+			if len(payload.SHAs) == 0 {
+				current, loadErr := runtime.state.Load(ctx)
+				if loadErr == nil {
+					repoState.MetadataHash = metadataHash
+					current.LinkedRepos[identity.RepoHash] = repoState
+					_ = runtime.state.Save(ctx, current)
+				}
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "skipped", "no commits to send")
+				if triggerSource != "manual" {
+					return nil
+				}
+				// Two very different situations reach here and saying the
+				// wrong one sends people chasing an email mismatch that does
+				// not exist. An incremental sync with a recorded head is
+				// simply up to date; anything else genuinely found no commits
+				// of yours.
+				upToDate := incremental && !full && repoState.LastHeadSHA != ""
+				if upToDate {
+					_, err = fmt.Fprintln(out, "Already up to date. Nothing new to sync.")
+					return err
+				}
+				if _, printErr := fmt.Fprintln(out, "Repository details recorded. Nothing to sync yet — no commits here are attributed to your Proofboard account."); printErr != nil {
+					return printErr
+				}
+				_, err = fmt.Fprintln(out, "If that looks wrong, check `git config user.email` matches an email on your account.")
+				return err
+			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "success", "")
 
 			// c. High boilerplate noise: Average aiNoiseScore (AINoiseScore) across all commits in the range > 0.85

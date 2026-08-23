@@ -25,7 +25,19 @@ import (
 
 const testEmailHashKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
+// A sync with no commits is not transmitted.
+//
+// The service requires shas and timestamps to be non-empty and rejects the
+// request otherwise — the live response is "shas should not be empty;
+// timestamps should not be empty" with a 400. This previously sent the request
+// anyway, so a repository whose commits are not attributed to the signed-in
+// account failed on every sync with a status code and no explanation.
+//
+// Metadata-only sync is a real feature that the service does not implement.
+// When it accepts a commit-less payload this should transmit again; until
+// then sending one is a guaranteed failure, so the metadata hash is recorded
+// locally and carried by the next sync that has commits.
+func TestSyncSkipsTransmissionWhenThereAreNoCommits(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
 	t.Setenv("HOME", homeDir)
@@ -95,15 +107,42 @@ func TestSyncTransmitsMetadataOnlyUpdate(t *testing.T) {
 	defer func() { _ = os.Chdir(oldWD) }()
 	var out bytes.Buffer
 	cmd := newSyncCommand(ctx, &out)
+	// The background agent runs unattended, so it stays silent; what matters
+	// is that it does not transmit a request the service will reject.
 	cmd.SetArgs([]string{"--incremental", "--agent"})
 	if err := cmd.ExecuteContext(ctx); err != nil {
-		t.Fatalf("metadata sync: %v; output=%s", err, out.String())
+		t.Fatalf("agent sync: %v; output=%s", err, out.String())
 	}
 	if len(received.SHAs) != 0 {
-		t.Fatalf("expected metadata-only payload, got SHAs=%v", received.SHAs)
+		t.Fatalf("a commit-less payload was transmitted and the service rejects those: SHAs=%v", received.SHAs)
 	}
-	if !strings.Contains(out.String(), "Repository metadata synchronized") {
-		t.Fatalf("expected metadata sync output, got %q", out.String())
+
+	// Run by hand, the developer is told what happened and what to check —
+	// otherwise a repository that syncs nothing looks identical to one that
+	// is broken.
+	var manualOut bytes.Buffer
+	manual := newSyncCommand(ctx, &manualOut)
+	manual.SetArgs([]string{"--incremental"})
+	if err := manual.ExecuteContext(ctx); err != nil {
+		t.Fatalf("manual sync: %v; output=%s", err, manualOut.String())
+	}
+	if len(received.SHAs) != 0 {
+		t.Fatalf("manual run transmitted a commit-less payload: SHAs=%v", received.SHAs)
+	}
+	// Either wording is correct depending on whether the metadata hash was
+	// already recorded by the run above; what matters is that the developer
+	// is told nothing was sent rather than being shown a status code.
+	if !strings.Contains(manualOut.String(), "Nothing to sync yet") &&
+		!strings.Contains(manualOut.String(), "No commits to sync") {
+		t.Fatalf("expected the developer to be told nothing was sent, got %q", manualOut.String())
+	}
+	if strings.Contains(manualOut.String(), "API returned") {
+		t.Fatalf("a rejected request reached the developer instead of being avoided: %q", manualOut.String())
+	}
+	// An author-email mismatch is the likeliest cause, and naming it is the
+	// difference between an actionable message and a dead end.
+	if !strings.Contains(manualOut.String(), "git config user.email") {
+		t.Fatalf("expected the output to name the likely cause, got %q", manualOut.String())
 	}
 }
 
