@@ -45,7 +45,12 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	if len(clusters) > maxPayloadClusters {
 		clusters = clusters[:maxPayloadClusters]
 	}
-	clusters = append([]model.Cluster(nil), clusters...)
+	// Copied into a slice that is empty rather than nil. append to a nil
+	// slice with nothing to add returns nil, Go marshals nil as null, and the
+	// service requires an array — so a sync that simply produced no clusters
+	// was rejected with "milestoneClusters must be an array". Empty and
+	// absent are different things on the wire.
+	clusters = append(make([]model.Cluster, 0, len(clusters)), clusters...)
 
 	payload := model.SyncPayload{
 		SHAs:              make([]string, 0, len(commits)),

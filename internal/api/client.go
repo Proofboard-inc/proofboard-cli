@@ -48,17 +48,21 @@ func IsStatus(err error, statusCode int) bool {
 
 func parseAPIError(statusCode int, header http.Header, body []byte) *Error {
 	apiErr := &Error{StatusCode: statusCode}
+	// message arrives as a string from some endpoints and as an array of
+	// validation failures from others. Decoding it only as a string meant an
+	// array silently produced an empty message, which is why a rejected sync
+	// reported no reason at all while the server had listed five.
 	var response struct {
-		Code    string `json:"code"`
-		Error   string `json:"error"`
-		Message string `json:"message"`
+		Code    string          `json:"code"`
+		Error   string          `json:"error"`
+		Message json.RawMessage `json:"message"`
 	}
 	if json.Unmarshal(body, &response) == nil {
 		apiErr.Code = strings.TrimSpace(response.Code)
 		if apiErr.Code == "" {
 			apiErr.Code = strings.TrimSpace(response.Error)
 		}
-		apiErr.Message = strings.TrimSpace(response.Message)
+		apiErr.Message = decodeAPIMessage(response.Message)
 	}
 	if retryAfter := strings.TrimSpace(header.Get("Retry-After")); retryAfter != "" {
 		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
@@ -216,4 +220,27 @@ func (c Client) endpoint(route string) (string, error) {
 		return "", fmt.Errorf("parse API route: %w", err)
 	}
 	return base.ResolveReference(ref).String(), nil
+}
+
+// decodeAPIMessage reads the server's message field, which is a string on some
+// endpoints and an array of validation failures on others.
+func decodeAPIMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var single string
+	if json.Unmarshal(raw, &single) == nil {
+		return strings.TrimSpace(single)
+	}
+	var many []string
+	if json.Unmarshal(raw, &many) == nil {
+		parts := make([]string, 0, len(many))
+		for _, m := range many {
+			if m = strings.TrimSpace(m); m != "" {
+				parts = append(parts, m)
+			}
+		}
+		return strings.Join(parts, "; ")
+	}
+	return ""
 }

@@ -571,7 +571,8 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - The checksums file lists the executables again. It had quietly lost them, which is the worst way for it to be wrong: a checksums file missing the very downloads people verify still looks complete. The release now refuses to publish if any executable or its signature is absent from it.
+            - Synchronisation works against the live service. Three faults combined to break it: a repository with no new commits still sent a request the service rejects, milestone clusters were sent as null instead of an empty list when there were none, and when the service explained what was wrong the Career Agent discarded the explanation and reported only a status code.
+            - Failures now say what happened. A rejected request explains itself instead of showing a number, and a repository with nothing to send says so rather than reporting an error.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
