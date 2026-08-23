@@ -101,10 +101,10 @@ jobs:
       - name: Build the RPM package
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq rpm
-          scripts/package_linux_rpm.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-x86_64.rpm
-          rpm -qip dist/Proofboard-Career-Agent-linux-x86_64.rpm
+          scripts/package_linux_rpm.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.rpm
+          rpm -qip dist/Proofboard-Career-Agent-linux-amd64.rpm
           # The payload must be the binary we signed, so confirm it is in there.
-          rpm -qlp dist/Proofboard-Career-Agent-linux-x86_64.rpm | grep -qx /usr/bin/proofboard
+          rpm -qlp dist/Proofboard-Career-Agent-linux-amd64.rpm | grep -qx /usr/bin/proofboard
       - name: Build the AppImage
         run: |
           sudo apt-get install -y -qq libfuse2 file || true
@@ -112,18 +112,18 @@ jobs:
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
           APPIMAGETOOL=/tmp/appimagetool scripts/package_linux_appimage.sh \
-            "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-x86_64.AppImage
-          test -s dist/Proofboard-Career-Agent-x86_64.AppImage
+            "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.AppImage
+          test -s dist/Proofboard-Career-Agent-linux-amd64.AppImage
           # An AppImage that cannot run is not a release artifact, so run it.
-          chmod +x dist/Proofboard-Career-Agent-x86_64.AppImage
-          ./dist/Proofboard-Career-Agent-x86_64.AppImage --appimage-extract-and-run version
+          chmod +x dist/Proofboard-Career-Agent-linux-amd64.AppImage
+          ./dist/Proofboard-Career-Agent-linux-amd64.AppImage --appimage-extract-and-run version
       - uses: actions/upload-artifact@v4
         with:
           name: proofboard-career-agent-linux-packages
           path: |
             dist/Proofboard-Career-Agent-linux-amd64.deb
-            dist/Proofboard-Career-Agent-linux-x86_64.rpm
-            dist/Proofboard-Career-Agent-x86_64.AppImage
+            dist/Proofboard-Career-Agent-linux-amd64.rpm
+            dist/Proofboard-Career-Agent-linux-amd64.AppImage
           if-no-files-found: error
 
   installer-macos:
@@ -288,6 +288,18 @@ jobs:
             PROOFBOARD_DOWNLOAD_BASE_URL="file://${PWD}/dist" \
             PROOFBOARD_INSTALL_VERIFY_ONLY=1 \
             scripts/test_no_system_pollution.sh scripts/install.sh
+      # Asset naming, which is deliberate rather than accidental:
+      #
+      #   proofboard-<goos>-<goarch>[.exe]      the raw executable, plus .sig
+      #   Proofboard-Career-Agent-<os>-<arch>.<ext>   an installer package
+      #
+      # The lowercase names are load-bearing and must not be renamed: every
+      # installed copy builds that exact filename to find its own update
+      # (see install.sh and internal/commands/update.go, which fails outright
+      # when the asset is absent), so renaming them breaks self-update for
+      # everyone already on an older version. The product-named files are
+      # read only by people, so they carry the full product name and stay
+      # consistent on <os>-<arch> across every packaging format.
       - name: Verify complete release matrix
         run: |
           test -f dist/proofboard-linux-amd64
@@ -302,8 +314,8 @@ jobs:
           test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
           test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
           test -f dist/Proofboard-Career-Agent-windows-amd64-setup.exe
-          test -f dist/Proofboard-Career-Agent-linux-x86_64.rpm
-          test -f dist/Proofboard-Career-Agent-x86_64.AppImage
+          test -f dist/Proofboard-Career-Agent-linux-amd64.rpm
+          test -f dist/Proofboard-Career-Agent-linux-amd64.AppImage
           test -f dist/Proofboard-Career-Agent-darwin-amd64.dmg
           test -f dist/Proofboard-Career-Agent-darwin-arm64.dmg
           test -f dist/Proofboard-Career-Agent-windows-amd64.msi
@@ -357,8 +369,8 @@ jobs:
             Proofboard-Career-Agent-darwin-amd64.pkg \
             Proofboard-Career-Agent-darwin-arm64.pkg \
             Proofboard-Career-Agent-windows-amd64-setup.exe \
-            Proofboard-Career-Agent-linux-x86_64.rpm \
-            Proofboard-Career-Agent-x86_64.AppImage \
+            Proofboard-Career-Agent-linux-amd64.rpm \
+            Proofboard-Career-Agent-linux-amd64.AppImage \
             Proofboard-Career-Agent-darwin-amd64.dmg \
             Proofboard-Career-Agent-darwin-arm64.dmg \
             Proofboard-Career-Agent-windows-amd64.msi \
@@ -375,10 +387,9 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Points at production. The Career Agent now talks to the live service by default instead of the development environment. Existing machines can stay on development by setting PROOFBOARD_API_BASE_URL and PROOFBOARD_APP_BASE_URL.
-            - Many more ways to install. macOS adds a disk image alongside the plain executable and the installer package. Windows adds MSI and MSIX packages alongside the plain executable and the setup program, for fleets deployed through Group Policy, Intune or the Store. Linux adds an RPM package and an AppImage alongside the plain executable and the Debian package, so the tool installs without a package manager or administrator rights.
+            - Consistent names for the installer downloads. The Linux RPM and AppImage were published under names that did not match the pattern every other installer follows, so the download list read as though it came from three different projects. Every installer is now Proofboard-Career-Agent-<platform>-<architecture> with the format's own extension.
 
-            Note on the MSIX package: it is unsigned, so Windows installs it only on a machine with developer mode enabled, or after it has been signed with a certificate your organisation trusts. Every other artifact is signed.
+            The plain executables keep their existing lowercase names, deliberately: an installed copy looks for that exact filename when it updates itself, so renaming them would stop older versions from updating.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 
@@ -397,8 +408,8 @@ jobs:
             dist/Proofboard-Career-Agent-windows-amd64-setup.exe
             dist/Proofboard-Career-Agent-windows-amd64.msi
             dist/Proofboard-Career-Agent-windows-amd64.msix
-            dist/Proofboard-Career-Agent-linux-x86_64.rpm
-            dist/Proofboard-Career-Agent-x86_64.AppImage
+            dist/Proofboard-Career-Agent-linux-amd64.rpm
+            dist/Proofboard-Career-Agent-linux-amd64.AppImage
             dist/Proofboard-Career-Agent-darwin-amd64.dmg
             dist/Proofboard-Career-Agent-darwin-arm64.dmg
             dist/checksums.txt
