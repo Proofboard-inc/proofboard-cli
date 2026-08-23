@@ -191,22 +191,36 @@ go vet ./...
 
 ## Release Engineering
 
-Every release contains four statically linked binaries:
+Every release contains four statically linked executables. Every asset is
+named `Proofboard-Career-Agent-<platform>-<architecture>`, with the format's
+extension where it has one, so one convention covers the whole list:
 
-- Linux amd64: `proofboard-linux-amd64`
-- macOS amd64: `proofboard-darwin-amd64`
-- macOS arm64: `proofboard-darwin-arm64`
-- Windows amd64: `proofboard-windows-amd64.exe`
+- Linux amd64: `Proofboard-Career-Agent-linux-amd64`
+- macOS amd64: `Proofboard-Career-Agent-darwin-amd64`
+- macOS arm64: `Proofboard-Career-Agent-darwin-arm64`
+- Windows amd64: `Proofboard-Career-Agent-windows-amd64.exe`
+
+Releases up to and including 1.13.2 used lowercase `proofboard-<platform>-<arch>`
+instead. Those versions look for that name when updating themselves and cannot
+find it on a current release, so they need one manual update; 1.14.0 and later
+ask for the current name.
 
 The complete release artifact set is:
 
-- all four static binaries, each with a detached `.sig`;
+- all four static executables, each with a detached `.sig`;
 - `checksums.txt` and `latest.json`;
-- `Proofboard-Career-Agent-linux-amd64.deb`;
-- both macOS `.pkg` installers;
-- `Proofboard-Career-Agent-windows-amd64-setup.exe`;
+- Linux: `.deb`, `.rpm` and `.AppImage`;
+- macOS: both `.pkg` installers and both `.dmg` disk images;
+- Windows: the setup `.exe`, `.msi` and `.msix`;
 - the `proofboard-cli` npm package tarball;
-- `install.sh`, `install.ps1`, and `install.cmd`.
+- `install.sh`, `install.ps1`, `install.cmd` and `install.bat`.
+
+The MSIX is unsigned and installs only with developer mode enabled or after
+being signed with a trusted certificate; `docs/code-signing.md` covers what
+signing needs. It also cannot request administrator rights, which is a
+property of the format — administrators provision it with
+`Add-AppxProvisionedPackage`, and the `.msi` is the elevating per-machine
+installer.
 
 The install scripts resolve the current release from `proofboard.io`, fall back
 to the directly published GitHub release, verify signatures or checksums,
