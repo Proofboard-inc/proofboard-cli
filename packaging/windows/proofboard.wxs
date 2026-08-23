@@ -24,9 +24,11 @@
 
     <!-- Refuse a per-user install outright. Without this, msiexec can be told
          to install per-user, which then cannot write Program Files or the
-         system PATH and leaves a half-installed product. -->
-    <Property Id="ALLUSERS" Value="1" />
-    <Property Id="MSIINSTALLPERUSER" Secure="yes" />
+         system PATH and leaves a half-installed product.
+
+         ALLUSERS is deliberately not declared here: InstallScope="perMachine"
+         already emits it, and declaring it again fails the build with a
+         duplicate-symbol error. -->
     <Condition Message="The Proofboard Career Agent must be installed for all users, which requires administrator rights.">
       <![CDATA[Privileged]]>
     </Condition>

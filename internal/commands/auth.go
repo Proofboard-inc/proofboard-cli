@@ -92,30 +92,60 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return cmd
 }
 
+// newAuthLogoutCommand is `proofboard auth logout`, which sits with the rest
+// of the sign-in commands. newLogoutCommand below exposes the same thing at
+// the top level, because that is where people look for it first.
 func newAuthLogoutCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Remove local Proofboard credentials",
+		Short: "Sign this device out of Proofboard",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runtime, err := loadRuntime(ctx)
-			if err != nil {
-				return fmt.Errorf("auth logout: %w", err)
-			}
-			if err := runtime.credentials.Delete(ctx); err != nil {
-				return err
-			}
-			current, stateErr := runtime.state.Load(ctx)
-			if stateErr == nil {
-				current.AuthLoggedOut = true
-				current.AuthReconnectPrompted = false
-				current.AuthReconnectPromptedAt = time.Time{}
-				if err := runtime.state.Save(ctx, current); err != nil {
-					return fmt.Errorf("persist logged-out state: %w", err)
-				}
-			}
-			_, err = fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out.")
-			return err
+			return runLogout(ctx, cmd.OutOrStdout())
 		},
 	}
+}
+
+// newLogoutCommand is `proofboard logout`. Signing out is not something
+// people go looking for under a sub-command, so it is available directly as
+// well; both run exactly the same code rather than one shelling out to the
+// other or the two drifting apart.
+func newLogoutCommand(ctx context.Context, out io.Writer) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "logout",
+		Short: "Sign this device out of Proofboard",
+		Long: "Removes this device's Proofboard credentials and stops the background\n" +
+			"agent from syncing until you sign in again. Identical to\n" +
+			"`proofboard auth logout`.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLogout(ctx, cmd.OutOrStdout())
+		},
+	}
+	cmd.SetOut(out)
+	return cmd
+}
+
+// runLogout removes the stored credentials and records that the sign-out was
+// deliberate, so the agent does not immediately prompt to reconnect as though
+// the session had merely expired.
+func runLogout(ctx context.Context, out io.Writer) error {
+	runtime, err := loadRuntime(ctx)
+	if err != nil {
+		return fmt.Errorf("logout: %w", err)
+	}
+	if err := runtime.credentials.Delete(ctx); err != nil {
+		return err
+	}
+	current, stateErr := runtime.state.Load(ctx)
+	if stateErr == nil {
+		current.AuthLoggedOut = true
+		current.AuthReconnectPrompted = false
+		current.AuthReconnectPromptedAt = time.Time{}
+		if err := runtime.state.Save(ctx, current); err != nil {
+			return fmt.Errorf("persist logged-out state: %w", err)
+		}
+	}
+	_, err = fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out.")
+	return err
 }
