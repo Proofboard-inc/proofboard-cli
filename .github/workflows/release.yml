@@ -294,16 +294,23 @@ jobs:
           if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi')) { Write-Error 'MSI not produced'; exit 1 }
 
           # An installer that shows no dialogs looks like it did nothing, so
-          # confirm the dialog tables are actually present rather than trusting
-          # that the build succeeded.
+          # confirm the dialog table actually has rows rather than trusting
+          # that the build succeeded. Note that Windows Installer SQL has no
+          # COUNT(*): asking for one fails the query rather than returning a
+          # number, which is how this check first reported a problem that was
+          # entirely its own.
+          $msiPath = (Resolve-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi').Path
           $installer = New-Object -ComObject WindowsInstaller.Installer
-          $db = $installer.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$installer,@((Resolve-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi').Path,0))
-          $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@("SELECT COUNT(*) FROM Dialog"))
+          $db = $installer.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$installer,@($msiPath,0))
+          $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@('SELECT Dialog FROM Dialog'))
           $view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null)
-          $rec = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
-          $dialogs = $rec.GetType().InvokeMember('StringData','GetProperty',$null,$rec,1)
-          Write-Output "MSI dialog count: $dialogs"
-          if ([int]$dialogs -lt 1) { Write-Error 'MSI contains no dialogs; it would install silently and appear to do nothing'; exit 1 }
+          $first = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
+          if ($null -eq $first) {
+            Write-Error 'MSI contains no dialogs; it would install silently and appear to do nothing'
+            exit 1
+          }
+          $name = $first.GetType().InvokeMember('StringData','GetProperty',$null,$first,1)
+          Write-Output "MSI user interface present (first dialog: $name)"
 
       - name: Build the MSIX package
         shell: pwsh
