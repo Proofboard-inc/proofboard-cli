@@ -646,17 +646,24 @@ jobs:
       - run: npm --prefix npm-package test
       - name: Stage signed release binaries in npm package
         run: |
+          # Release assets are named for the product; the package bundles them
+          # under the lowercase names its launcher looks for internally. The
+          # two are not interchangeable, so the download is translated rather
+          # than copied. This step asked for the old asset names after they
+          # were renamed and failed the job outright.
           mkdir -p npm-package/vendor
-          gh release download "${GITHUB_REF_NAME}" \
-            --pattern 'proofboard-linux-amd64' \
-            --pattern 'proofboard-linux-amd64.sig' \
-            --pattern 'proofboard-darwin-amd64' \
-            --pattern 'proofboard-darwin-amd64.sig' \
-            --pattern 'proofboard-darwin-arm64' \
-            --pattern 'proofboard-darwin-arm64.sig' \
-            --pattern 'proofboard-windows-amd64.exe' \
-            --pattern 'proofboard-windows-amd64.exe.sig' \
-            --dir npm-package/vendor
+          for bundled in proofboard-linux-amd64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe; do
+            asset="Proofboard-Career-Agent-${bundled#proofboard-}"
+            gh release download "${GITHUB_REF_NAME}" \
+              --pattern "${asset}" --pattern "${asset}.sig" --dir npm-package/vendor --clobber
+            mv "npm-package/vendor/${asset}" "npm-package/vendor/${bundled}"
+            mv "npm-package/vendor/${asset}.sig" "npm-package/vendor/${bundled}.sig"
+          done
+          staged=$(ls npm-package/vendor | wc -l)
+          test "$staged" -eq 8 || {
+            echo "expected 8 vendor files, found ${staged}" >&2
+            exit 1
+          }
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Publish proofboard-cli
