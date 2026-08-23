@@ -402,7 +402,14 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// every such setup by default.
 			isDefaultBranch := true
 			if currentBranch, branchErr := pbgit.CurrentBranch(ctx, repo); branchErr == nil && currentBranch != "" {
-				if detected := detectDefaultBranch(ctx, repo.Path); detected != "" {
+				// Local ref only. Sync runs unattended from post-commit and
+				// post-merge hooks and from the background agent, so it must
+				// never wait on the network: asking the remote here is what
+				// left a stuck git process behind on every commit against a
+				// remote that wanted credentials. When the local ref is
+				// absent the watched-branch fallback below answers instead,
+				// which costs a little accuracy and no hangs.
+				if detected := localDefaultBranch(ctx, repo.Path); detected != "" {
 					isDefaultBranch = currentBranch == detected
 				} else {
 					isDefaultBranch = pbgit.IsProductionBranch(currentBranch, current.WatchedBranches)
