@@ -278,12 +278,32 @@ jobs:
           choco install wixtoolset --no-progress -y
           $wix = "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin"
           if (-not (Test-Path $wix)) { $wix = (Get-ChildItem "${env:ProgramFiles(x86)}" -Filter 'candle.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName }
-          & "$wix\candle.exe" -nologo -arch x64 "-dProductVersion=$version" "-dBinaryPath=$binary" `
-            -out dist\proofboard.wixobj packaging\windows\proofboard.wxs
+          # The licence shown on the first dialog. Checked in as RTF rather
+          # than converted from LICENSE at build time: escaping backslashes
+          # and braces through PowerShell into RTF is easy to get subtly
+          # wrong, and a malformed licence page fails the whole install.
+          $licenseRtf = (Resolve-Path 'packaging/windows/license.rtf').Path
+
+          & "$wix\candle.exe" -nologo -arch x64 "-dProductVersion=$version" "-dBinaryPath=$binary" "-dLicenseRtf=$licenseRtf" `
+            -ext WixUIExtension -out dist\proofboard.wixobj packaging\windows\proofboard.wxs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "$wix\light.exe" -nologo -out dist\Proofboard-Career-Agent-windows-amd64.msi dist\proofboard.wixobj
+          # -ext WixUIExtension is what links the dialog set in. Without it the
+          # package builds and installs but shows nothing at all.
+          & "$wix\light.exe" -nologo -ext WixUIExtension -out dist\Proofboard-Career-Agent-windows-amd64.msi dist\proofboard.wixobj
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi')) { Write-Error 'MSI not produced'; exit 1 }
+
+          # An installer that shows no dialogs looks like it did nothing, so
+          # confirm the dialog tables are actually present rather than trusting
+          # that the build succeeded.
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $db = $installer.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$installer,@((Resolve-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi').Path,0))
+          $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@("SELECT COUNT(*) FROM Dialog"))
+          $view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null)
+          $rec = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
+          $dialogs = $rec.GetType().InvokeMember('StringData','GetProperty',$null,$rec,1)
+          Write-Output "MSI dialog count: $dialogs"
+          if ([int]$dialogs -lt 1) { Write-Error 'MSI contains no dialogs; it would install silently and appear to do nothing'; exit 1 }
 
       - name: Build the MSIX package
         shell: pwsh
@@ -571,8 +591,7 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - The category dictionary updates again. Its download shared a single two-second allowance with the version check that ran immediately before it, so whatever that took was taken from the dictionary, which then failed on every command with a timeout despite being reachable and small. Each check now has its own allowance, and both finish in under half a second.
-            - The version check no longer runs on every command. It ran before every invocation, including the sync a commit triggers, so each one paid for a network round trip. It is now checked periodically, like the dictionary.
+            - The MSI installer now shows an installer. It was built with no user interface at all, so double-clicking it flashed and closed with no welcome, no progress and no completion — it had usually installed correctly, with no way for anyone to tell. It now presents a licence, lets the install location be changed, and confirms when it has finished. The release refuses to publish an MSI that contains no dialogs.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 

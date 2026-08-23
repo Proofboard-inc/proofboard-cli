@@ -56,6 +56,20 @@
       <ComponentRef Id="ProofboardExecutable" />
     </Feature>
 
+    <!-- A user interface, which this package previously had none of.
+         Without a UIRef, msiexec installs silently: no welcome, no progress
+         and no completion dialog. Double-clicking the file appeared to do
+         nothing at all — it flashed and exited, having usually installed
+         correctly, with no way for anyone to tell. An installer people
+         double-click has to show them something.
+
+         WixUI_InstallDir is used rather than the minimal set so the install
+         location is visible and changeable, which matters for a package that
+         also edits the system PATH. Linking requires -ext WixUIExtension. -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+
     <!-- Register the background agent after the files land. Deferred and
          ignoring the exit code on purpose: a machine with no interactive user
          session cannot register it, and that must not fail the install. -->
