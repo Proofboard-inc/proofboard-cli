@@ -61,22 +61,28 @@ func TestIndustryHintsFromCommitsEmptyDictionaryReturnsEmpty(t *testing.T) {
 func TestIndustryHintsFromCommitsRanksByFrequencyThenAlphabeticalTie(t *testing.T) {
 	dict := model.Dictionary{
 		IndustrySubjectKeywords: map[string][]string{
-			"Logistics":    {"delivery"},
-			"Fintech":      {"invoice"},
-			"Telecom":      {"sms"},
-			"E-commerce":   {"checkout"},
+			"Logistics":  {"delivery"},
+			"Fintech":    {"invoice"},
+			"Telecom":    {"sms"},
+			"E-commerce": {"checkout"},
 		},
 	}
-	// Fintech matches twice, the rest once each -> Fintech ranks first by
-	// frequency; the remaining three-way tie at count 1 breaks
-	// alphabetically (E-commerce, Logistics, Telecom) — all 4 fit under the
-	// cap of 5, so none are dropped.
+	// Each label needs at least 2 matches to clear the confidence floor
+	// (minIndustryMatches) before it's reported at all. Fintech matches
+	// three times, the rest twice each -> Fintech ranks first by frequency;
+	// the remaining three-way tie at count 2 breaks alphabetically
+	// (E-commerce, Logistics, Telecom) — all 4 fit under the cap of 5, so
+	// none are dropped.
 	raw := []model.RawCommit{
-		{SHA: "a", Subject: []byte("add delivery estimate")},
-		{SHA: "b", Subject: []byte("send invoice reminder")},
-		{SHA: "c", Subject: []byte("reconcile invoice ledger")},
-		{SHA: "d", Subject: []byte("send sms notification")},
-		{SHA: "e", Subject: []byte("fix checkout bug")},
+		{SHA: "a1", Subject: []byte("add delivery estimate")},
+		{SHA: "a2", Subject: []byte("fix delivery tracking bug")},
+		{SHA: "b1", Subject: []byte("send invoice reminder")},
+		{SHA: "b2", Subject: []byte("reconcile invoice ledger")},
+		{SHA: "b3", Subject: []byte("void duplicate invoice")},
+		{SHA: "c1", Subject: []byte("send sms notification")},
+		{SHA: "c2", Subject: []byte("retry failed sms carrier handoff")},
+		{SHA: "d1", Subject: []byte("fix checkout bug")},
+		{SHA: "d2", Subject: []byte("add checkout discount code")},
 	}
 
 	got := IndustryHintsFromCommits(raw, dict)
@@ -92,8 +98,13 @@ func TestIndustryHintsFromCommitsIsCaseInsensitive(t *testing.T) {
 			"Logistics": {"ShipDay", "Delivery Route"},
 		},
 	}
+	// Two matches (mixed-case phrase, then upper-case) needed to clear the
+	// confidence floor — this test's point is that BOTH still match
+	// case-insensitively despite differing from the dictionary's casing and
+	// from each other.
 	raw := []model.RawCommit{
 		{SHA: "a", Subject: []byte("Integrate SHIPDAY Webhook")},
+		{SHA: "b", Subject: []byte("optimize delivery route calculation")},
 	}
 
 	got := IndustryHintsFromCommits(raw, dict)
