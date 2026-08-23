@@ -28,6 +28,12 @@ type State struct {
 	// field existed keeps the intended default rather than silently opting
 	// out every install that upgrades into it.
 	AutoUpdateCLIDisabled bool `json:"autoUpdateCliDisabled,omitempty"`
+	// LastVersionCheck throttles the "a new version is available" notice.
+	// It used to run on every single command, so every invocation made a
+	// network call, and because it shared one deadline with the dictionary
+	// check that followed it, a slow response left the dictionary with an
+	// already-expired context and it failed every time.
+	LastVersionCheck time.Time `json:"lastVersionCheck,omitempty"`
 	// LastCLIUpdateCheck throttles that check to once a day. Separate from
 	// LastDictionaryUpdateCheck because the two run on different cadences and
 	// a failure in one must not defer the other.

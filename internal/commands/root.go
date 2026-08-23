@@ -77,7 +77,19 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// Each check below gets its OWN deadline. They used to share one, spent
+	// in order, so whatever the version check consumed was taken from the
+	// dictionary check that followed — which is why the dictionary reported
+	// "context deadline exceeded" on every command while being perfectly
+	// reachable and 34 KB in size. A slow answer to one question must not
+	// decide the outcome of the next.
+	const (
+		localWorkBudget    = 400 * time.Millisecond
+		versionCheckBudget = 600 * time.Millisecond
+		dictionaryBudget   = 900 * time.Millisecond
+	)
+
+	checkCtx, cancel := context.WithTimeout(ctx, localWorkBudget)
 	defer cancel()
 
 	runCtx, err := loadRuntime(checkCtx)
@@ -95,10 +107,22 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 
 	releases := api.NewReleaseClient(runCtx.config.ReleaseBaseURL)
 
-	// 1. Check CLI Version
-	latestCLI, err := releases.Latest(checkCtx, runCtx.config.LatestVersionPath)
-	if err == nil && latestCLI.Version != "" && latestCLI.Version != version.Version {
-		fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
+	stateData, stateErr := runCtx.state.Load(checkCtx)
+
+	// 1. Check CLI Version, throttled like the dictionary below. This runs
+	// via PersistentPreRunE on every command, including the sync fired by a
+	// git hook on every commit, so an unthrottled check meant a network round
+	// trip per command — paid by the developer in latency every time.
+	if stateErr == nil && (stateData.LastVersionCheck.IsZero() ||
+		time.Since(stateData.LastVersionCheck) >= 6*time.Hour) {
+		versionCtx, cancelVersion := context.WithTimeout(ctx, versionCheckBudget)
+		latestCLI, versionErr := releases.Latest(versionCtx, runCtx.config.LatestVersionPath)
+		cancelVersion()
+		stateData.LastVersionCheck = time.Now().UTC()
+		_ = runCtx.state.Save(checkCtx, stateData)
+		if versionErr == nil && latestCLI.Version != "" && latestCLI.Version != version.Version {
+			fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
+		}
 	}
 
 	// 2. Check Dictionary Version, throttled to at most once per 6h.
@@ -109,12 +133,18 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// gate covers the ATTEMPT, not just successful updates: a failed check is
 	// throttled too, so a flaky/down release server can't turn into a
 	// check-on-every-command retry storm either.
-	stateData, err := runCtx.state.Load(checkCtx)
+	stateData, err = runCtx.state.Load(checkCtx)
 	if err == nil && stateData.AutoUpdateDictionary &&
 		(stateData.LastDictionaryUpdateCheck.IsZero() || time.Since(stateData.LastDictionaryUpdateCheck) >= 6*time.Hour) {
 		if localDict, loadErr := dictionary.LoadDefault(checkCtx); loadErr == nil {
 			dictionaryURL := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
-			result, updateErr := dictionary.Update(checkCtx, runCtx.homeDir, dictionaryURL, localDict)
+			// Its own deadline, and a realistic one: this runs at most once
+			// every six hours, so a few seconds there costs nothing, while
+			// two seconds shared with another network call bought nothing but
+			// a guaranteed failure.
+			dictCtx, cancelDict := context.WithTimeout(ctx, dictionaryBudget)
+			result, updateErr := dictionary.Update(dictCtx, runCtx.homeDir, dictionaryURL, localDict)
+			cancelDict()
 			stateData.LastDictionaryUpdateCheck = time.Now().UTC()
 			switch {
 			case updateErr == nil && result.Updated:
