@@ -99,25 +99,54 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			if runtime.GOOS == "windows" {
 				suffix = ".exe"
 			}
-			binaryName := fmt.Sprintf("proofboard-%s-%s%s", runtime.GOOS, runtime.GOARCH, suffix)
+			// Preferred name first, legacy name second. Release assets carry
+			// both: the product-named file matches every installer on the
+			// release page, and the lowercase one is what versions up to
+			// 1.13.2 look for, so dropping it would strand them with no way
+			// to update. Once those versions are gone the legacy name can go
+			// with them.
+			binaryName := releaseBinaryName(runtime.GOOS, runtime.GOARCH, suffix)
+			legacyBinaryName := legacyReleaseBinaryName(runtime.GOOS, runtime.GOARCH, suffix)
 
 			// Clean/build download URL
 			downloadURL := strings.TrimSpace(latest.URL)
 			signatureURL := ""
+			// Set only on the plain download-host path, where there is no
+			// asset list to consult: the preferred name is tried first and
+			// this is what a 404 falls back to. A host that only carries the
+			// old name must keep working.
+			legacyDownloadURL := ""
 			if len(githubRelease.Assets) > 0 {
 				var found bool
+				resolved := binaryName
 				downloadURL, found = githubRelease.AssetURL(binaryName)
 				if !found {
-					return fmt.Errorf("GitHub latest release does not contain %s", binaryName)
+					resolved = legacyBinaryName
+					downloadURL, found = githubRelease.AssetURL(legacyBinaryName)
 				}
-				signatureURL, found = githubRelease.AssetURL(binaryName + ".sig")
 				if !found {
-					return fmt.Errorf("GitHub latest release does not contain %s.sig", binaryName)
+					return fmt.Errorf("GitHub latest release contains neither %s nor %s", binaryName, legacyBinaryName)
+				}
+				// The signature must belong to the same file that was
+				// resolved, or verification compares a binary against another
+				// build's signature and fails for a reason nobody can read.
+				signatureURL, found = githubRelease.AssetURL(resolved + ".sig")
+				if !found {
+					return fmt.Errorf("GitHub latest release does not contain %s.sig", resolved)
 				}
 			} else if downloadURL == "" {
-				downloadURL = fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/"), latest.Version, binaryName)
-			} else if !strings.HasSuffix(downloadURL, "/"+binaryName) {
-				downloadURL = strings.TrimSuffix(downloadURL, "/") + "/" + binaryName
+				base := strings.TrimSuffix(runtimeContext.config.ReleaseBaseURL, "/")
+				downloadURL = fmt.Sprintf("%s/%s/%s", base, latest.Version, binaryName)
+				legacyDownloadURL = fmt.Sprintf("%s/%s/%s", base, latest.Version, legacyBinaryName)
+			} else if strings.HasSuffix(downloadURL, "/"+binaryName) ||
+				strings.HasSuffix(downloadURL, "/"+legacyBinaryName) {
+				// The manifest already names a specific file under either
+				// naming, so it is used as given. Appending a name here would
+				// build a path with the binary in it twice.
+			} else {
+				base := strings.TrimSuffix(downloadURL, "/")
+				downloadURL = base + "/" + binaryName
+				legacyDownloadURL = base + "/" + legacyBinaryName
 			}
 			if signatureURL == "" {
 				signatureURL = downloadURL + ".sig"
@@ -139,6 +168,19 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 
 			// Download new binary
 			err = releases.Download(ctx, downloadURL, tempFile)
+			if err != nil && legacyDownloadURL != "" {
+				// Preferred name absent on this host; fall back to the name
+				// releases used up to 1.13.2. The signature must then come
+				// from the same name, or verification compares mismatched
+				// files.
+				tempFile.Close()
+				tempFile, err = os.Create(tempPath)
+				if err == nil {
+					downloadURL = legacyDownloadURL
+					signatureURL = legacyDownloadURL + ".sig"
+					err = releases.Download(ctx, downloadURL, tempFile)
+				}
+			}
 			tempFile.Close() // close file handle before renaming/chmod
 			if err != nil {
 				_ = os.Remove(tempPath)
@@ -201,4 +243,19 @@ func newUpdateCommandWithOptions(ctx context.Context, out io.Writer, options upd
 			return err
 		},
 	}
+}
+
+// releaseBinaryName is the executable's name on a release. It matches the
+// installer packages, so everything on the release page reads as one product
+// rather than two.
+func releaseBinaryName(goos, goarch, suffix string) string {
+	return fmt.Sprintf("Proofboard-Career-Agent-%s-%s%s", goos, goarch, suffix)
+}
+
+// legacyReleaseBinaryName is the name used up to and including 1.13.2.
+// Releases still carry it because an installed copy of those versions builds
+// this exact string to find its own update and fails outright when it is
+// absent.
+func legacyReleaseBinaryName(goos, goarch, suffix string) string {
+	return fmt.Sprintf("proofboard-%s-%s%s", goos, goarch, suffix)
 }

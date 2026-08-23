@@ -14,8 +14,22 @@
            Version="$(var.ProductVersion)"
            Manufacturer="Proofboard"
            UpgradeCode="7E3B1C64-6E3F-4C2E-9C77-1C0E6E4B9A21">
+    <!-- InstallPrivileges="elevated" is stated explicitly rather than left to
+         be inferred from InstallScope, so the package always prompts for
+         administrator rights instead of failing partway through writing to
+         Program Files and the system PATH. -->
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             InstallPrivileges="elevated"
              Description="Proofboard Career Agent" />
+
+    <!-- Refuse a per-user install outright. Without this, msiexec can be told
+         to install per-user, which then cannot write Program Files or the
+         system PATH and leaves a half-installed product. -->
+    <Property Id="ALLUSERS" Value="1" />
+    <Property Id="MSIINSTALLPERUSER" Secure="yes" />
+    <Condition Message="The Proofboard Career Agent must be installed for all users, which requires administrator rights.">
+      <![CDATA[Privileged]]>
+    </Condition>
 
     <!-- Replace an older install in place rather than leaving two side by
          side, which is what makes `msiexec /i` behave as an upgrade. -->

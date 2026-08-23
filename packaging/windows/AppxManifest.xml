@@ -59,6 +59,21 @@
     </Application>
   </Applications>
 
+  <!--
+    On elevation: an MSIX package cannot request administrator rights. The
+    format installs per-user into a sandboxed location by design and there is
+    no manifest setting that changes it — unlike the MSI, which declares
+    InstallPrivileges="elevated" and installs for all users.
+
+    runFullTrust below gives the packaged executable ordinary desktop-app
+    access (the file system, the user's repositories, the background agent),
+    which is what this tool needs. It is not elevation.
+
+    To deploy machine-wide, an administrator provisions it for every user:
+      Add-AppxProvisionedPackage -Online -PackagePath <file>.msix -SkipLicense
+    Intune and Store deployment do the equivalent. Anyone needing a
+    per-machine install with an elevation prompt should use the MSI.
+  -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust"
       xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" />

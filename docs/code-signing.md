@@ -85,3 +85,24 @@ do.
 The MSIX is the exception worth repeating: unsigned, it cannot be installed at
 all except on a machine with developer mode enabled. It ships so that anyone
 holding a certificate can sign it themselves without rebuilding.
+
+## Windows elevation
+
+The MSI installs for all users and declares `InstallPrivileges="elevated"`, so
+Windows prompts for administrator rights before it writes to Program Files and
+the system PATH. It also refuses a per-user install rather than starting one it
+cannot finish. The Inno setup program already required administrator rights.
+
+**An MSIX cannot request elevation.** The format installs per-user into a
+sandboxed location by design, and no manifest setting changes that. The
+`runFullTrust` capability it declares grants ordinary desktop-application
+access, not administrator rights.
+
+To deploy the MSIX machine-wide, an administrator provisions it for every user:
+
+```powershell
+Add-AppxProvisionedPackage -Online -PackagePath Proofboard-Career-Agent-windows-amd64.msix -SkipLicense
+```
+
+Intune and Store deployment do the equivalent. Anyone who needs a per-machine
+install with an elevation prompt should use the MSI instead.
