@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
+	"github.com/proofboard/proofboard/internal/config"
 	"github.com/proofboard/proofboard/internal/model"
 )
 
@@ -18,7 +19,7 @@ func TestIntegrationPayloadContract(t *testing.T) {
 	}
 	baseURL := os.Getenv("PROOFBOARD_API_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api-dev.proofboard.io"
+		baseURL = config.DefaultAPIBaseURL
 	}
 
 	client := api.NewClient(baseURL, "/api/v1/cli/repos/link", "/api/v1/cli/repos/check", "/api/v1/cli/sync")

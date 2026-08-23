@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'Proofboard-inc/proofboard-cli'
-$PinnedVersion = 'v1.12.3'
+$PinnedVersion = 'v1.13.0'
 $PublicDownloadHost = 'https://proofboard.io'
 $BinaryName = 'proofboard-windows-amd64.exe'
 $SystemInstall = $env:PROOFBOARD_SYSTEM_INSTALL -eq '1'

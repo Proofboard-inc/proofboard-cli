@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/proofboard/proofboard/internal/config"
 	"github.com/proofboard/proofboard/internal/state"
 )
 
@@ -81,7 +82,7 @@ func TestAppBaseURLRespectsConfigOverride(t *testing.T) {
 func TestAppBaseURLFallsBackToDefaultFrontend(t *testing.T) {
 	t.Setenv("PROOFBOARD_APP_BASE_URL", "")
 	got := appBaseURL(context.Background())
-	if got != "https://proofboard-frontend.vercel.app" {
+	if got != config.DefaultAppBaseURL {
 		t.Fatalf("appBaseURL() = %q, want the real default frontend app, not proofboard.io", got)
 	}
 }

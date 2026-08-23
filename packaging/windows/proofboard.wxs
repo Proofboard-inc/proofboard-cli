@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX source for the MSI. The MSI exists alongside the Inno .exe because
+  managed Windows fleets deploy MSI packages through Group Policy and Intune,
+  which cannot consume an .exe installer.
+
+  Installs per-machine into Program Files and puts the install directory on the
+  system PATH so `proofboard` resolves in a new shell.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Proofboard Career Agent"
+           Language="1033"
+           Version="$(var.ProductVersion)"
+           Manufacturer="Proofboard"
+           UpgradeCode="7E3B1C64-6E3F-4C2E-9C77-1C0E6E4B9A21">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="Proofboard Career Agent" />
+
+    <!-- Replace an older install in place rather than leaving two side by
+         side, which is what makes `msiexec /i` behave as an upgrade. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of the Proofboard Career Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Proofboard" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ProofboardExecutable" Guid="6B1D2F84-2C55-4E3A-9E9B-2F7A5D3C8B10" Win64="yes">
+        <File Id="ProofboardExe" Name="proofboard.exe" Source="$(var.BinaryPath)" KeyPath="yes" />
+        <Environment Id="ProofboardPath" Name="PATH" Value="[INSTALLFOLDER]"
+                     Permanent="no" Part="last" Action="set" System="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="Proofboard Career Agent" Level="1">
+      <ComponentRef Id="ProofboardExecutable" />
+    </Feature>
+
+    <!-- Register the background agent after the files land. Deferred and
+         ignoring the exit code on purpose: a machine with no interactive user
+         session cannot register it, and that must not fail the install. -->
+    <CustomAction Id="EnableAgent"
+                  FileKey="ProofboardExe"
+                  ExeCommand="agent enable"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="EnableAgent" After="InstallFiles">NOT Installed</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>
