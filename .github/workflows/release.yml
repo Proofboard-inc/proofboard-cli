@@ -145,6 +145,42 @@ jobs:
         with:
           name: ${{ matrix.binary }}
           path: dist
+      - name: Sign the executable for macOS
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_DEVELOPER_ID_APP: ${{ secrets.APPLE_DEVELOPER_ID_APP }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12" ]; then
+            # Skipped, and said out loud. A signing step that reports success
+            # while doing nothing is how a release ships unsigned without
+            # anyone noticing, so this always prints and the release notes
+            # carry the caveat.
+            echo "::warning title=macOS signing skipped::APPLE_CERTIFICATE_P12 is not set. macOS will refuse to open this download: 'the developer cannot be verified'. See docs/code-signing.md."
+            exit 0
+          fi
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+          chmod +x "dist/${{ matrix.binary }}"
+          # --options runtime is required for notarization to be accepted.
+          codesign --force --timestamp --options runtime \
+            --sign "$APPLE_DEVELOPER_ID_APP" "dist/${{ matrix.binary }}"
+          codesign --verify --strict --verbose=2 "dist/${{ matrix.binary }}"
+          # Kept under a distinct name so it does not collide with the build
+          # job's upload of the same filename. The publish job moves it into
+          # place, otherwise the standalone executable on the release would be
+          # the unsigned one while only the package contained a signed copy.
+          cp "dist/${{ matrix.binary }}" "dist/${{ matrix.binary }}.codesigned"
+
       - name: Build double-click macOS installer
         run: |
           chmod +x "dist/${{ matrix.binary }}"
@@ -167,10 +203,46 @@ jobs:
           ls /tmp/pbdmg/proofboard
           ls /tmp/pbdmg/*.pkg
           hdiutil detach /tmp/pbdmg
+      - name: Sign and notarize the macOS packages
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_DEVELOPER_ID_APP: ${{ secrets.APPLE_DEVELOPER_ID_APP }}
+          APPLE_DEVELOPER_ID_INSTALLER: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12" ]; then
+            echo "::warning title=macOS packages unsigned::Package and disk image are not signed or notarized. See docs/code-signing.md."
+            exit 0
+          fi
+          PKG="dist/${{ matrix.installer }}"
+          DMG="dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg"
+          # An installer package is signed with the Installer identity, not
+          # the Application one; using the wrong identity fails at install.
+          productsign --sign "$APPLE_DEVELOPER_ID_INSTALLER" "$PKG" "$PKG.signed"
+          mv "$PKG.signed" "$PKG"
+          codesign --force --timestamp --sign "$APPLE_DEVELOPER_ID_APP" "$DMG"
+
+          if [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "::warning title=Notarization skipped::Signed but not notarized. Gatekeeper still blocks a downloaded file without notarization, so this is not enough on its own."
+            exit 0
+          fi
+          echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          for f in "$PKG" "$DMG"; do
+            xcrun notarytool submit "$f" --key "$RUNNER_TEMP/key.p8" \
+              --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" --wait
+            # Stapling attaches the ticket so the file validates offline.
+            xcrun stapler staple "$f"
+            xcrun stapler validate "$f"
+          done
+          rm -f "$RUNNER_TEMP/key.p8"
+
       - uses: actions/upload-artifact@v4
         with:
           name: proofboard-career-agent-darwin-${{ matrix.arch }}-packages
           path: |
+            dist/${{ matrix.binary }}.codesigned
             dist/${{ matrix.installer }}
             dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg
           if-no-files-found: error
@@ -242,10 +314,53 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msix')) { Write-Error 'MSIX not produced'; exit 1 }
 
+      - name: Sign the Windows executables and packages
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE_PFX) {
+            # Skipped loudly on purpose. Unsigned, SmartScreen warns on the
+            # .exe and .msi, and the .msix cannot be installed at all.
+            Write-Output "::warning title=Windows signing skipped::WINDOWS_CERTIFICATE_PFX is not set. SmartScreen will warn on the installers and the MSIX cannot be installed. See docs/code-signing.md."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX))
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter 'signtool.exe' -Recurse -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -like '*x64*' } | Select-Object -First 1
+          if (-not $signtool) { Write-Error 'signtool.exe not found'; exit 1 }
+
+          # The MSIX must be signed by the same identity its manifest declares
+          # as Publisher, or Windows rejects it at install with a mismatch.
+          $targets = @(
+            'dist/proofboard-windows-amd64.exe',
+            'dist/Proofboard-Career-Agent-windows-amd64-setup.exe',
+            'dist/Proofboard-Career-Agent-windows-amd64.msi',
+            'dist/Proofboard-Career-Agent-windows-amd64.msix'
+          )
+          foreach ($t in $targets) {
+            if (-not (Test-Path $t)) { Write-Error "missing $t"; exit 1 }
+            # A timestamp keeps the signature valid after the certificate
+            # expires; without it every signed file goes untrusted on expiry.
+            & $signtool.FullName sign /fd SHA256 /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD $t
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $signtool.FullName verify /pa $t
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Remove-Item $pfx -Force
+          # As with macOS: hand the signed executable back under a distinct
+          # name so publish can replace the unsigned one from the build job.
+          Copy-Item 'dist/proofboard-windows-amd64.exe' 'dist/proofboard-windows-amd64.exe.codesigned' -Force
+
       - uses: actions/upload-artifact@v4
         with:
           name: proofboard-career-agent-windows-packages
           path: |
+            dist/proofboard-windows-amd64.exe.codesigned
             dist/Proofboard-Career-Agent-windows-amd64-setup.exe
             dist/Proofboard-Career-Agent-windows-amd64.msi
             dist/Proofboard-Career-Agent-windows-amd64.msix
@@ -266,6 +381,21 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Promote code-signed executables
+        run: |
+          # The installer jobs code-sign for macOS and Windows. Those signed
+          # copies arrive under a .codesigned suffix so they do not collide
+          # with the build job's upload of the same name; move them into place
+          # now, before the release key signs whatever is on disk. Without
+          # this the release would carry unsigned standalone executables while
+          # the installers contained signed ones.
+          shopt -s nullglob
+          for f in dist/*.codesigned; do
+            target="${f%.codesigned}"
+            mv "$f" "$target"
+            echo "promoted $(basename "$target") to the code-signed build"
+          done
+
       - name: Sign and verify update binaries
         env:
           PROOFBOARD_RELEASE_PRIVATE_KEY: ${{ secrets.PROOFBOARD_RELEASE_PRIVATE_KEY }}
@@ -387,11 +517,10 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Consistent names for the installer downloads. The Linux RPM and AppImage were published under names that did not match the pattern every other installer follows, so the download list read as though it came from three different projects. Every installer is now Proofboard-Career-Agent-<platform>-<architecture> with the format's own extension.
+            - Operating-system code signing is now wired into the release. When the Apple and Windows certificates are in place, the executables, the installer package, the disk image, the setup program, the MSI and the MSIX are all signed, and the macOS files are notarized and stapled so they validate offline.
+            - Until those certificates exist the signing steps are skipped, and they say so loudly in the build log rather than passing quietly. This release is therefore still unsigned: macOS reports that the developer cannot be verified, Windows SmartScreen warns, and the MSIX cannot be installed at all. docs/code-signing.md lists exactly what to obtain and which secrets to set.
 
-            The plain executables keep their existing lowercase names, deliberately: an installed copy looks for that exact filename when it updates itself, so renaming them would stop older versions from updating.
-
-            Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
+            Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 
           files: |
             dist/proofboard-linux-amd64
