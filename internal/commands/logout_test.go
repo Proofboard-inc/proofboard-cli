@@ -22,6 +22,15 @@ func signedInHome(t *testing.T) string {
 		model.Credentials{Token: "test-token", EmailHash: "hash"}); err != nil {
 		t.Fatalf("seed credentials: %v", err)
 	}
+	dir := filepath.Join(home, ".proofboard")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("create state dir: %v", err)
+	}
+	for _, f := range []string{"sync.log", "sync.log.1", "auto-update.log", "device.key", "dictionary.json"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatalf("seed %s: %v", f, err)
+		}
+	}
 	return home
 }
 
@@ -56,6 +65,19 @@ func TestLogoutIsReachableBothWays(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(home, ".proofboard", "credentials.json")); !os.IsNotExist(err) {
 				t.Fatalf("%s left the credentials file in place", tc.name)
+			}
+			// The activity log and the device key belong to the account that
+			// just signed out; leaving them means "logged out" described only
+			// the token.
+			for _, leftover := range []string{"sync.log", "sync.log.1", "auto-update.log", "device.key"} {
+				if _, err := os.Stat(filepath.Join(home, ".proofboard", leftover)); !os.IsNotExist(err) {
+					t.Errorf("%s left %s behind", tc.name, leftover)
+				}
+			}
+			// The dictionary is public reference data, identical for every
+			// account, so re-downloading it after sign-in would be waste.
+			if _, err := os.Stat(filepath.Join(home, ".proofboard", "dictionary.json")); os.IsNotExist(err) {
+				t.Errorf("%s removed the shared dictionary, which is not account data", tc.name)
 			}
 			// Recorded as deliberate, so the agent does not treat it as an
 			// expired session and immediately prompt to reconnect.

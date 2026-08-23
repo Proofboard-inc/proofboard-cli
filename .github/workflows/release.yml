@@ -556,7 +556,9 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - The activity log now says why something failed. It previously reduced every error to "[details redacted]", so a sync that failed showed only that it failed, with no way for anyone — including support — to find out more. It now keeps the status code and the transport or verification failure, and still discards everything else, so nothing identifying is written down.
+            - An expired session can recover on its own again. When the service rejected the stored credentials, the Career Agent's automatic reconnect ran sign-in, sign-in replied that you were already connected because credentials were present, and synchronisation retried with the very credentials that had just been rejected. It now signs in properly instead of reporting success without doing anything, so a stale session no longer needs to be cleared by hand.
+            - Signing out now clears everything this device held for the account: the credentials, the activity log, and the device signing key that identified this machine. The shared dictionary is kept, since it is public reference data and identical for everyone.
+            - The activity log records why a request failed rather than reducing everything to "[details redacted]". It keeps the status code and the transport or verification failure, and still discards anything that could identify a repository, an organisation or an account.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
