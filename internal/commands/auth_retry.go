@@ -50,7 +50,11 @@ func runAuthFlow(ctx context.Context, out io.Writer, rotateKey bool) error {
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	cmd.SetErr(out)
-	args := []string{}
+	// --force is required here. This runs because the server rejected the
+	// current credentials, so "you already have credentials" is precisely the
+	// wrong answer; without it the command returns success without signing in
+	// and the caller retries with the same rejected token.
+	args := []string{"--force"}
 	if rotateKey {
 		args = append(args, "--rotate-key")
 	}

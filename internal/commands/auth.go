@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	pbauth "github.com/proofboard/proofboard/internal/auth"
@@ -14,6 +16,7 @@ import (
 func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	var rotateKey bool
 	var switchAccount bool
+	var forceReauth bool
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Connect the Proofboard Career Agent",
@@ -31,7 +34,13 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// "auth login: send request: ... timeout" error for a command that
 			// has nothing to actually do. --switch (or --rotate-key, which needs
 			// a live round trip to register the new key) bypasses this.
-			if !switchAccount && !rotateKey {
+			// forceReauth is what the automatic reconnect uses. Without it
+			// the short-circuit below fires on the very credentials the
+			// server just rejected: a sync gets a 401, the reconnect runs
+			// this command, it reports "already authenticated" because a
+			// token is present, and the sync retries with the same dead
+			// token. Sign-in could never actually recover a stale session.
+			if !switchAccount && !rotateKey && !forceReauth {
 				if existing, loadErr := runtime.credentials.Load(ctx); loadErr == nil &&
 					existing.Token != "" && !credentialsCompletelyExpired(existing) {
 					name := existing.Username
@@ -88,6 +97,8 @@ func newAuthCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&rotateKey, "rotate-key", false, "generate a new device signing key")
 	cmd.Flags().BoolVar(&switchAccount, "switch", false, "connect a different Proofboard account, even if one is already connected")
+	cmd.Flags().BoolVar(&forceReauth, "force", false, "sign in again even if credentials are already present")
+	_ = cmd.Flags().MarkHidden("force")
 	cmd.AddCommand(newAuthLogoutCommand(ctx, out))
 	return cmd
 }
@@ -146,6 +157,43 @@ func runLogout(ctx context.Context, out io.Writer) error {
 			return fmt.Errorf("persist logged-out state: %w", err)
 		}
 	}
-	_, err = fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out.")
-	return err
+	// Signing out clears what this device holds about the account, not only
+	// the token: the activity log records what was synced and when, the
+	// device signing key identifies this machine to the service, and the
+	// cached notification state belongs to the account that just left.
+	// Leaving those behind means "logged out" only described the token.
+	removed := clearLocalAccountData(runtime.homeDir)
+
+	if _, err := fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out."); err != nil {
+		return err
+	}
+	if removed > 0 {
+		_, err = fmt.Fprintf(out, "Activity log and device signing key cleared (%d file(s)).\n", removed)
+		return err
+	}
+	return nil
+}
+
+// clearLocalAccountData removes the per-account files the Career Agent keeps
+// on this machine and reports how many it deleted. Best effort throughout: a
+// file that cannot be removed must not abort the sign-out, because a failed
+// sign-out that leaves the credentials in place is worse than one that leaves
+// a log behind.
+//
+// The dictionary is deliberately left: it is public reference data, identical
+// for everyone, and re-downloading it on the next sign-in would be pure waste.
+func clearLocalAccountData(homeDir string) int {
+	dir := filepath.Join(homeDir, ".proofboard")
+	removed := 0
+	for _, name := range []string{
+		"sync.log",   // what this account synced, and when
+		"sync.log.1", // the rotated previous log
+		"auto-update.log",
+		"device.key", // identifies this machine to the service
+	} {
+		if err := os.Remove(filepath.Join(dir, name)); err == nil {
+			removed++
+		}
+	}
+	return removed
 }

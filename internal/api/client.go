@@ -25,6 +25,12 @@ type Error struct {
 	RetryAfter time.Duration
 }
 
+// Error deliberately excludes e.Message. The server echoes request content
+// back in it — the test fixture for this is a message naming a repository and
+// an employer — so printing it would leak exactly the identifiers this tool
+// exists to keep local. The status code and the structured code are safe and
+// are what a failure is diagnosed from; the message stays on the struct for a
+// caller that has a safe use for it.
 func (e *Error) Error() string {
 	if e == nil {
 		return "API request failed"
