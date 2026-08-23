@@ -9,8 +9,16 @@ import (
 )
 
 const (
-	DefaultAPIBaseURL   = "https://api-dev.proofboard.io"
-	DefaultAppBaseURL   = "https://proofboard-frontend.vercel.app"
+	// Production. Both are overridable per machine with PROOFBOARD_API_BASE_URL
+	// and PROOFBOARD_APP_BASE_URL, which is how a development build is pointed
+	// back at api-dev.proofboard.io and the Vercel frontend.
+	DefaultAPIBaseURL = "https://api.proofboard.io"
+	DefaultAppBaseURL = "https://proofboard.io"
+	// DefaultAgentAuthURL is where sign-in sends the browser. Note that the
+	// production frontend does not serve /cli-auth yet — it answers 307 and
+	// redirects to the homepage, where the development frontend answers 200 —
+	// so sign-in cannot complete against production until that page ships.
+	// Override PROOFBOARD_APP_BASE_URL in the meantime.
 	DefaultAgentAuthURL = DefaultAppBaseURL + "/cli-auth"
 )
 

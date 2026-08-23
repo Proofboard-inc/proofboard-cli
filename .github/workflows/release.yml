@@ -28,7 +28,7 @@ jobs:
         run: npm --prefix npm-package test
       - name: Validate installer and release scripts
         run: |
-          sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_macos_pkg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh scripts/test_agent_reinstall.sh
+          sh -n scripts/install.sh build/install.sh scripts/package_linux_deb.sh scripts/package_linux_rpm.sh scripts/package_linux_appimage.sh scripts/package_macos_pkg.sh scripts/package_macos_dmg.sh scripts/test_compiled_cli.sh scripts/test_no_system_pollution.sh scripts/test_agent_reinstall.sh
           bash -n scripts/publish_release.sh
       - name: Validate the Windows installer scripts
         shell: pwsh
@@ -98,10 +98,32 @@ jobs:
           chmod +x dist/proofboard-linux-amd64
           scripts/package_linux_deb.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.deb
           dpkg-deb --info dist/Proofboard-Career-Agent-linux-amd64.deb
+      - name: Build the RPM package
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+          scripts/package_linux_rpm.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-x86_64.rpm
+          rpm -qip dist/Proofboard-Career-Agent-linux-x86_64.rpm
+          # The payload must be the binary we signed, so confirm it is in there.
+          rpm -qlp dist/Proofboard-Career-Agent-linux-x86_64.rpm | grep -qx /usr/bin/proofboard
+      - name: Build the AppImage
+        run: |
+          sudo apt-get install -y -qq libfuse2 file || true
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          APPIMAGETOOL=/tmp/appimagetool scripts/package_linux_appimage.sh \
+            "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-x86_64.AppImage
+          test -s dist/Proofboard-Career-Agent-x86_64.AppImage
+          # An AppImage that cannot run is not a release artifact, so run it.
+          chmod +x dist/Proofboard-Career-Agent-x86_64.AppImage
+          ./dist/Proofboard-Career-Agent-x86_64.AppImage --appimage-extract-and-run version
       - uses: actions/upload-artifact@v4
         with:
-          name: proofboard-career-agent-linux-amd64-deb
-          path: dist/Proofboard-Career-Agent-linux-amd64.deb
+          name: proofboard-career-agent-linux-packages
+          path: |
+            dist/Proofboard-Career-Agent-linux-amd64.deb
+            dist/Proofboard-Career-Agent-linux-x86_64.rpm
+            dist/Proofboard-Career-Agent-x86_64.AppImage
           if-no-files-found: error
 
   installer-macos:
@@ -131,10 +153,23 @@ jobs:
           pkgutil --expand "dist/${{ matrix.installer }}" expanded-package
           sh -n expanded-package/Scripts/postinstall
           grep -q 'proofboard agent enable' expanded-package/Scripts/postinstall
+      - name: Build the disk image
+        run: |
+          scripts/package_macos_dmg.sh "${GITHUB_REF_NAME}" \
+            "dist/${{ matrix.binary }}" "dist/${{ matrix.installer }}" \
+            "dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg"
+          # Mount it and confirm the executable is really inside, rather than
+          # trusting that hdiutil exited zero.
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/pbdmg \
+            "dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg"
+          ls "/tmp/pbdmg/Proofboard Career Agent/proofboard"
+          hdiutil detach /tmp/pbdmg
       - uses: actions/upload-artifact@v4
         with:
-          name: proofboard-career-agent-darwin-${{ matrix.arch }}-pkg
-          path: dist/${{ matrix.installer }}
+          name: proofboard-career-agent-darwin-${{ matrix.arch }}-packages
+          path: |
+            dist/${{ matrix.installer }}
+            dist/Proofboard-Career-Agent-darwin-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   installer-windows:
@@ -158,10 +193,65 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DBinaryPath=$binary" "/DMyAppVersion=$version" "/DInstallerOutputDir=$output" 'packaging/windows/ProofboardCareerAgent.iss'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the MSI package
+        shell: pwsh
+        run: |
+          # Managed Windows fleets deploy MSI through Group Policy and Intune,
+          # neither of which can consume the Inno .exe, so both ship.
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $binary = (Resolve-Path 'dist/proofboard-windows-amd64.exe').Path
+          choco install wixtoolset --no-progress -y
+          $wix = "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin"
+          if (-not (Test-Path $wix)) { $wix = (Get-ChildItem "${env:ProgramFiles(x86)}" -Filter 'candle.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName }
+          & "$wix\candle.exe" -nologo -arch x64 "-dProductVersion=$version" "-dBinaryPath=$binary" `
+            -out dist\proofboard.wixobj packaging\windows\proofboard.wxs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$wix\light.exe" -nologo -out dist\Proofboard-Career-Agent-windows-amd64.msi dist\proofboard.wixobj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi')) { Write-Error 'MSI not produced'; exit 1 }
+
+      - name: Build the MSIX package
+        shell: pwsh
+        run: |
+          # MSIX is what the Store and modern Intune deployment consume. This
+          # package is UNSIGNED: Windows will only install it on a machine with
+          # developer mode on, or after it is signed with a trusted
+          # certificate. It ships so that anyone with a certificate can sign
+          # and deploy it without rebuilding.
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $stage = 'dist\msix'
+          New-Item -ItemType Directory -Force -Path "$stage\Assets" | Out-Null
+          Copy-Item 'dist/proofboard-windows-amd64.exe' "$stage\proofboard.exe"
+          # MSIX requires a four-part version whose last part is 0.
+          $manifestVersion = "$version.0"
+          (Get-Content 'packaging/windows/AppxManifest.xml') `
+            -replace 'PLACEHOLDER_VERSION', $manifestVersion |
+            Set-Content "$stage\AppxManifest.xml"
+          # Minimal valid PNGs so the manifest's asset references resolve.
+          $png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
+          foreach ($n in 'StoreLogo.png','Square150x150Logo.png','Square44x44Logo.png') {
+            [IO.File]::WriteAllBytes((Join-Path (Resolve-Path "$stage\Assets") $n), $png)
+          }
+          $sdk = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter 'makeappx.exe' -Recurse -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -like '*x64*' } | Select-Object -First 1
+          if (-not $sdk) { Write-Error 'makeappx.exe not found in the Windows SDK'; exit 1 }
+          & $sdk.FullName pack /d $stage /p dist\Proofboard-Career-Agent-windows-amd64.msix /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msix')) { Write-Error 'MSIX not produced'; exit 1 }
+
       - uses: actions/upload-artifact@v4
         with:
-          name: proofboard-career-agent-windows-amd64-setup
-          path: dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+          name: proofboard-career-agent-windows-packages
+          path: |
+            dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+            dist/Proofboard-Career-Agent-linux-x86_64.rpm
+            dist/Proofboard-Career-Agent-x86_64.AppImage
+            dist/Proofboard-Career-Agent-darwin-amd64.dmg
+            dist/Proofboard-Career-Agent-darwin-arm64.dmg
+            dist/Proofboard-Career-Agent-windows-amd64.msi
+            dist/Proofboard-Career-Agent-windows-amd64.msix
+            dist/Proofboard-Career-Agent-windows-amd64.msi
+            dist/Proofboard-Career-Agent-windows-amd64.msix
           if-no-files-found: error
 
   publish:
@@ -215,6 +305,12 @@ jobs:
           test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
           test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
           test -f dist/Proofboard-Career-Agent-windows-amd64-setup.exe
+          test -f dist/Proofboard-Career-Agent-linux-x86_64.rpm
+          test -f dist/Proofboard-Career-Agent-x86_64.AppImage
+          test -f dist/Proofboard-Career-Agent-darwin-amd64.dmg
+          test -f dist/Proofboard-Career-Agent-darwin-arm64.dmg
+          test -f dist/Proofboard-Career-Agent-windows-amd64.msi
+          test -f dist/Proofboard-Career-Agent-windows-amd64.msix
       - name: Stamp the installer fallback version
         run: |
           # The installers carry a pinned version used only when neither
@@ -264,6 +360,12 @@ jobs:
             Proofboard-Career-Agent-darwin-amd64.pkg \
             Proofboard-Career-Agent-darwin-arm64.pkg \
             Proofboard-Career-Agent-windows-amd64-setup.exe \
+            Proofboard-Career-Agent-linux-x86_64.rpm \
+            Proofboard-Career-Agent-x86_64.AppImage \
+            Proofboard-Career-Agent-darwin-amd64.dmg \
+            Proofboard-Career-Agent-darwin-arm64.dmg \
+            Proofboard-Career-Agent-windows-amd64.msi \
+            Proofboard-Career-Agent-windows-amd64.msix \
             install.sh \
             install.ps1 \
             install.cmd \
@@ -276,7 +378,10 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Fixes a downgrade risk in the background updater. The installer resolves the newest release itself and, when it cannot reach either source, falls back to a version written inside the script — which had not been updated in four releases. An update running unattended could therefore have installed an older build over a newer one, and done it again the next day. The updater now names the exact release it decided on, and the fallback version is stamped automatically when a release is built so it cannot fall behind again.
+            - Points at production. The Career Agent now talks to the live service by default instead of the development environment. Existing machines can stay on development by setting PROOFBOARD_API_BASE_URL and PROOFBOARD_APP_BASE_URL.
+            - Many more ways to install. macOS adds a disk image alongside the plain executable and the installer package. Windows adds MSI and MSIX packages alongside the plain executable and the setup program, for fleets deployed through Group Policy, Intune or the Store. Linux adds an RPM package and an AppImage alongside the plain executable and the Debian package, so the tool installs without a package manager or administrator rights.
+
+            Note on the MSIX package: it is unsigned, so Windows installs it only on a machine with developer mode enabled, or after it has been signed with a certificate your organisation trusts. Every other artifact is signed.
 
             Built and signed for all four targets with every native installer, install script, metadata file, and npm tarball attached. Verified by the full unit and integration suite, static analysis, npm wrapper tests, compiled-executable command testing, and release signature verification.
 
