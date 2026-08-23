@@ -12,7 +12,7 @@ import (
 )
 
 // newMilestoneCommand groups the three actions offered whenever the Career
-// Agent surfaces a detected milestone (see printMilestoneReady in
+// Agent surfaces a detected milestone (see printMilestonesReady in
 // runtime.go). Milestone detection is a plain terminal message with no
 // buttons, so these are real, documented subcommands: "review"/"publish"/
 // "skip" read far better as command names than a single generic

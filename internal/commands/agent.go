@@ -117,9 +117,8 @@ func runAgent(ctx context.Context) error {
 		return err
 	}
 	defer releaseAgentPID(runtime.homeDir, os.Getpid())
-	seenUnlinked := make(map[string]bool)
 	lastSyncLaunch := make(map[string]time.Time)
-	if err := inspectIDEWorkspaces(ctx, runtime, seenUnlinked, lastSyncLaunch); err != nil {
+	if err := inspectIDEWorkspaces(ctx, runtime, lastSyncLaunch); err != nil {
 		_ = logging.WriteSyncLog(runtime.homeDir, "career-agent", "agent", "workspace scan", "failure", err.Error())
 	}
 	// Executable auto-update rides this loop rather than a timer of its own:
@@ -136,7 +135,7 @@ func runAgent(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := inspectIDEWorkspaces(ctx, runtime, seenUnlinked, lastSyncLaunch); err != nil {
+			if err := inspectIDEWorkspaces(ctx, runtime, lastSyncLaunch); err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, "career-agent", "agent", "workspace scan", "failure", err.Error())
 			}
 			maybeAutoUpdateCLI(ctx, runtime)
@@ -144,7 +143,7 @@ func runAgent(ctx context.Context) error {
 	}
 }
 
-func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, seenUnlinked map[string]bool, lastSyncLaunch map[string]time.Time) error {
+func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, lastSyncLaunch map[string]time.Time) error {
 	current, err := runtime.state.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load agent state: %w", err)
@@ -177,16 +176,11 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, seenUnlin
 			}
 		}
 	}
-	pruneInactiveWorkspaceSessions(seenUnlinked, lastSyncLaunch, activeWorkspaces)
+	pruneInactiveWorkspaceSessions(lastSyncLaunch, activeWorkspaces)
 	return nil
 }
 
-func pruneInactiveWorkspaceSessions(seenUnlinked map[string]bool, lastSyncLaunch map[string]time.Time, activeWorkspaces map[string]bool) {
-	for workspace := range seenUnlinked {
-		if !activeWorkspaces[workspace] {
-			delete(seenUnlinked, workspace)
-		}
-	}
+func pruneInactiveWorkspaceSessions(lastSyncLaunch map[string]time.Time, activeWorkspaces map[string]bool) {
 	for workspace := range lastSyncLaunch {
 		if !activeWorkspaces[workspace] {
 			delete(lastSyncLaunch, workspace)

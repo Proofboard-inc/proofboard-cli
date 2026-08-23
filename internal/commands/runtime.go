@@ -19,6 +19,7 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/state"
+	"github.com/proofboard/proofboard/internal/style"
 )
 
 type runtimeContext struct {
@@ -151,30 +152,91 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 	if err != nil {
 		return
 	}
+	markRead := func(id string) {
+		if isCliScope {
+			_ = runtime.api.MarkCliNotificationRead(ctx, credentials.Token, id)
+		} else {
+			_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, id)
+		}
+	}
+
+	var milestones []struct{ title, bundleID string }
+
 	for _, n := range res.Data {
 		switch n.Type {
 		case "milestone_bundle_ready":
-			// A sync can produce several milestone clusters at once, each
-			// raising its own milestone_bundle_ready notification server
-			// side, so printing one line per bundle here would be noisy. The
-			// cli_sync_complete/vcs_sync_completed notification already
-			// tells the developer their work was captured; these are marked
-			// read below without printing anything.
+			// Collected rather than printed one at a time: a single sync can
+			// raise one of these per cluster, and a separate block for each
+			// would bury the rest of the output. They are printed together
+			// below, with their identifiers, because those identifiers are
+			// the only thing that makes `proofboard milestone` usable — the
+			// subcommands take one and nothing else in the CLI prints one.
+			milestones = append(milestones, struct{ title, bundleID string }{
+				title:    notificationMetaString(n.Meta, "title", "milestoneTitle", "name"),
+				bundleID: notificationMetaString(n.Meta, "bundleId", "milestoneBundleId", "id"),
+			})
+			markRead(n.ID)
 		case "proposal_viewed", "proposal_accepted", "proposal_declined":
-			// Proposals/Dealboard aren't part of the CLI experience right
-			// now: marked read below without printing anything.
+			// Deliberately left unread. Proposals are not part of the CLI
+			// experience, so nothing is printed for them — and marking them
+			// read anyway would consume them here and clear them from the
+			// dashboard, where they ARE surfaced, without anyone having seen
+			// them. Not displaying something is not the same as handling it.
 		default:
-			// Terminal-only: these are routine, already-happened confirmations
-			// (sync completed, someone viewed your proofboard, etc.) surfaced
-			// the next time the user happens to run a command, not the kind
-			// of time-sensitive prompt that warrants interrupting them with an
-			// OS-level popup on top of it.
+			// Routine, already-happened confirmations (sync completed, your
+			// proofboard was viewed) surfaced the next time a command runs.
 			notifications.PrintEvent(out, notifications.RemoteNotification(n))
-		}
-		if isCliScope {
-			_ = runtime.api.MarkCliNotificationRead(ctx, credentials.Token, n.ID)
-		} else {
-			_ = runtime.api.MarkNotificationRead(ctx, credentials.Token, n.ID)
+			markRead(n.ID)
 		}
 	}
+
+	printMilestonesReady(out, milestones)
+}
+
+// printMilestonesReady prints the milestones waiting for a decision, followed
+// by the commands that act on them. The bundle identifier is included because
+// `proofboard milestone review|publish|skip` each require one, and this is the
+// only place the CLI can learn it — without this the three subcommands exist
+// but cannot be invoked.
+func printMilestonesReady(out io.Writer, milestones []struct{ title, bundleID string }) {
+	if len(milestones) == 0 {
+		return
+	}
+	noun := "milestone"
+	if len(milestones) != 1 {
+		noun = "milestones"
+	}
+	fmt.Fprintf(out, "%s %s %s\n",
+		style.Success(out, "✓"),
+		style.Brand(out, "Proofboard"),
+		style.Heading(out, fmt.Sprintf("— %d %s ready to review", len(milestones), noun)))
+
+	for _, m := range milestones {
+		title := strings.TrimSpace(m.title)
+		if title == "" {
+			title = "Engineering milestone"
+		}
+		if strings.TrimSpace(m.bundleID) == "" {
+			// Nothing actionable without an identifier, so the headline is
+			// all there is to say about this one.
+			fmt.Fprintf(out, "  %s\n", style.Muted(out, title))
+			continue
+		}
+		fmt.Fprintf(out, "  %s\n", title)
+		fmt.Fprintf(out, "    %s  %s\n", style.Accent(out, "proofboard milestone review "+m.bundleID), style.Muted(out, "inspect it first"))
+		fmt.Fprintf(out, "    %s  %s\n", style.Accent(out, "proofboard milestone publish "+m.bundleID), style.Muted(out, "publish as-is"))
+		fmt.Fprintf(out, "    %s  %s\n", style.Accent(out, "proofboard milestone skip "+m.bundleID), style.Muted(out, "dismiss it"))
+	}
+}
+
+// notificationMetaString reads the first non-empty string among keys from a
+// notification's metadata, tolerating the different spellings the backend has
+// used for the same field.
+func notificationMetaString(meta map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := meta[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
