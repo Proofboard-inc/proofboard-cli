@@ -21,7 +21,16 @@ assert.strictEqual(getBinaryName('Linux', 'x64'), 'proofboard-linux-amd64');
 assert.strictEqual(getBinaryName('Darwin', 'x64'), 'proofboard-darwin-amd64');
 assert.strictEqual(getBinaryName('Darwin', 'arm64'), 'proofboard-darwin-arm64');
 assert.strictEqual(getBinaryName('Windows_NT', 'x64'), 'proofboard-windows-amd64.exe');
-assert.throws(() => getBinaryName('Linux', 'arm64'), /Unsupported platform/);
+// Linux and Windows on ARM are published now — single-board machines, ARM
+// cloud instances, the Surface and Snapdragon laptops. This previously
+// asserted they were refused, which described the release rather than the
+// tool; refusing them again would be a regression, not a safeguard.
+assert.strictEqual(getBinaryName('Linux', 'arm64'), 'proofboard-linux-arm64');
+assert.strictEqual(getBinaryName('Windows_NT', 'arm64'), 'proofboard-windows-arm64.exe');
+// A genuinely unsupported combination must still be refused rather than
+// silently resolving to some other machine's binary.
+assert.throws(() => getBinaryName('Linux', 'ia32'), /Unsupported architecture/);
+assert.throws(() => getBinaryName('SunOS', 'x64'), /Unsupported OS/);
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'proofboard-npm-test-'));
 try {

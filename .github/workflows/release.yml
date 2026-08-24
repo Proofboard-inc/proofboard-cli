@@ -67,6 +67,16 @@ jobs:
           - goos: windows
             goarch: amd64
             output: proofboard-windows-amd64.exe
+          # Single-board machines and ARM cloud instances for Linux; the
+          # Surface and Snapdragon laptops for Windows. Both are pure static
+          # cross-compiles with CGO off, so they cost a build slot and nothing
+          # else — while without them those developers get a hard refusal.
+          - goos: linux
+            goarch: arm64
+            output: proofboard-linux-arm64
+          - goos: windows
+            goarch: arm64
+            output: proofboard-windows-arm64.exe
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -426,23 +436,27 @@ jobs:
       - name: Publish the executables under the product name
         run: |
           # Every installer on the release page is named for the product, so
-          # the bare executables are renamed to match. They were briefly
-          # published under both names, which put the same four binaries on
-          # the page twice and made the list harder to read than the
-          # inconsistency it was meant to fix.
+          # the bare executables carry that name too — and the lowercase names
+          # are published alongside them rather than replaced.
           #
-          # Versions up to 1.13.2 look for the old lowercase name and cannot
-          # self-update without it, so they update once by hand and then track
-          # normally. 1.14.0 and later ask for the product name first, so
-          # nothing from here on is affected.
+          # Dropping the lowercase names broke installation outright. The
+          # script served at releases.proofboard.io redirects to a release
+          # asset by the lowercase name, so `curl … | bash` began failing with
+          # a 404 for everyone. That script is hosted on a domain this
+          # repository cannot change, and versions up to 1.13.2 build the same
+          # lowercase name to find their own update.
+          #
+          # Both names are the same bytes and both are signed. They can be
+          # dropped once releases.proofboard.io serves a script that asks for
+          # the current name and those old versions are gone — not before.
           cd dist
-          for f in proofboard-linux-amd64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe; do
+          for f in proofboard-linux-amd64 proofboard-linux-arm64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe proofboard-windows-arm64.exe; do
             case "$f" in
               *.exe) product="Proofboard-Career-Agent-${f%.exe}.exe" ;;
               *)     product="Proofboard-Career-Agent-${f}" ;;
             esac
             product=$(printf '%s' "$product" | sed 's/Proofboard-Career-Agent-proofboard-/Proofboard-Career-Agent-/')
-            mv "$f" "$product"
+            cp "$f" "$product"
             echo "published $f as $product"
           done
 
@@ -456,6 +470,22 @@ jobs:
           printf '%s\n' "$PROOFBOARD_RELEASE_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
           chmod 0600 "$SIGNING_KEY_FILE"
           for binary in \
+            Proofboard-Career-Agent-linux-arm64 \
+            Proofboard-Career-Agent-linux-arm64.sig \
+            Proofboard-Career-Agent-windows-arm64.exe \
+            Proofboard-Career-Agent-windows-arm64.exe.sig \
+            proofboard-linux-amd64 \
+            proofboard-linux-amd64.sig \
+            proofboard-linux-arm64 \
+            proofboard-linux-arm64.sig \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-amd64.sig \
+            proofboard-darwin-arm64 \
+            proofboard-darwin-arm64.sig \
+            proofboard-windows-amd64.exe \
+            proofboard-windows-amd64.exe.sig \
+            proofboard-windows-arm64.exe \
+            proofboard-windows-arm64.exe.sig \
             Proofboard-Career-Agent-linux-amd64 \
             Proofboard-Career-Agent-linux-amd64.sig \
             Proofboard-Career-Agent-darwin-amd64 \
@@ -464,10 +494,20 @@ jobs:
             Proofboard-Career-Agent-darwin-arm64.sig \
             Proofboard-Career-Agent-windows-amd64.exe \
             Proofboard-Career-Agent-windows-amd64.exe.sig \
+            Proofboard-Career-Agent-linux-arm64 \
+            Proofboard-Career-Agent-windows-arm64.exe \
             Proofboard-Career-Agent-linux-amd64 \
             Proofboard-Career-Agent-darwin-amd64 \
             Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-windows-amd64.exe
+            Proofboard-Career-Agent-windows-amd64.exe \
+            Proofboard-Career-Agent-linux-arm64 \
+            Proofboard-Career-Agent-windows-arm64.exe \
+            proofboard-linux-amd64 \
+            proofboard-linux-arm64 \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-arm64 \
+            proofboard-windows-amd64.exe \
+            proofboard-windows-arm64.exe
           do
             go run scripts/sign.go "$SIGNING_KEY_FILE" "dist/$binary"
             go run ./scripts/verify_signature "dist/$binary" "dist/$binary.sig"
@@ -490,6 +530,22 @@ jobs:
       # consistent on <os>-<arch> across every packaging format.
       - name: Verify complete release matrix
         run: |
+          test -f dist/Proofboard-Career-Agent-linux-arm64
+          test -f dist/Proofboard-Career-Agent-linux-arm64.sig
+          test -f dist/Proofboard-Career-Agent-windows-arm64.exe
+          test -f dist/Proofboard-Career-Agent-windows-arm64.exe.sig
+          test -f dist/proofboard-linux-amd64
+          test -f dist/proofboard-linux-amd64.sig
+          test -f dist/proofboard-linux-arm64
+          test -f dist/proofboard-linux-arm64.sig
+          test -f dist/proofboard-darwin-amd64
+          test -f dist/proofboard-darwin-amd64.sig
+          test -f dist/proofboard-darwin-arm64
+          test -f dist/proofboard-darwin-arm64.sig
+          test -f dist/proofboard-windows-amd64.exe
+          test -f dist/proofboard-windows-amd64.exe.sig
+          test -f dist/proofboard-windows-arm64.exe
+          test -f dist/proofboard-windows-arm64.exe.sig
           test -f dist/Proofboard-Career-Agent-linux-amd64
           test -f dist/Proofboard-Career-Agent-linux-amd64.sig
           test -f dist/Proofboard-Career-Agent-darwin-amd64
@@ -598,12 +654,30 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Updating works again. The repository holding the releases was not publicly readable, so every machine asking for the newest version was told there wasn't one and that it was running a development build. Installing and updating both failed the same way, for everyone, regardless of which version they were on. Verified from a machine reporting 1.11.0: `proofboard update` now moves it to the current release.
-            - This release carries no code changes of its own. It marks the point from which updating is reliable, so a version that updates cleanly can be pointed to.
+            - Installing from the published one-line command works again. It fetches a script that asks for a download by its previous name, and that name stopped existing when the downloads were renamed, so it failed with a 404 for everyone. Both names are published now, and both are signed.
+            - Linux and Windows on ARM are supported. A single-board machine, an ARM cloud instance, a Surface or a Snapdragon laptop was previously told the platform was unsupported; that described the release rather than the tool. Both now have a signed executable and are installed by the same commands as everything else.
 
-            Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
+            The native installer packages remain x86-64 for now. ARM machines install the executable directly, which is what the install command does.
+
+            Built for six targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
           files: |
+            dist/Proofboard-Career-Agent-linux-arm64
+            dist/Proofboard-Career-Agent-linux-arm64.sig
+            dist/Proofboard-Career-Agent-windows-arm64.exe
+            dist/Proofboard-Career-Agent-windows-arm64.exe.sig
+            dist/proofboard-linux-amd64
+            dist/proofboard-linux-amd64.sig
+            dist/proofboard-linux-arm64
+            dist/proofboard-linux-arm64.sig
+            dist/proofboard-darwin-amd64
+            dist/proofboard-darwin-amd64.sig
+            dist/proofboard-darwin-arm64
+            dist/proofboard-darwin-arm64.sig
+            dist/proofboard-windows-amd64.exe
+            dist/proofboard-windows-amd64.exe.sig
+            dist/proofboard-windows-arm64.exe
+            dist/proofboard-windows-arm64.exe.sig
             dist/Proofboard-Career-Agent-linux-amd64
             dist/Proofboard-Career-Agent-linux-amd64.sig
             dist/Proofboard-Career-Agent-darwin-amd64

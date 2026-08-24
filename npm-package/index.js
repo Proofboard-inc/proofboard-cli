@@ -34,9 +34,8 @@ function getBinaryName(platform = os.type(), arch = os.arch()) {
         throw new Error(`Unsupported architecture: ${arch}`);
     }
 
-    if (archName === 'arm64' && osName !== 'darwin') {
-        throw new Error(`Unsupported platform: ${osName}-${archName}`);
-    }
+    // Linux and Windows on ARM are published, so no combination is refused
+    // here any more. Rejecting them described the release rather than the tool.
 
     return `proofboard-${osName}-${archName}${osName === 'windows' ? '.exe' : ''}`;
 }
