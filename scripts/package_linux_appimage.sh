@@ -7,14 +7,22 @@
 # rights on their machine.
 set -e
 
-if [ "$#" -ne 3 ]; then
-    echo "usage: $0 VERSION BINARY OUTPUT.AppImage" >&2
+# ARCH is the AppImage architecture name (x86_64, aarch64) and defaults to
+# x86_64. Setting it alone is NOT enough to cross-build: appimagetool embeds
+# the runtime of its own architecture and ARCH only labels the metadata, so an
+# x86_64 appimagetool asked for aarch64 happily produces an AppImage with an
+# x86-64 runtime that cannot start on an ARM machine. Set APPIMAGE_RUNTIME to
+# the matching runtime binary when building for a foreign architecture; the
+# check at the end of this script enforces that it was done.
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "usage: $0 VERSION BINARY OUTPUT.AppImage [ARCH]" >&2
     exit 2
 fi
 
 VERSION=${1#v}
 BINARY=$2
 OUTPUT=$3
+ARCH=${4:-x86_64}
 
 [ -f "$BINARY" ] || { echo "binary not found: $BINARY" >&2; exit 1; }
 
@@ -55,10 +63,42 @@ command -v "$APPIMAGETOOL" >/dev/null 2>&1 || {
     exit 1
 }
 
+RUNTIME_ARGS=""
+if [ -n "${APPIMAGE_RUNTIME:-}" ]; then
+    [ -f "$APPIMAGE_RUNTIME" ] || {
+        echo "APPIMAGE_RUNTIME set but not found: $APPIMAGE_RUNTIME" >&2
+        exit 1
+    }
+    RUNTIME_ARGS="--runtime-file $APPIMAGE_RUNTIME"
+fi
+
 mkdir -p "$(dirname "$OUTPUT")"
 # --appimage-extract-and-run avoids needing FUSE, which is unavailable on most
-# CI runners and in containers.
-ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run "$APPDIR" "$OUTPUT" >/dev/null 2>&1 || \
-    ARCH=x86_64 "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"
+# CI runners and in containers. It must stay the FIRST argument: it is read by
+# appimagetool's own AppImage runtime, which only inspects argv[1], so putting
+# --runtime-file ahead of it silently drops back to FUSE and fails.
+# shellcheck disable=SC2086 # RUNTIME_ARGS is deliberately word-split
+ARCH="$ARCH" "$APPIMAGETOOL" --appimage-extract-and-run $RUNTIME_ARGS "$APPDIR" "$OUTPUT" >/dev/null 2>&1 || \
+    ARCH="$ARCH" "$APPIMAGETOOL" $RUNTIME_ARGS "$APPDIR" "$OUTPUT"
 chmod 0755 "$OUTPUT"
-echo "built $OUTPUT"
+
+# Verify the runtime that actually got embedded. This is the failure this
+# script exists to prevent: without it a cross-architecture build reports
+# success and ships an AppImage that cannot execute on the target machine.
+# e_machine is a 2-byte little-endian field at offset 0x12 of the ELF header.
+MACHINE=$(od -A n -t x1 -j 18 -N 2 "$OUTPUT" | tr -d ' \n')
+case "$ARCH" in
+    x86_64)  WANT=3e00 ;;
+    aarch64) WANT=b700 ;;
+    armhf)   WANT=2800 ;;
+    i686)    WANT=0300 ;;
+    *)       WANT="" ;;
+esac
+if [ -n "$WANT" ] && [ "$MACHINE" != "$WANT" ]; then
+    echo "built AppImage has the wrong runtime architecture for $ARCH" >&2
+    echo "  expected ELF e_machine $WANT, found $MACHINE" >&2
+    echo "  set APPIMAGE_RUNTIME to the $ARCH runtime binary" >&2
+    exit 1
+fi
+
+echo "built $OUTPUT ($ARCH)"

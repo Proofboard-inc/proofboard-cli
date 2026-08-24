@@ -2,7 +2,7 @@ Package: proofboard-career-agent
 Version: @VERSION@
 Section: devel
 Priority: optional
-Architecture: amd64
+Architecture: @ARCH@
 Maintainer: Proofboard <support@proofboard.io>
 Homepage: https://proofboard.io
 Description: Local-first Proofboard Career Agent

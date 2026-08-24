@@ -1,14 +1,18 @@
 #!/bin/sh
 set -e
 
-if [ "$#" -ne 3 ]; then
-    echo "usage: $0 VERSION BINARY OUTPUT.deb" >&2
+# ARCH is the Debian architecture name (amd64, arm64) and defaults to amd64 so
+# existing callers keep working. It must match the binary being packaged: a
+# package claiming the wrong architecture installs and then cannot run.
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "usage: $0 VERSION BINARY OUTPUT.deb [ARCH]" >&2
     exit 2
 fi
 
 VERSION=${1#v}
 BINARY=$2
 OUTPUT=$3
+ARCH=${4:-amd64}
 
 if [ ! -f "$BINARY" ]; then
     echo "binary not found: $BINARY" >&2
@@ -32,7 +36,7 @@ chmod 0755 \
     "$PACKAGE_TMP/etc" \
     "$PACKAGE_TMP/etc/xdg" \
     "$PACKAGE_TMP/etc/xdg/autostart"
-sed "s/@VERSION@/$VERSION/g" "$PROJECT_DIR/packaging/linux/control.in" > "$PACKAGE_TMP/DEBIAN/control"
+sed -e "s/@VERSION@/$VERSION/g" -e "s/@ARCH@/$ARCH/g" "$PROJECT_DIR/packaging/linux/control.in" > "$PACKAGE_TMP/DEBIAN/control"
 install -m 0755 "$PROJECT_DIR/packaging/linux/postinst" "$PACKAGE_TMP/DEBIAN/postinst"
 install -m 0755 "$PROJECT_DIR/packaging/linux/prerm" "$PACKAGE_TMP/DEBIAN/prerm"
 install -m 0755 "$BINARY" "$PACKAGE_TMP/usr/bin/proofboard"

@@ -6,14 +6,16 @@
 # the executable to /usr/bin and register the background agent on install.
 set -e
 
-if [ "$#" -ne 3 ]; then
-    echo "usage: $0 VERSION BINARY OUTPUT.rpm" >&2
+# ARCH is the RPM architecture name (x86_64, aarch64) and defaults to x86_64.
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "usage: $0 VERSION BINARY OUTPUT.rpm [ARCH]" >&2
     exit 2
 fi
 
 VERSION=${1#v}
 BINARY=$2
 OUTPUT=$3
+ARCH=${4:-x86_64}
 
 [ -f "$BINARY" ] || { echo "binary not found: $BINARY" >&2; exit 1; }
 case "$VERSION" in
@@ -37,7 +39,6 @@ Release:        1
 Summary:        Proofboard Career Agent
 License:        MIT
 URL:            https://proofboard.io
-BuildArch:      x86_64
 # The binary is statically linked and built elsewhere; rpmbuild must not try
 # to derive dependencies from it or strip it, which would invalidate the
 # release signature the updater verifies.
@@ -71,7 +72,14 @@ fi
 %changelog
 SPEC
 
-rpmbuild --define "_topdir $BUILD_TMP/rpmbuild" -bb "$BUILD_TMP/rpmbuild/SPECS/proofboard.spec" >/dev/null
+# --target, and deliberately no BuildArch in the spec, is what makes the
+# cross-architecture package build. BuildArch is checked against the host's
+# "compatible build archs" (x86_64 and noarch here) before --target is applied,
+# so naming a foreign architecture there fails with "No compatible
+# architectures found for build" even when --target names the same one.
+# --target alone sets the package architecture and skips that check. Nothing is
+# compiled here — the binary is built elsewhere and only packaged.
+rpmbuild --quiet --define "_topdir $BUILD_TMP/rpmbuild" --target "$ARCH" -bb "$BUILD_TMP/rpmbuild/SPECS/proofboard.spec" >/dev/null
 BUILT=$(find "$BUILD_TMP/rpmbuild/RPMS" -name '*.rpm' -print -quit)
 [ -n "$BUILT" ] || { echo "rpmbuild produced no package" >&2; exit 1; }
 mkdir -p "$(dirname "$OUTPUT")"
