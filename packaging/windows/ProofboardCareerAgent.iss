@@ -1,5 +1,16 @@
 #ifndef BinaryPath
-  #error BinaryPath must point to proofboard-windows-amd64.exe
+  #error BinaryPath must point to the proofboard-windows-<arch>.exe being packaged
+#endif
+
+; TargetArch names the output file; InnoArch is what Inno itself understands.
+; They differ: Go calls it amd64, Inno calls it x64compatible. Defaults keep
+; the previous x64-only behaviour for any caller that passes neither.
+#ifndef TargetArch
+  #define TargetArch "amd64"
+#endif
+
+#ifndef InnoArch
+  #define InnoArch "x64compatible"
 #endif
 
 #ifndef MyAppVersion
@@ -21,13 +32,13 @@ DefaultDirName={autopf}\Proofboard
 DefaultGroupName=Proofboard Career Agent
 DisableProgramGroupPage=yes
 OutputDir={#InstallerOutputDir}
-OutputBaseFilename=Proofboard-Career-Agent-windows-amd64-setup
+OutputBaseFilename=Proofboard-Career-Agent-windows-{#TargetArch}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#InnoArch}
+ArchitecturesInstallIn64BitMode={#InnoArch}
 UninstallDisplayName=Proofboard Career Agent
 VersionInfoVersion={#MyAppVersion}
 VersionInfoDescription=Proofboard Career Agent Installer

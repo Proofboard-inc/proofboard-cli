@@ -103,29 +103,58 @@ jobs:
         with:
           name: proofboard-linux-amd64
           path: dist
-      - name: Build double-click Linux installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: proofboard-linux-arm64
+          path: dist
+      - name: Install packaging tools
         run: |
-          chmod +x dist/proofboard-linux-amd64
-          scripts/package_linux_deb.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.deb
-          dpkg-deb --info dist/Proofboard-Career-Agent-linux-amd64.deb
-      - name: Build the RPM package
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rpm
-          scripts/package_linux_rpm.sh "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.rpm
-          rpm -qip dist/Proofboard-Career-Agent-linux-amd64.rpm
-          # The payload must be the binary we signed, so confirm it is in there.
-          rpm -qlp dist/Proofboard-Career-Agent-linux-amd64.rpm | grep -qx /usr/bin/proofboard
-      - name: Build the AppImage
-        run: |
-          sudo apt-get install -y -qq libfuse2 file || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm libfuse2 file || true
           curl -fsSL -o /tmp/appimagetool \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
-          APPIMAGETOOL=/tmp/appimagetool scripts/package_linux_appimage.sh \
-            "${GITHUB_REF_NAME}" dist/proofboard-linux-amd64 dist/Proofboard-Career-Agent-linux-amd64.AppImage
-          test -s dist/Proofboard-Career-Agent-linux-amd64.AppImage
-          # An AppImage that cannot run is not a release artifact, so run it.
-          chmod +x dist/Proofboard-Career-Agent-linux-amd64.AppImage
+          # appimagetool embeds the runtime of its own architecture, so an
+          # aarch64 AppImage needs the aarch64 runtime supplied explicitly.
+          # Without it the build reports success and produces a file with an
+          # x86-64 runtime that cannot start on an ARM machine.
+          curl -fsSL -o /tmp/runtime-aarch64 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64
+      - name: Build the Linux packages
+        run: |
+          set -eu
+          # Debian, RPM and AppImage each spell the architectures differently.
+          for triple in "amd64 amd64 x86_64" "arm64 arm64 aarch64"; do
+            set -- $triple
+            GO_ARCH=$1; DEB_ARCH=$2; RPM_ARCH=$3
+            BIN="dist/proofboard-linux-${GO_ARCH}"
+            OUT="dist/Proofboard-Career-Agent-linux-${GO_ARCH}"
+            chmod +x "$BIN"
+
+            scripts/package_linux_deb.sh "${GITHUB_REF_NAME}" "$BIN" "${OUT}.deb" "$DEB_ARCH"
+            dpkg-deb --info "${OUT}.deb"
+            test "$(dpkg-deb -f "${OUT}.deb" Architecture)" = "$DEB_ARCH"
+
+            scripts/package_linux_rpm.sh "${GITHUB_REF_NAME}" "$BIN" "${OUT}.rpm" "$RPM_ARCH"
+            rpm -qip "${OUT}.rpm"
+            test "$(rpm -qp --qf '%{ARCH}' "${OUT}.rpm")" = "$RPM_ARCH"
+            # The payload must be the binary we signed, so confirm it is in there.
+            rpm -qlp "${OUT}.rpm" | grep -qx /usr/bin/proofboard
+
+            if [ "$GO_ARCH" = "arm64" ]; then
+              RUNTIME=/tmp/runtime-aarch64
+            else
+              RUNTIME=
+            fi
+            APPIMAGETOOL=/tmp/appimagetool APPIMAGE_RUNTIME="$RUNTIME" \
+              scripts/package_linux_appimage.sh \
+                "${GITHUB_REF_NAME}" "$BIN" "${OUT}.AppImage" "$RPM_ARCH"
+            test -s "${OUT}.AppImage"
+            chmod +x "${OUT}.AppImage"
+          done
+          # An AppImage that cannot run is not a release artifact, so run the
+          # one this runner can execute. The aarch64 build cannot run here;
+          # package_linux_appimage.sh verifies its embedded runtime instead.
           ./dist/Proofboard-Career-Agent-linux-amd64.AppImage --appimage-extract-and-run version
       - uses: actions/upload-artifact@v4
         with:
@@ -134,6 +163,9 @@ jobs:
             dist/Proofboard-Career-Agent-linux-amd64.deb
             dist/Proofboard-Career-Agent-linux-amd64.rpm
             dist/Proofboard-Career-Agent-linux-amd64.AppImage
+            dist/Proofboard-Career-Agent-linux-arm64.deb
+            dist/Proofboard-Career-Agent-linux-arm64.rpm
+            dist/Proofboard-Career-Agent-linux-arm64.AppImage
           if-no-files-found: error
 
   installer-macos:
@@ -266,26 +298,43 @@ jobs:
         with:
           name: proofboard-windows-amd64.exe
           path: dist
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-      - name: Build double-click Windows installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: proofboard-windows-arm64.exe
+          path: dist
+      - name: Install Inno Setup and the WiX Toolset
         shell: pwsh
         run: |
+          choco install innosetup --no-progress -y
+          choco install wixtoolset --no-progress -y
+      - name: Build double-click Windows installers
+        shell: pwsh
+        run: |
+          # ARM64 Windows laptops run the x64 build under emulation, but a
+          # native package is faster and is what the CLI's own updater will
+          # fetch, so both architectures get the full set of installers.
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $binary = (Resolve-Path 'dist/proofboard-windows-amd64.exe').Path
           $output = (Resolve-Path 'dist').Path
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DBinaryPath=$binary" "/DMyAppVersion=$version" "/DInstallerOutputDir=$output" 'packaging/windows/ProofboardCareerAgent.iss'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build the MSI package
+          # Go's architecture names and Inno's are not the same vocabulary.
+          $arches = @(
+            @{ Go = 'amd64'; Inno = 'x64compatible' },
+            @{ Go = 'arm64'; Inno = 'arm64' }
+          )
+          foreach ($a in $arches) {
+            $binary = (Resolve-Path "dist/proofboard-windows-$($a.Go).exe").Path
+            & $iscc "/DBinaryPath=$binary" "/DMyAppVersion=$version" "/DInstallerOutputDir=$output" `
+              "/DTargetArch=$($a.Go)" "/DInnoArch=$($a.Inno)" 'packaging/windows/ProofboardCareerAgent.iss'
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $setup = "dist/Proofboard-Career-Agent-windows-$($a.Go)-setup.exe"
+            if (-not (Test-Path $setup)) { Write-Error "installer not produced: $setup"; exit 1 }
+          }
+      - name: Build the MSI packages
         shell: pwsh
         run: |
           # Managed Windows fleets deploy MSI through Group Policy and Intune,
           # neither of which can consume the Inno .exe, so both ship.
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $binary = (Resolve-Path 'dist/proofboard-windows-amd64.exe').Path
-          choco install wixtoolset --no-progress -y
           $wix = "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin"
           if (-not (Test-Path $wix)) { $wix = (Get-ChildItem "${env:ProgramFiles(x86)}" -Filter 'candle.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName }
           # The licence shown on the first dialog. Checked in as RTF rather
@@ -294,62 +343,81 @@ jobs:
           # wrong, and a malformed licence page fails the whole install.
           $licenseRtf = (Resolve-Path 'packaging/windows/license.rtf').Path
 
-          & "$wix\candle.exe" -nologo -arch x64 "-dProductVersion=$version" "-dBinaryPath=$binary" "-dLicenseRtf=$licenseRtf" `
-            -ext WixUIExtension -out dist\proofboard.wixobj packaging\windows\proofboard.wxs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # -ext WixUIExtension is what links the dialog set in. Without it the
-          # package builds and installs but shows nothing at all.
-          & "$wix\light.exe" -nologo -ext WixUIExtension -out dist\Proofboard-Career-Agent-windows-amd64.msi dist\proofboard.wixobj
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi')) { Write-Error 'MSI not produced'; exit 1 }
+          # candle's -arch values are x64 and arm64; Go says amd64 and arm64.
+          $arches = @(
+            @{ Go = 'amd64'; Wix = 'x64' },
+            @{ Go = 'arm64'; Wix = 'arm64' }
+          )
+          foreach ($a in $arches) {
+            $binary = (Resolve-Path "dist/proofboard-windows-$($a.Go).exe").Path
+            $msi = "dist\Proofboard-Career-Agent-windows-$($a.Go).msi"
+            & "$wix\candle.exe" -nologo -arch $a.Wix "-dProductVersion=$version" "-dBinaryPath=$binary" "-dLicenseRtf=$licenseRtf" `
+              -ext WixUIExtension -out "dist\proofboard-$($a.Go).wixobj" packaging\windows\proofboard.wxs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # -ext WixUIExtension is what links the dialog set in. Without it the
+            # package builds and installs but shows nothing at all.
+            & "$wix\light.exe" -nologo -ext WixUIExtension -out $msi "dist\proofboard-$($a.Go).wixobj"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path $msi)) { Write-Error "MSI not produced: $msi"; exit 1 }
 
-          # An installer that shows no dialogs looks like it did nothing, so
-          # confirm the dialog table actually has rows rather than trusting
-          # that the build succeeded. Note that Windows Installer SQL has no
-          # COUNT(*): asking for one fails the query rather than returning a
-          # number, which is how this check first reported a problem that was
-          # entirely its own.
-          $msiPath = (Resolve-Path 'dist/Proofboard-Career-Agent-windows-amd64.msi').Path
-          $installer = New-Object -ComObject WindowsInstaller.Installer
-          $db = $installer.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$installer,@($msiPath,0))
-          $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@('SELECT Dialog FROM Dialog'))
-          $view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null)
-          $first = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
-          if ($null -eq $first) {
-            Write-Error 'MSI contains no dialogs; it would install silently and appear to do nothing'
-            exit 1
+            # An installer that shows no dialogs looks like it did nothing, so
+            # confirm the dialog table actually has rows rather than trusting
+            # that the build succeeded. Note that Windows Installer SQL has no
+            # COUNT(*): asking for one fails the query rather than returning a
+            # number, which is how this check first reported a problem that was
+            # entirely its own.
+            $msiPath = (Resolve-Path $msi).Path
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            $db = $installer.GetType().InvokeMember('OpenDatabase','InvokeMethod',$null,$installer,@($msiPath,0))
+            $view = $db.GetType().InvokeMember('OpenView','InvokeMethod',$null,$db,@('SELECT Dialog FROM Dialog'))
+            $view.GetType().InvokeMember('Execute','InvokeMethod',$null,$view,$null)
+            $first = $view.GetType().InvokeMember('Fetch','InvokeMethod',$null,$view,$null)
+            if ($null -eq $first) {
+              Write-Error "MSI contains no dialogs; it would install silently and appear to do nothing: $msi"
+              exit 1
+            }
+            $name = $first.GetType().InvokeMember('StringData','GetProperty',$null,$first,1)
+            Write-Output "MSI user interface present in $msi (first dialog: $name)"
           }
-          $name = $first.GetType().InvokeMember('StringData','GetProperty',$null,$first,1)
-          Write-Output "MSI user interface present (first dialog: $name)"
 
-      - name: Build the MSIX package
+      - name: Build the MSIX packages
         shell: pwsh
         run: |
-          # MSIX is what the Store and modern Intune deployment consume. This
-          # package is UNSIGNED: Windows will only install it on a machine with
-          # developer mode on, or after it is signed with a trusted
-          # certificate. It ships so that anyone with a certificate can sign
-          # and deploy it without rebuilding.
+          # MSIX is what the Store and modern Intune deployment consume. These
+          # packages are UNSIGNED: Windows will only install them on a machine
+          # with developer mode on, or after they are signed with a trusted
+          # certificate. They ship so that anyone with a certificate can sign
+          # and deploy without rebuilding.
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $stage = 'dist\msix'
-          New-Item -ItemType Directory -Force -Path "$stage\Assets" | Out-Null
-          Copy-Item 'dist/proofboard-windows-amd64.exe' "$stage\proofboard.exe"
-          # MSIX requires a four-part version whose last part is 0.
-          $manifestVersion = "$version.0"
-          (Get-Content 'packaging/windows/AppxManifest.xml') `
-            -replace 'PLACEHOLDER_VERSION', $manifestVersion |
-            Set-Content "$stage\AppxManifest.xml"
-          # Minimal valid PNGs so the manifest's asset references resolve.
-          $png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
-          foreach ($n in 'StoreLogo.png','Square150x150Logo.png','Square44x44Logo.png') {
-            [IO.File]::WriteAllBytes((Join-Path (Resolve-Path "$stage\Assets") $n), $png)
-          }
           $sdk = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter 'makeappx.exe' -Recurse -ErrorAction SilentlyContinue |
                  Where-Object { $_.FullName -like '*x64*' } | Select-Object -First 1
           if (-not $sdk) { Write-Error 'makeappx.exe not found in the Windows SDK'; exit 1 }
-          & $sdk.FullName pack /d $stage /p dist\Proofboard-Career-Agent-windows-amd64.msix /o
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path 'dist/Proofboard-Career-Agent-windows-amd64.msix')) { Write-Error 'MSIX not produced'; exit 1 }
+          # MSIX requires a four-part version whose last part is 0.
+          $manifestVersion = "$version.0"
+          # The manifest's ProcessorArchitecture must match the binary inside,
+          # or Windows refuses the package on the machine it was built for.
+          $arches = @(
+            @{ Go = 'amd64'; Msix = 'x64' },
+            @{ Go = 'arm64'; Msix = 'arm64' }
+          )
+          foreach ($a in $arches) {
+            $stage = "dist\msix-$($a.Go)"
+            New-Item -ItemType Directory -Force -Path "$stage\Assets" | Out-Null
+            Copy-Item "dist/proofboard-windows-$($a.Go).exe" "$stage\proofboard.exe"
+            (Get-Content 'packaging/windows/AppxManifest.xml') `
+              -replace 'PLACEHOLDER_VERSION', $manifestVersion `
+              -replace 'PLACEHOLDER_ARCH', $a.Msix |
+              Set-Content "$stage\AppxManifest.xml"
+            # Minimal valid PNGs so the manifest's asset references resolve.
+            $png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
+            foreach ($n in 'StoreLogo.png','Square150x150Logo.png','Square44x44Logo.png') {
+              [IO.File]::WriteAllBytes((Join-Path (Resolve-Path "$stage\Assets") $n), $png)
+            }
+            $msix = "dist\Proofboard-Career-Agent-windows-$($a.Go).msix"
+            & $sdk.FullName pack /d $stage /p $msix /o
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path $msix)) { Write-Error "MSIX not produced: $msix"; exit 1 }
+          }
 
       - name: Sign the Windows executables and packages
         shell: pwsh
@@ -371,12 +439,13 @@ jobs:
 
           # The MSIX must be signed by the same identity its manifest declares
           # as Publisher, or Windows rejects it at install with a mismatch.
-          $targets = @(
-            'dist/proofboard-windows-amd64.exe',
-            'dist/Proofboard-Career-Agent-windows-amd64-setup.exe',
-            'dist/Proofboard-Career-Agent-windows-amd64.msi',
-            'dist/Proofboard-Career-Agent-windows-amd64.msix'
-          )
+          $targets = @()
+          foreach ($arch in @('amd64','arm64')) {
+            $targets += "dist/proofboard-windows-$arch.exe"
+            $targets += "dist/Proofboard-Career-Agent-windows-$arch-setup.exe"
+            $targets += "dist/Proofboard-Career-Agent-windows-$arch.msi"
+            $targets += "dist/Proofboard-Career-Agent-windows-$arch.msix"
+          }
           foreach ($t in $targets) {
             if (-not (Test-Path $t)) { Write-Error "missing $t"; exit 1 }
             # A timestamp keeps the signature valid after the certificate
@@ -389,18 +458,24 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           Remove-Item $pfx -Force
-          # As with macOS: hand the signed executable back under a distinct
-          # name so publish can replace the unsigned one from the build job.
-          Copy-Item 'dist/proofboard-windows-amd64.exe' 'dist/proofboard-windows-amd64.exe.codesigned' -Force
+          # As with macOS: hand the signed executables back under distinct
+          # names so publish can replace the unsigned ones from the build job.
+          foreach ($arch in @('amd64','arm64')) {
+            Copy-Item "dist/proofboard-windows-$arch.exe" "dist/proofboard-windows-$arch.exe.codesigned" -Force
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: proofboard-career-agent-windows-packages
           path: |
             dist/proofboard-windows-amd64.exe.codesigned
+            dist/proofboard-windows-arm64.exe.codesigned
             dist/Proofboard-Career-Agent-windows-amd64-setup.exe
             dist/Proofboard-Career-Agent-windows-amd64.msi
             dist/Proofboard-Career-Agent-windows-amd64.msix
+            dist/Proofboard-Career-Agent-windows-arm64-setup.exe
+            dist/Proofboard-Career-Agent-windows-arm64.msi
+            dist/Proofboard-Career-Agent-windows-arm64.msix
           if-no-files-found: error
 
   publish:
@@ -439,26 +514,26 @@ jobs:
           # the bare executables carry that name too — and the lowercase names
           # are published alongside them rather than replaced.
           #
-          # Dropping the lowercase names broke installation outright. The
-          # script served at releases.proofboard.io redirects to a release
-          # asset by the lowercase name, so `curl … | bash` began failing with
-          # a 404 for everyone. That script is hosted on a domain this
-          # repository cannot change, and versions up to 1.13.2 build the same
-          # lowercase name to find their own update.
+          # releases.proofboard.io now asks for the product name and translates
+          # the lowercase one, so the public install path no longer depends on
+          # these. What still does is an installed copy of 1.13.2 or earlier:
+          # it builds the lowercase name, looks for it in the GitHub release's
+          # own asset list, and fails outright when it is absent. Those copies
+          # never touch releases.proofboard.io, so nothing that host does can
+          # cover them — dropping these names strands those users with no way
+          # to update short of reinstalling by hand.
           #
-          # Both names are the same bytes and both are signed. They can be
-          # dropped once releases.proofboard.io serves a script that asks for
-          # the current name and those old versions are gone — not before.
+          # Both names are the same bytes and both are signed.
           cd dist
-          for f in proofboard-linux-amd64 proofboard-linux-arm64 proofboard-darwin-amd64 proofboard-darwin-arm64 proofboard-windows-amd64.exe proofboard-windows-arm64.exe; do
-            case "$f" in
-              *.exe) product="Proofboard-Career-Agent-${f%.exe}.exe" ;;
-              *)     product="Proofboard-Career-Agent-${f}" ;;
-            esac
-            product=$(printf '%s' "$product" | sed 's/Proofboard-Career-Agent-proofboard-/Proofboard-Career-Agent-/')
-            cp "$f" "$product"
-            echo "published $f as $product"
+          # Both lists are generated from the same matrix in the same order,
+          # so pairing them line by line cannot mismatch a platform.
+          sh ../scripts/release_assets.sh legacy > legacy.list
+          sh ../scripts/release_assets.sh binaries > product.list
+          paste legacy.list product.list | while IFS="$(printf '\t')" read -r legacy product; do
+            cp "$legacy" "$product"
+            echo "published $legacy as $product"
           done
+          rm -f legacy.list product.list
 
       - name: Sign and verify update binaries
         env:
@@ -469,45 +544,10 @@ jobs:
           trap 'shred -u "$SIGNING_KEY_FILE"' EXIT
           printf '%s\n' "$PROOFBOARD_RELEASE_PRIVATE_KEY" > "$SIGNING_KEY_FILE"
           chmod 0600 "$SIGNING_KEY_FILE"
-          for binary in \
-            Proofboard-Career-Agent-linux-arm64 \
-            Proofboard-Career-Agent-linux-arm64.sig \
-            Proofboard-Career-Agent-windows-arm64.exe \
-            Proofboard-Career-Agent-windows-arm64.exe.sig \
-            proofboard-linux-amd64 \
-            proofboard-linux-amd64.sig \
-            proofboard-linux-arm64 \
-            proofboard-linux-arm64.sig \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-amd64.sig \
-            proofboard-darwin-arm64 \
-            proofboard-darwin-arm64.sig \
-            proofboard-windows-amd64.exe \
-            proofboard-windows-amd64.exe.sig \
-            proofboard-windows-arm64.exe \
-            proofboard-windows-arm64.exe.sig \
-            Proofboard-Career-Agent-linux-amd64 \
-            Proofboard-Career-Agent-linux-amd64.sig \
-            Proofboard-Career-Agent-darwin-amd64 \
-            Proofboard-Career-Agent-darwin-amd64.sig \
-            Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-darwin-arm64.sig \
-            Proofboard-Career-Agent-windows-amd64.exe \
-            Proofboard-Career-Agent-windows-amd64.exe.sig \
-            Proofboard-Career-Agent-linux-arm64 \
-            Proofboard-Career-Agent-windows-arm64.exe \
-            Proofboard-Career-Agent-linux-amd64 \
-            Proofboard-Career-Agent-darwin-amd64 \
-            Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-windows-amd64.exe \
-            Proofboard-Career-Agent-linux-arm64 \
-            Proofboard-Career-Agent-windows-arm64.exe \
-            proofboard-linux-amd64 \
-            proofboard-linux-arm64 \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-arm64 \
-            proofboard-windows-amd64.exe \
-            proofboard-windows-arm64.exe
+          # The set of signed artifacts comes from scripts/release_assets.sh so
+          # that signing, checksums, the verify matrix and the upload cannot
+          # disagree about what a release contains.
+          for binary in $(sh scripts/release_assets.sh signed)
           do
             go run scripts/sign.go "$SIGNING_KEY_FILE" "dist/$binary"
             go run ./scripts/verify_signature "dist/$binary" "dist/$binary.sig"
@@ -530,40 +570,21 @@ jobs:
       # consistent on <os>-<arch> across every packaging format.
       - name: Verify complete release matrix
         run: |
-          test -f dist/Proofboard-Career-Agent-linux-arm64
-          test -f dist/Proofboard-Career-Agent-linux-arm64.sig
-          test -f dist/Proofboard-Career-Agent-windows-arm64.exe
-          test -f dist/Proofboard-Career-Agent-windows-arm64.exe.sig
-          test -f dist/proofboard-linux-amd64
-          test -f dist/proofboard-linux-amd64.sig
-          test -f dist/proofboard-linux-arm64
-          test -f dist/proofboard-linux-arm64.sig
-          test -f dist/proofboard-darwin-amd64
-          test -f dist/proofboard-darwin-amd64.sig
-          test -f dist/proofboard-darwin-arm64
-          test -f dist/proofboard-darwin-arm64.sig
-          test -f dist/proofboard-windows-amd64.exe
-          test -f dist/proofboard-windows-amd64.exe.sig
-          test -f dist/proofboard-windows-arm64.exe
-          test -f dist/proofboard-windows-arm64.exe.sig
-          test -f dist/Proofboard-Career-Agent-linux-amd64
-          test -f dist/Proofboard-Career-Agent-linux-amd64.sig
-          test -f dist/Proofboard-Career-Agent-darwin-amd64
-          test -f dist/Proofboard-Career-Agent-darwin-amd64.sig
-          test -f dist/Proofboard-Career-Agent-darwin-arm64
-          test -f dist/Proofboard-Career-Agent-darwin-arm64.sig
-          test -f dist/Proofboard-Career-Agent-windows-amd64.exe
-          test -f dist/Proofboard-Career-Agent-windows-amd64.exe.sig
-          test -f dist/Proofboard-Career-Agent-linux-amd64.deb
-          test -f dist/Proofboard-Career-Agent-darwin-amd64.pkg
-          test -f dist/Proofboard-Career-Agent-darwin-arm64.pkg
-          test -f dist/Proofboard-Career-Agent-windows-amd64-setup.exe
-          test -f dist/Proofboard-Career-Agent-linux-amd64.rpm
-          test -f dist/Proofboard-Career-Agent-linux-amd64.AppImage
-          test -f dist/Proofboard-Career-Agent-darwin-amd64.dmg
-          test -f dist/Proofboard-Career-Agent-darwin-arm64.dmg
-          test -f dist/Proofboard-Career-Agent-windows-amd64.msi
-          test -f dist/Proofboard-Career-Agent-windows-amd64.msix
+          # Every artifact the release claims to publish must exist before the
+          # release is created. Previously this was a hand-written list that
+          # drifted from the one used to upload, so a target could be missing
+          # from the release page while this step still passed.
+          missing=0
+          for asset in $(sh scripts/release_assets.sh signed) \
+                       $(sh scripts/release_assets.sh signatures) \
+                       $(sh scripts/release_assets.sh installers); do
+            if [ ! -f "dist/$asset" ]; then
+              echo "missing release artifact: $asset" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "all $(sh scripts/release_assets.sh signed | wc -l) executables and $(sh scripts/release_assets.sh installers | wc -l) installers present"
       - name: Stamp the installer fallback version
         run: |
           # The installers carry a pinned version used only when neither
@@ -602,70 +623,14 @@ jobs:
           printf '{"version":"%s","url":"https://proofboard.io/%s"}\n' \
             "$RELEASE_VERSION" "$GITHUB_REF_NAME" > dist/latest.json
           cd dist
-          sha256sum \
-            Proofboard-Career-Agent-linux-amd64 \
-            Proofboard-Career-Agent-linux-amd64.sig \
-            Proofboard-Career-Agent-darwin-amd64 \
-            Proofboard-Career-Agent-darwin-amd64.sig \
-            Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-darwin-arm64.sig \
-            Proofboard-Career-Agent-windows-amd64.exe \
-            Proofboard-Career-Agent-windows-amd64.exe.sig \
-            Proofboard-Career-Agent-linux-arm64 \
-            Proofboard-Career-Agent-linux-arm64.sig \
-            Proofboard-Career-Agent-windows-arm64.exe \
-            Proofboard-Career-Agent-windows-arm64.exe.sig \
-            Proofboard-Career-Agent-linux-amd64.deb \
-            Proofboard-Career-Agent-darwin-amd64.pkg \
-            Proofboard-Career-Agent-darwin-arm64.pkg \
-            Proofboard-Career-Agent-windows-amd64-setup.exe \
-            Proofboard-Career-Agent-linux-amd64.rpm \
-            Proofboard-Career-Agent-linux-amd64.AppImage \
-            Proofboard-Career-Agent-darwin-amd64.dmg \
-            Proofboard-Career-Agent-darwin-arm64.dmg \
-            Proofboard-Career-Agent-windows-amd64.msi \
-            Proofboard-Career-Agent-windows-amd64.msix \
-            proofboard-linux-amd64 \
-            proofboard-linux-amd64.sig \
-            proofboard-linux-arm64 \
-            proofboard-linux-arm64.sig \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-amd64.sig \
-            proofboard-darwin-arm64 \
-            proofboard-darwin-arm64.sig \
-            proofboard-windows-amd64.exe \
-            proofboard-windows-amd64.exe.sig \
-            proofboard-windows-arm64.exe \
-            proofboard-windows-arm64.exe.sig \
-            install.sh \
-            install.ps1 \
-            install.cmd \
-            install.bat \
-            proofboard-cli-*.tgz \
-            latest.json > checksums.txt
-          # The list above is hand-maintained and has already lost entries
-          # once, which is invisible: a checksums file missing the very
-          # downloads people verify still looks complete. Fail the release
-          # instead of publishing a partial one. Both naming conventions are
-          # required: scripts/install.sh and install.ps1 verify against the
-          # lowercase "proofboard-*" names specifically (see "restore the
-          # previous asset names") — a checksums.txt missing those makes
-          # every public install fail at the verify step even though the
-          # download itself succeeds.
-          for required in \
-            Proofboard-Career-Agent-linux-amd64 \
-            Proofboard-Career-Agent-darwin-amd64 \
-            Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-windows-amd64.exe \
-            Proofboard-Career-Agent-linux-arm64 \
-            Proofboard-Career-Agent-windows-arm64.exe \
-            proofboard-linux-amd64 \
-            proofboard-darwin-amd64 \
-            proofboard-darwin-arm64 \
-            proofboard-windows-amd64.exe \
-            proofboard-linux-arm64 \
-            proofboard-windows-arm64.exe
-          do
+          # Derived from scripts/release_assets.sh rather than hand-listed. A
+          # checksums file missing the very downloads people verify still
+          # looks complete, which is how v1.16.0 shipped binaries that every
+          # install downloaded successfully and then refused to verify.
+          # shellcheck disable=SC2046 # the asset list is deliberately split
+          sha256sum $(sh ../scripts/release_assets.sh checksums) proofboard-cli-*.tgz > checksums.txt
+
+          for required in $(sh ../scripts/release_assets.sh signed); do
             grep -q " ${required}$" checksums.txt || {
               echo "checksums.txt is missing ${required}" >&2
               exit 1
@@ -675,7 +640,27 @@ jobs:
               exit 1
             }
           done
+          for required in $(sh ../scripts/release_assets.sh installers); do
+            grep -q " ${required}$" checksums.txt || {
+              echo "checksums.txt is missing ${required}" >&2
+              exit 1
+            }
+          done
           echo "checksums.txt covers $(wc -l < checksums.txt) files"
+      - name: Stage the release assets
+        run: |
+          # Copy exactly what scripts/release_assets.sh declares into one
+          # directory and upload that directory. The upload can then not
+          # disagree with the manifest, and a missing artifact fails here
+          # rather than producing a release that is quietly incomplete.
+          mkdir -p dist/release
+          cd dist
+          for asset in $(sh ../scripts/release_assets.sh all) checksums.txt; do
+            test -f "$asset" || { echo "missing release asset: $asset" >&2; exit 1; }
+            cp "$asset" release/
+          done
+          cp proofboard-cli-*.tgz release/
+          echo "staged $(find release -type f | wc -l) release assets"
       - uses: softprops/action-gh-release@v2
         with:
           name: Proofboard Career Agent ${{ github.ref_name }}
@@ -689,49 +674,56 @@ jobs:
 
             Built for six targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
-          files: |
-            dist/Proofboard-Career-Agent-linux-arm64
-            dist/Proofboard-Career-Agent-linux-arm64.sig
-            dist/Proofboard-Career-Agent-windows-arm64.exe
-            dist/Proofboard-Career-Agent-windows-arm64.exe.sig
-            dist/proofboard-linux-amd64
-            dist/proofboard-linux-amd64.sig
-            dist/proofboard-linux-arm64
-            dist/proofboard-linux-arm64.sig
-            dist/proofboard-darwin-amd64
-            dist/proofboard-darwin-amd64.sig
-            dist/proofboard-darwin-arm64
-            dist/proofboard-darwin-arm64.sig
-            dist/proofboard-windows-amd64.exe
-            dist/proofboard-windows-amd64.exe.sig
-            dist/proofboard-windows-arm64.exe
-            dist/proofboard-windows-arm64.exe.sig
-            dist/Proofboard-Career-Agent-linux-amd64
-            dist/Proofboard-Career-Agent-linux-amd64.sig
-            dist/Proofboard-Career-Agent-darwin-amd64
-            dist/Proofboard-Career-Agent-darwin-amd64.sig
-            dist/Proofboard-Career-Agent-darwin-arm64
-            dist/Proofboard-Career-Agent-darwin-arm64.sig
-            dist/Proofboard-Career-Agent-windows-amd64.exe
-            dist/Proofboard-Career-Agent-windows-amd64.exe.sig
-            dist/Proofboard-Career-Agent-linux-amd64.deb
-            dist/Proofboard-Career-Agent-darwin-amd64.pkg
-            dist/Proofboard-Career-Agent-darwin-arm64.pkg
-            dist/Proofboard-Career-Agent-windows-amd64-setup.exe
-            dist/Proofboard-Career-Agent-windows-amd64.msi
-            dist/Proofboard-Career-Agent-windows-amd64.msix
-            dist/Proofboard-Career-Agent-linux-amd64.rpm
-            dist/Proofboard-Career-Agent-linux-amd64.AppImage
-            dist/Proofboard-Career-Agent-darwin-amd64.dmg
-            dist/Proofboard-Career-Agent-darwin-arm64.dmg
-            dist/checksums.txt
-            dist/install.sh
-            dist/install.ps1
-            dist/install.cmd
-            dist/install.bat
-            dist/proofboard-cli-*.tgz
-            dist/latest.json
+          files: dist/release/*
           fail_on_unmatched_files: true
+
+  verify-download-host:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every artifact must resolve through releases.proofboard.io
+        run: |
+          # The release page having a file is not the same as people being
+          # able to get it. releases.proofboard.io is the host the public
+          # one-line install and every download button point at, and it has
+          # served a 404 for a platform that was sitting on the release page
+          # the whole time. Ask the host for every artifact and fail the
+          # release if any of them cannot be fetched.
+          HOST=https://releases.proofboard.io
+          TAG="${GITHUB_REF_NAME}"
+
+          # The host resolves "latest" from the GitHub API, which can lag a
+          # few seconds behind the release being created.
+          for attempt in $(seq 1 20); do
+            seen=$(curl -fsS --max-time 20 "$HOST/latest.json" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
+            [ "$seen" = "$TAG" ] && break
+            echo "waiting for the host to see $TAG (currently ${seen:-unknown})"
+            sleep 15
+          done
+          [ "$seen" = "$TAG" ] || {
+            echo "::error title=Download host stale::releases.proofboard.io still reports ${seen:-unknown}, not $TAG"
+            exit 1
+          }
+
+          failed=0
+          for asset in $(sh scripts/release_assets.sh all) checksums.txt; do
+            code=$(curl -s -o /dev/null -L --max-time 60 -w '%{http_code}' "$HOST/$TAG/$asset")
+            if [ "$code" != "200" ]; then
+              echo "  $code  $asset"
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error title=Artifacts unreachable::Some release artifacts do not resolve through $HOST"
+            exit 1
+          fi
+          echo "every artifact resolves through $HOST for $TAG"
+
+          # The install one-liner is the path most people take, so exercise it
+          # rather than assuming it follows from the artifacts existing.
+          curl -fsSL "$HOST/install.sh" -o /tmp/install.sh
+          sh -n /tmp/install.sh
 
   publish-npm:
     needs: publish

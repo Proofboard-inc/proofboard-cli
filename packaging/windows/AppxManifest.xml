@@ -19,7 +19,7 @@
   <Identity Name="Proofboard.CareerAgent"
             Publisher="CN=Proofboard"
             Version="PLACEHOLDER_VERSION"
-            ProcessorArchitecture="x64" />
+            ProcessorArchitecture="PLACEHOLDER_ARCH" />
 
   <Properties>
     <DisplayName>Proofboard Career Agent</DisplayName>
