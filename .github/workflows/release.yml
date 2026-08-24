@@ -683,10 +683,9 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Installing from the published one-line command works again. It fetches a script that asks for a download by its previous name, and that name stopped existing when the downloads were renamed, so it failed with a 404 for everyone. Both names are published now, and both are signed.
-            - Linux and Windows on ARM are supported. A single-board machine, an ARM cloud instance, a Surface or a Snapdragon laptop was previously told the platform was unsupported; that described the release rather than the tool. Both now have a signed executable and are installed by the same commands as everything else.
+            - Installing from the published one-line command actually completes now. v1.16.0 fixed the download itself (a 404 from a renamed asset), but checksums.txt — a hand-maintained list — was never updated to include the restored names, so every install still failed one step later at signature/checksum verification. Both naming conventions are covered now for every target, including the new ARM builds.
 
-            The native installer packages remain x86-64 for now. ARM machines install the executable directly, which is what the install command does.
+            No other code changes ride with this — it exists so there is a release that installs cleanly end to end.
 
             Built for six targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
