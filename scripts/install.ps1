@@ -32,9 +32,19 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'Proofboard-inc/proofboard-cli'
-$PinnedVersion = 'v1.15.5'
+$PinnedVersion = 'v1.16.0'
 $PublicDownloadHost = 'https://proofboard.io'
-$BinaryName = 'proofboard-windows-amd64.exe'
+# ARM Windows machines exist — the Surface and the Snapdragon laptops — and
+# were previously served the x64 build or refused outright. PROCESSOR_ARCHITECTURE
+# reports the native architecture; a 32-bit shell on 64-bit Windows reports the
+# emulated one in PROCESSOR_ARCHITEW6432, so both are consulted.
+$nativeArch = $env:PROCESSOR_ARCHITEW6432
+if (-not $nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+if ($nativeArch -eq 'ARM64') {
+    $BinaryName = 'Proofboard-Career-Agent-windows-arm64.exe'
+} else {
+    $BinaryName = 'Proofboard-Career-Agent-windows-amd64.exe'
+}
 $SystemInstall = $env:PROOFBOARD_SYSTEM_INSTALL -eq '1'
 $InstallDir = if ($env:PROOFBOARD_INSTALL_DIR) {
     $env:PROOFBOARD_INSTALL_DIR

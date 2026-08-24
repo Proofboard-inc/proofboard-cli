@@ -31,7 +31,7 @@ set -e
 #   PROOFBOARD_SYSTEM_INSTALL       install for every account (needs sudo)
 
 REPO="Proofboard-inc/proofboard-cli"
-PINNED_VERSION="v1.15.5"
+PINNED_VERSION="v1.16.0"
 PUBLIC_DOWNLOAD_HOST="https://proofboard.io"
 
 log() {
@@ -138,9 +138,10 @@ else
     fail "Unsupported architecture: $ARCH"
 fi
 
-if [ "$OS" = "linux" ] && [ "$ARCH" = "arm64" ]; then
-    fail "Linux arm64 is not available yet. Supported Linux architecture: amd64."
-fi
+# Linux and Windows on ARM are built and published, so no architecture is
+# refused here any more. A single-board machine or an ARM laptop was
+# previously told the platform did not exist, which was true of the release
+# rather than of the tool.
 
 # The release carries the executable under both names. The product name
 # matches every installer package on the release page; the lowercase name is
