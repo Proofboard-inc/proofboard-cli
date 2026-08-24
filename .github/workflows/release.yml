@@ -611,6 +611,10 @@ jobs:
             Proofboard-Career-Agent-darwin-arm64.sig \
             Proofboard-Career-Agent-windows-amd64.exe \
             Proofboard-Career-Agent-windows-amd64.exe.sig \
+            Proofboard-Career-Agent-linux-arm64 \
+            Proofboard-Career-Agent-linux-arm64.sig \
+            Proofboard-Career-Agent-windows-arm64.exe \
+            Proofboard-Career-Agent-windows-arm64.exe.sig \
             Proofboard-Career-Agent-linux-amd64.deb \
             Proofboard-Career-Agent-darwin-amd64.pkg \
             Proofboard-Career-Agent-darwin-arm64.pkg \
@@ -621,6 +625,18 @@ jobs:
             Proofboard-Career-Agent-darwin-arm64.dmg \
             Proofboard-Career-Agent-windows-amd64.msi \
             Proofboard-Career-Agent-windows-amd64.msix \
+            proofboard-linux-amd64 \
+            proofboard-linux-amd64.sig \
+            proofboard-linux-arm64 \
+            proofboard-linux-arm64.sig \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-amd64.sig \
+            proofboard-darwin-arm64 \
+            proofboard-darwin-arm64.sig \
+            proofboard-windows-amd64.exe \
+            proofboard-windows-amd64.exe.sig \
+            proofboard-windows-arm64.exe \
+            proofboard-windows-arm64.exe.sig \
             install.sh \
             install.ps1 \
             install.cmd \
@@ -630,12 +646,25 @@ jobs:
           # The list above is hand-maintained and has already lost entries
           # once, which is invisible: a checksums file missing the very
           # downloads people verify still looks complete. Fail the release
-          # instead of publishing a partial one.
+          # instead of publishing a partial one. Both naming conventions are
+          # required: scripts/install.sh and install.ps1 verify against the
+          # lowercase "proofboard-*" names specifically (see "restore the
+          # previous asset names") — a checksums.txt missing those makes
+          # every public install fail at the verify step even though the
+          # download itself succeeds.
           for required in \
             Proofboard-Career-Agent-linux-amd64 \
             Proofboard-Career-Agent-darwin-amd64 \
             Proofboard-Career-Agent-darwin-arm64 \
-            Proofboard-Career-Agent-windows-amd64.exe
+            Proofboard-Career-Agent-windows-amd64.exe \
+            Proofboard-Career-Agent-linux-arm64 \
+            Proofboard-Career-Agent-windows-arm64.exe \
+            proofboard-linux-amd64 \
+            proofboard-darwin-amd64 \
+            proofboard-darwin-arm64 \
+            proofboard-windows-amd64.exe \
+            proofboard-linux-arm64 \
+            proofboard-windows-arm64.exe
           do
             grep -q " ${required}$" checksums.txt || {
               echo "checksums.txt is missing ${required}" >&2
