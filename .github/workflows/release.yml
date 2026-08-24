@@ -708,11 +708,16 @@ jobs:
 
           failed=0
           for asset in $(sh scripts/release_assets.sh all) checksums.txt; do
-            code=$(curl -s -o /dev/null -L --max-time 60 -w '%{http_code}' "$HOST/$TAG/$asset")
-            if [ "$code" != "200" ]; then
-              echo "  $code  $asset"
-              failed=1
-            fi
+            # Ask for the first byte only. Fetching each artifact in full would
+            # pull most of a gigabyte through this job to learn nothing the
+            # first byte does not already tell us: that the name resolves and
+            # the download host will serve it. A range request answers 206,
+            # and a host that ignores the range answers 200.
+            code=$(curl -s -o /dev/null -L --max-time 60 -r 0-0 -w '%{http_code}' "$HOST/$TAG/$asset")
+            case "$code" in
+              200|206) ;;
+              *) echo "  $code  $asset"; failed=1 ;;
+            esac
           done
           if [ "$failed" -ne 0 ]; then
             echo "::error title=Artifacts unreachable::Some release artifacts do not resolve through $HOST"
