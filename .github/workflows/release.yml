@@ -598,7 +598,8 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - The MSI installer now shows an installer. It was built with no user interface at all, so double-clicking it flashed and closed with no welcome, no progress and no completion — it had usually installed correctly, with no way for anyone to tell. It now presents a licence, lets the install location be changed, and confirms when it has finished. The release refuses to publish an MSI that contains no dialogs.
+            - Updating works again. The repository holding the releases was not publicly readable, so every machine asking for the newest version was told there wasn't one and that it was running a development build. Installing and updating both failed the same way, for everyone, regardless of which version they were on. Verified from a machine reporting 1.11.0: `proofboard update` now moves it to the current release.
+            - This release carries no code changes of its own. It marks the point from which updating is reliable, so a version that updates cleanly can be pointed to.
 
             Built for all four targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
