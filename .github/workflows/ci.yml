@@ -1,5 +1,14 @@
 name: ci
 
+# Every job here runs on a standard GitHub-hosted runner, which is free with
+# unlimited minutes on a public repository — macOS and Windows included. There
+# is no cost reason to test this CLI on Linux alone, and it was:  the agent
+# service, focus, visibility and workspace-notification code has a separate
+# implementation per platform (22 build-tagged files, 14 more branching on
+# runtime.GOOS) and none of the Darwin or Windows implementations had their
+# tests executed anywhere. Cross-compiling proves they build; only a runner of
+# that platform proves they work.
+
 on:
   pull_request:
   push:
@@ -7,10 +16,149 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      # One platform failing must not cancel the others: which platforms fail
+      # is the information this matrix exists to produce.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
-      - run: go test ./...
+
+      # The suite writes to the home directory. On Unix that is HOME; on
+      # Windows Go reads USERPROFILE, so a test that sets only HOME would run
+      # against the real profile. Point both at a scratch directory so a test
+      # cannot leave anything behind on the runner or read the runner's state.
+      - name: Isolate the home directory
+        shell: bash
+        run: |
+          scratch="${RUNNER_TEMP}/proofboard-home"
+          mkdir -p "$scratch"
+          echo "HOME=$scratch" >> "$GITHUB_ENV"
+          echo "USERPROFILE=$scratch" >> "$GITHUB_ENV"
+          echo "PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS=1" >> "$GITHUB_ENV"
+          echo "PROOFBOARD_DISABLE_KEYCHAIN=1" >> "$GITHUB_ENV"
+
+      - name: Git identity for repository fixtures
+        shell: bash
+        run: |
+          git config --global user.email ci@proofboard.io
+          git config --global user.name "Proofboard CI"
+          git config --global init.defaultBranch main
+
+      - name: Build
+        run: go build ./...
+
+      - name: Static analysis
+        run: go vet ./...
+
+      - name: Tests
+        run: go test -count=1 ./...
+
+      # The race detector needs a C toolchain on Windows, which the runner does
+      # not ship. Linux and macOS cover the concurrent paths.
+      - name: Race detector
+        if: matrix.os != 'windows-latest'
+        run: go test -race -count=1 ./...
+
+      - name: Compiled executable command surface
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          go build -trimpath -o "${RUNNER_TEMP}/proofboard" ./cmd/proofboard
+          expected=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
+          scripts/test_compiled_cli.sh "${RUNNER_TEMP}/proofboard" "$expected"
+
+      - name: Compiled executable command surface (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          go build -trimpath -o "$env:RUNNER_TEMP\proofboard.exe" ./cmd/proofboard
+          $expected = (Select-String -Path internal/version/version.go -Pattern '^const Version = "(.*)"').Matches[0].Groups[1].Value
+          $actual = & "$env:RUNNER_TEMP\proofboard.exe" version
+          if ($actual -notmatch [regex]::Escape($expected)) {
+            Write-Error "version reported '$actual', expected it to contain '$expected'"
+            exit 1
+          }
+          # A command that cannot show help is broken however well it compiles.
+          & "$env:RUNNER_TEMP\proofboard.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Error 'proofboard --help failed'; exit 1 }
+          Write-Output "compiled executable reports $actual"
+
+  cross-compile:
+    name: cross-compile every release target
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Build and vet each target
+        run: |
+          set -eu
+          # vet, not just build: build alone misses problems vet catches in the
+          # per-platform files, and those files are only ever compiled under
+          # their own GOOS.
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos=${target%/*}; goarch=${target#*/}
+            echo "--- $goos/$goarch"
+            CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go vet ./...
+            CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build -trimpath -o /dev/null ./cmd/proofboard
+          done
+
+  scripts:
+    name: shell, PowerShell and packaging scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Shell scripts parse
+        run: |
+          sh -n scripts/install.sh build/install.sh \
+            scripts/package_linux_deb.sh scripts/package_linux_rpm.sh \
+            scripts/package_linux_appimage.sh scripts/package_macos_pkg.sh \
+            scripts/package_macos_dmg.sh scripts/test_compiled_cli.sh \
+            scripts/test_no_system_pollution.sh scripts/test_agent_reinstall.sh \
+            scripts/release_assets.sh scripts/test_package_arch.sh
+          bash -n scripts/publish_release.sh
+
+      - name: PowerShell scripts parse
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+          if (-not (Select-String -Path scripts/install.cmd -SimpleMatch -Quiet 'install.ps1')) {
+            Write-Error 'install.cmd no longer launches install.ps1'
+            exit 1
+          }
+
+      - name: npm launcher tests
+        run: npm --prefix npm-package test
+
+      - name: Linux packages declare and carry the right architecture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm libfuse2 file
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          curl -fsSL -o /tmp/runtime-aarch64 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64
+          APPIMAGETOOL=/tmp/appimagetool APPIMAGE_RUNTIME=/tmp/runtime-aarch64 \
+            sh scripts/test_package_arch.sh
