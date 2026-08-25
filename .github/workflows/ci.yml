@@ -93,7 +93,11 @@ jobs:
         run: go vet ./...
 
       - name: Tests
-        run: go test -count=1 ./...
+        # -timeout below the default ten minutes: a package that hangs here is
+        # waiting on something it will never get (see the auth flow blocking on
+        # a browser callback on macOS), and ten minutes per package spent
+        # proving that wastes the run.
+        run: go test -count=1 -timeout 4m ./...
 
       # The race detector needs a C toolchain on Windows, which the runner does
       # not ship. Linux and macOS cover the concurrent paths.
@@ -114,7 +118,11 @@ jobs:
       # connected, and check the prompt appears. Everything else here tests
       # a piece of that; this tests the thing a developer actually does.
       - name: Auto project detection end to end
-        if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
+        # always(): this is the reproduction being asked for, so it has to run
+        # even when an earlier step failed. The suite currently times out on
+        # macOS in a package unrelated to detection, and without this the
+        # detection result on that platform would never be produced at all.
+        if: always() && matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
         shell: bash
         run: |
           go build -trimpath -o "${RUNNER_TEMP}/pb" ./cmd/proofboard
@@ -123,7 +131,7 @@ jobs:
           sh scripts/test_detection_e2e.sh "${RUNNER_TEMP}/pb" bash zsh
 
       - name: Auto project detection end to end (Windows)
-        if: matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm'
+        if: always() && (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm')
         shell: pwsh
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP\pb.exe" ./cmd/proofboard
