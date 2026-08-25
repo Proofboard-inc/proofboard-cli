@@ -737,28 +737,23 @@ jobs:
           # Also serve every artifact from the public root. Git stores one blob
           # per identical file, so carrying them at both paths costs nothing.
           #
-          # install.sh, install.ps1 and latest.json are deliberately excluded: a
-          # static file of those names at the root would shadow an endpoint that
-          # already works and answers differently — the host's own curl-pipe
-          # installers, and the route that resolves the current release live.
-          # All three remain available under /latest/.
+          # Everything is overwritten, install.sh, install.ps1 and latest.json
+          # included: cutting a release is what makes those files current, so
+          # the host must carry the release's copies rather than older ones it
+          # happens to be holding. The release's install.sh is also the better
+          # installer — it verifies the release signature, installs per-user
+          # without sudo, and registers the background agent.
           #
           # Old artifacts are cleared first for the same reason public/latest is
           # replaced rather than merged: an artifact dropped from a later
           # release must not sit here still being served as though it were
-          # current. Only the host's own files survive, by name.
+          # current.
           for existing in *; do
-            [ -f "$existing" ] || continue
-            case "$existing" in
-              install.sh|install.ps1|latest.json) continue ;;
-            esac
-            rm -f "$existing"
+            [ -f "$existing" ] && rm -f "$existing"
           done
           for artifact in latest/*; do
             name=$(basename "$artifact")
-            case "$name" in
-              install.sh|install.ps1|latest.json|README.md) continue ;;
-            esac
+            [ "$name" = "README.md" ] && continue
             cp "$artifact" "$name"
           done
 
@@ -791,13 +786,16 @@ jobs:
           # The host resolves "latest" from the GitHub API, which can lag a
           # few seconds behind the release being created.
           for attempt in $(seq 1 20); do
+            # The host now serves the release's own latest.json, which spells
+            # the version without the leading v that the tag carries. Compare
+            # the bare versions so this is not a permanent false mismatch.
             seen=$(curl -fsS --max-time 20 "$HOST/latest.json" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
-            [ "$seen" = "$TAG" ] && break
+            [ "${seen#v}" = "${TAG#v}" ] && break
             echo "waiting for the host to see $TAG (currently ${seen:-unknown})"
             sleep 15
           done
-          [ "$seen" = "$TAG" ] || {
-            echo "::error title=Download host stale::releases.proofboard.io still reports ${seen:-unknown}, not $TAG"
+          [ "${seen#v}" = "${TAG#v}" ] || {
+            echo "::error title=Download host stale::releases.proofboard.io reports ${seen:-unknown}, not $TAG. If publish-download-host skipped, set the RELEASES_REPO_TOKEN secret: the host now serves its own copy of latest.json, so a host left behind reports the wrong version to everything that asks."
             exit 1
           }
 
