@@ -21,7 +21,7 @@ import (
 
 func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	expiry := time.Now().Add(-time.Minute).UTC()
@@ -119,7 +119,7 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 // every real (device-code-authenticated) CLI install.
 func TestStartupUpdateChecksUsesCliScopedRouteForCLIToken(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
@@ -204,7 +204,7 @@ func TestStartupUpdateChecksUsesCliScopedRouteForCLIToken(t *testing.T) {
 
 func TestNotifyAuthExpiryStaysSilentWhenRefreshTokenExists(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	store := pbauth.NewCredentialStore(homeDir)
 	if err := store.Save(context.Background(), model.Credentials{

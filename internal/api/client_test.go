@@ -43,7 +43,7 @@ func TestRedactJSONForLogKeepsOnlyNumericStatusCode(t *testing.T) {
 
 func TestClientNeverPersistsRequestOrResponseBodies(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"projectName":"Secret Payments","organization":"Secret Employer","status":"ok"}`))
 	}))

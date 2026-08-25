@@ -13,7 +13,7 @@ import (
 
 func TestMilestoneActionPublishesBundle(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/milestone-bundles/bundle-1/approve" {

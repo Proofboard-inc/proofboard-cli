@@ -25,7 +25,7 @@ import (
 // TestStartupChecksTimeout checks that startup checks run under 2 seconds and do not block command execution.
 func TestStartupChecksTimeout(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	// Pre-create ~/.proofboard/dictionary.json
@@ -93,7 +93,7 @@ func TestStartupChecksTimeout(t *testing.T) {
 // TestStartupChecksNetworkFailure checks that network failure (e.g. invalid host) does not block command execution.
 func TestStartupChecksNetworkFailure(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	// Pre-create ~/.proofboard/dictionary.json
@@ -159,7 +159,7 @@ func TestStatusPendingStates(t *testing.T) {
 	_ = exec.Command("git", "-C", repoDir, "config", "user.name", "Tester User").Run()
 	_ = exec.Command("git", "-C", repoDir, "remote", "add", "origin", "https://github.com/org/repo-pending.git").Run()
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	// Commit a file

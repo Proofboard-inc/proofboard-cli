@@ -40,7 +40,7 @@ const testEmailHashKey = "0123456789abcdef0123456789abcdef0123456789abcdef012345
 func TestSyncSkipsTransmissionWhenThereAreNoCommits(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
 		t.Fatalf("initial commit: %v: %s", err, output)
@@ -149,7 +149,7 @@ func TestSyncSkipsTransmissionWhenThereAreNoCommits(t *testing.T) {
 func TestSyncProjectConnectsAndPerformsFirstSync(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 
@@ -386,7 +386,7 @@ func TestSyncPipelineOrdering(t *testing.T) {
 	exec.Command("git", "-C", repoDir, "config", "user.name", "Test User").Run()
 	exec.Command("git", "-C", repoDir, "remote", "add", "origin", "https://github.com/org/repo.git").Run()
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -487,7 +487,7 @@ func TestSyncPipelineOrdering(t *testing.T) {
 func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -593,7 +593,7 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 func TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
@@ -664,7 +664,7 @@ func TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork(t *testing.T) {
 func TestSyncResyncReSignsCachedPayloadWithRegenerateTrue(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {
@@ -789,7 +789,7 @@ func TestSyncNoCommitsHintsResyncOnlyWithCachedPayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			homeDir := t.TempDir()
 			repoDir := createTempGitRepo(t)
-			t.Setenv("HOME", homeDir)
+			setTestHome(t, homeDir)
 			t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 			t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 			if output, err := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "initial").CombinedOutput(); err != nil {

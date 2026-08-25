@@ -13,7 +13,7 @@ import (
 func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 	homeDir := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 
 	if err := ActivateWorkspaceAction(context.Background(), "suppress", workspace); err != nil {
 		t.Fatalf("ActivateWorkspaceAction() error: %v", err)

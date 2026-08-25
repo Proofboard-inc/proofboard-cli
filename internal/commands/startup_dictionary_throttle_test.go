@@ -23,7 +23,7 @@ import (
 // regardless of how many commands run in that window.
 func TestStartupUpdateChecksThrottlesDictionaryCheckTo6Hours(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	pbDir := filepath.Join(tempHome, ".proofboard")
@@ -113,7 +113,7 @@ func TestStartupUpdateChecksThrottlesDictionaryCheckTo6Hours(t *testing.T) {
 // backoff at all.
 func TestStartupUpdateChecksThrottlesEvenOnFailure(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	pbDir := filepath.Join(tempHome, ".proofboard")

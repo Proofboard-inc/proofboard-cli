@@ -118,7 +118,7 @@ func TestInstallToUsesRequestedDirectoryWithoutElevation(t *testing.T) {
 	installDir := t.TempDir()
 	homeDir := t.TempDir()
 	t.Setenv("PROOFBOARD_INSTALL_DIR", installDir)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("SHELL", "/bin/bash")
 	t.Setenv("PATH", installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 

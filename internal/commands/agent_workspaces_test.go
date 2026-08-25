@@ -32,7 +32,7 @@ func TestSplitCommandLinePreservesWindowsPathSeparators(t *testing.T) {
 func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	cmd := exec.Command("git", "init")
 	cmd.Dir = repoDir
 	if output, err := cmd.CombinedOutput(); err != nil {

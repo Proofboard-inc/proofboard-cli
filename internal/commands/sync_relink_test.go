@@ -35,7 +35,7 @@ import (
 func TestSyncLinksAndRetriesWhenBackendReportsNoLinkedProject(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 

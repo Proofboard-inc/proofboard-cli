@@ -8,7 +8,7 @@ import (
 )
 
 func TestStatusJSONSupportsCareerAgentDashboard(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	var out bytes.Buffer
 	cmd := newStatusCommand(context.Background(), &out)
 	cmd.SetArgs([]string{"--json"})

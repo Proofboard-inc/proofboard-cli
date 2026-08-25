@@ -14,7 +14,7 @@ import (
 
 func TestConfigBranchOperations(t *testing.T) {
 	tempDir := t.TempDir()
-	t.Setenv("HOME", tempDir)
+	setTestHome(t, tempDir)
 
 	ctx := context.Background()
 
@@ -110,7 +110,7 @@ func TestSyncSuppressedWorkspace(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 

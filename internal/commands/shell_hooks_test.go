@@ -156,7 +156,7 @@ func TestEnsureShellDetectionHooksWritesBothDetectAndNoticeLines(t *testing.T) {
 // again.
 func TestEnsureShellDetectionHooks_RecoversBurnedPromptsOnLegacyMigration(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("SHELL", "/bin/bash")
 
 	rcPath := filepath.Join(homeDir, ".bashrc")
@@ -196,7 +196,7 @@ func TestEnsureShellDetectionHooks_RecoversBurnedPromptsOnLegacyMigration(t *tes
 // in that case, not only when it happens to observe a live migration.
 func TestEnsureShellDetectionHooks_RecoversBurnedPromptsEvenWithoutLiveLegacyLine(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("SHELL", "/bin/bash")
 
 	rcPath := filepath.Join(homeDir, ".bashrc")

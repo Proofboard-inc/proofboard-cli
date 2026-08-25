@@ -29,7 +29,7 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 		t.Fatalf("set git email: %v", err)
 	}
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	t.Setenv("NO_BROWSER", "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

@@ -24,7 +24,7 @@ import (
 func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# proofboard\n"), 0o644); err != nil {
 		t.Fatalf("write repo file: %v", err)
@@ -95,7 +95,7 @@ func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
 func TestDetectCommandJsonOutputsInspection(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("# proofboard\n"), 0o644); err != nil {
 		t.Fatalf("write repo file: %v", err)

@@ -38,7 +38,7 @@ func TestStatusPendingCheck(t *testing.T) {
 	_ = exec.Command("git", "-C", repoDir, "config", "user.name", "Test User").Run()
 	_ = exec.Command("git", "-C", repoDir, "remote", "add", "origin", "https://github.com/org/repo-status.git").Run()
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	ctx := context.Background()
 
 	// Commit a file
@@ -162,7 +162,7 @@ func TestStatusPendingCheck(t *testing.T) {
 
 func TestStartupUpdateChecks(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -290,7 +290,7 @@ func TestStartupUpdateChecks(t *testing.T) {
 
 func TestStartupUpdateChecks_SlowNetwork(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -375,7 +375,7 @@ func TestStartupUpdateChecks_SlowNetwork(t *testing.T) {
 
 func TestStartupUpdateChecks_OfflineNetwork(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -417,7 +417,7 @@ func TestStartupUpdateChecks_OfflineNetwork(t *testing.T) {
 
 func TestStartupUpdateChecks_InvalidDictionarySchema(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 

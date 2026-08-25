@@ -23,7 +23,7 @@ import (
 func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	writeRepoFileAndCommit(t, repoDir)
@@ -141,7 +141,7 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	writeRepoFileAndCommit(t, repoDir)
@@ -222,7 +222,7 @@ func TestUnlinkCommandReportsCleanSuccessOn404(t *testing.T) {
 	// path — that path is reserved for real failures (network/5xx/auth).
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	writeRepoFileAndCommit(t, repoDir)
@@ -278,7 +278,7 @@ func TestUnlinkCommandReportsCleanSuccessOn404(t *testing.T) {
 func TestLinkMigratesLegacyStateWithHandshakeBeforeProjectSelection(t *testing.T) {
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	const legacyProjectID = "legacy-project-123"
@@ -358,7 +358,7 @@ func TestLinkMigratesLegacyStateWithHandshakeBeforeProjectSelection(t *testing.T
 
 func TestLogsCommandPrintsRequestedTail(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	path := filepath.Join(homeDir, ".proofboard", "sync.log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create log directory: %v", err)
@@ -379,7 +379,7 @@ func TestLogsCommandPrintsRequestedTail(t *testing.T) {
 
 func TestLogsClearPurgesCurrentAndRotatedLogs(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	path := filepath.Join(homeDir, ".proofboard", "sync.log")
 	backupPath := path + ".1"
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -483,7 +483,7 @@ func TestInstallAndUninstallCommandsUseInjectedActions(t *testing.T) {
 }
 
 func TestAgentStatusCommand(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	var out bytes.Buffer
 	command := newAgentCommand(context.Background(), &out)
 	command.SetArgs([]string{"status"})

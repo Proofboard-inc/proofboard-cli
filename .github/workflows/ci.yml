@@ -16,7 +16,7 @@ on:
 
 jobs:
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.target }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -24,7 +24,25 @@ jobs:
       # is the information this matrix exists to produce.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Every platform Dartvel publishes a binary for, on its own
+        # architecture. ARM is not emulated here — ubuntu-24.04-arm and
+        # windows-11-arm are real ARM runners, and macos-latest is Apple
+        # Silicon while macos-13 is the last Intel image. All are free with
+        # unlimited minutes on a public repository, so the six release targets
+        # are tested on six matching machines rather than inferred from one.
+        include:
+          - os: ubuntu-latest
+            target: linux/amd64
+          - os: ubuntu-24.04-arm
+            target: linux/arm64
+          - os: macos-13
+            target: darwin/amd64
+          - os: macos-latest
+            target: darwin/arm64
+          - os: windows-latest
+            target: windows/amd64
+          - os: windows-11-arm
+            target: windows/arm64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -55,6 +73,18 @@ jobs:
           git config --global user.email ci@proofboard.io
           git config --global user.name "Proofboard CI"
           git config --global init.defaultBranch main
+
+      - name: Confirm the runner is the architecture under test
+        shell: bash
+        run: |
+          # A matrix entry claiming linux/arm64 while running on amd64 would
+          # report success for a platform never exercised. Ask Go what it is.
+          actual="$(go env GOOS)/$(go env GOARCH)"
+          echo "runner reports $actual, matrix expects ${{ matrix.target }}"
+          [ "$actual" = "${{ matrix.target }}" ] || {
+            echo "::error title=Wrong runner architecture::${{ matrix.os }} reports $actual, not ${{ matrix.target }}"
+            exit 1
+          }
 
       - name: Build
         run: go build ./...

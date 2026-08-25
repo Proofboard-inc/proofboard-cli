@@ -24,7 +24,7 @@ import (
 
 func TestUpdateDictionaryCommand_Success(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -101,7 +101,7 @@ type dictData struct {
 
 func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -155,7 +155,7 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 
 func TestUpdateCommand_BinaryReplacement(t *testing.T) {
 	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 
 	ctx := context.Background()
 
@@ -227,7 +227,7 @@ func TestSyncCommand_LogsActivity(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := createTempGitRepo(t)
 
-	t.Setenv("HOME", tempHome)
+	setTestHome(t, tempHome)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

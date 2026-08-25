@@ -20,7 +20,7 @@ import (
 
 func TestRetryAfterAuthUsesRefreshTokenSilently(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_AGENT_AUTH_URL", "https://proofboard.io/agent/cli-auth")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +75,7 @@ func TestRetryAfterAuthUsesRefreshTokenSilently(t *testing.T) {
 
 func TestRetryAfterAuthDoesNotStartLoginWhenFreshTokenIsRejected(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
 	var deviceCodeCalls int
@@ -123,7 +123,7 @@ func TestRetryAfterAuthDoesNotStartLoginWhenFreshTokenIsRejected(t *testing.T) {
 
 func TestRetryAfterAuthRotatesRevokedDeviceKeyWithoutInteractiveLogin(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 
@@ -190,7 +190,7 @@ func TestRetryAfterAuthRotatesRevokedDeviceKeyWithoutInteractiveLogin(t *testing
 
 func TestAutomaticAuthFailureDoesNotExposeAuthCommandUsage(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"device flow unavailable"}`, http.StatusServiceUnavailable)
 	}))
@@ -224,7 +224,7 @@ func TestCredentialsCompletelyExpiredRequiresMissingRefreshToken(t *testing.T) {
 
 func TestDeferExpiredAgentSessionSuppressesDuplicatePromptDuringCooldown(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	ctx := context.Background()
 	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: retryTestJWT(time.Now().Add(-time.Minute))}); err != nil {
@@ -251,7 +251,7 @@ func TestDeferExpiredAgentSessionSuppressesDuplicatePromptDuringCooldown(t *test
 
 func TestReconnectPromptRepeatsAfterCooldown(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	ctx := context.Background()
 	runtime, err := loadRuntime(ctx)
@@ -286,7 +286,7 @@ func TestReconnectPromptRepeatsAfterCooldown(t *testing.T) {
 
 func TestLegacyReconnectStateWithoutTimestampPromptsAgain(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	ctx := context.Background()
 	runtime, err := loadRuntime(ctx)
@@ -313,7 +313,7 @@ func TestLegacyReconnectStateWithoutTimestampPromptsAgain(t *testing.T) {
 
 func TestDeferExpiredAgentSessionPromptsWhenRefreshIsRejected(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "expired", http.StatusUnauthorized)
@@ -344,7 +344,7 @@ func TestDeferExpiredAgentSessionPromptsWhenRefreshIsRejected(t *testing.T) {
 
 func TestDeferExpiredAgentSessionDoesNotReconnectForTransientRefreshFailure(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
@@ -375,7 +375,7 @@ func TestDeferExpiredAgentSessionDoesNotReconnectForTransientRefreshFailure(t *t
 
 func TestRetryAfterAuthForAgentDefersBrowserUntilReconnect(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
 	ctx := context.Background()
 	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{

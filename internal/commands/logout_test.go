@@ -16,7 +16,7 @@ import (
 func signedInHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 	if err := pbauth.NewCredentialStore(home).Save(context.Background(),
 		model.Credentials{Token: "test-token", EmailHash: "hash"}); err != nil {
