@@ -733,8 +733,37 @@ jobs:
           against the release's own `checksums.txt`.
           DOC
 
-          cd ../..
-          git add public/latest
+          cd ..
+          # Also serve every artifact from the public root. Git stores one blob
+          # per identical file, so carrying them at both paths costs nothing.
+          #
+          # install.sh, install.ps1 and latest.json are deliberately excluded: a
+          # static file of those names at the root would shadow an endpoint that
+          # already works and answers differently — the host's own curl-pipe
+          # installers, and the route that resolves the current release live.
+          # All three remain available under /latest/.
+          #
+          # Old artifacts are cleared first for the same reason public/latest is
+          # replaced rather than merged: an artifact dropped from a later
+          # release must not sit here still being served as though it were
+          # current. Only the host's own files survive, by name.
+          for existing in *; do
+            [ -f "$existing" ] || continue
+            case "$existing" in
+              install.sh|install.ps1|latest.json) continue ;;
+            esac
+            rm -f "$existing"
+          done
+          for artifact in latest/*; do
+            name=$(basename "$artifact")
+            case "$name" in
+              install.sh|install.ps1|latest.json|README.md) continue ;;
+            esac
+            cp "$artifact" "$name"
+          done
+
+          cd ..
+          git add -A public
           if git diff --cached --quiet; then
             echo "download host already serving ${TAG}"
             exit 0
