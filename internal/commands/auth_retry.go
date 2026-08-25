@@ -65,6 +65,24 @@ func runAuthFlow(ctx context.Context, out io.Writer, rotateKey bool) error {
 	return nil
 }
 
+// runLinkFlow connects the current repository without prompting. It exists so
+// a failed sync can repair itself: the backend rejects a payload for a
+// repository the account has no project for, and the CLI is holding working
+// credentials at that moment, so the connection it needs is one it can make.
+func runLinkFlow(ctx context.Context, out io.Writer) error {
+	cmd := newLinkCommand(ctx, out)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetErr(out)
+	// --non-interactive because this runs mid-sync, often from the background
+	// agent where there is no terminal to answer a prompt.
+	cmd.SetArgs([]string{"--non-interactive"})
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		return fmt.Errorf("connect this repository: %w", err)
+	}
+	return nil
+}
+
 func loadOrAuthCredentials(ctx context.Context, out io.Writer, runtime runtimeContext) (model.Credentials, error) {
 	credentials, err := runtime.credentials.Load(ctx)
 	if err == nil && credentials.Token != "" && !credentialsNeedRefresh(credentials) {

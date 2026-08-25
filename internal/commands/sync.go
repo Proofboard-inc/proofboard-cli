@@ -137,6 +137,32 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return fmt.Errorf("refresh project security keys: link response did not include emailHashKey")
 				}
 			}
+			// Recomputes the payload's email hash when linking changed the
+			// project's emailHashKey. The git email is read, used and dropped
+			// here exactly as it is when the payload is first built — it is
+			// never held for the lifetime of the sync.
+			refreshIdentity := func(candidate *model.SyncPayload) error {
+				current, stateErr := runtime.state.Load(ctx)
+				if stateErr != nil {
+					return fmt.Errorf("reload state after connecting repository: %w", stateErr)
+				}
+				updated, ok := current.LinkedRepos[identity.RepoHash]
+				if !ok || updated.EmailHashKey == "" || updated.EmailHashKey == repoState.EmailHashKey {
+					return nil
+				}
+				gitEmail, emailErr := pbgit.UserEmail(ctx, repo)
+				if emailErr != nil {
+					return fmt.Errorf("read local git identity: %w", emailErr)
+				}
+				rehashed, hashErr := crypto.NormalizedHMACSHA256(updated.EmailHashKey, gitEmail)
+				gitEmail = ""
+				if hashErr != nil {
+					return fmt.Errorf("hash local git identity: %w", hashErr)
+				}
+				candidate.EmailHash = rehashed
+				repoState.EmailHashKey = updated.EmailHashKey
+				return nil
+			}
 			if resync {
 				// Pure replay of the last transmitted payload: no git ingest,
 				// no reclassification, no pipeline run, just re-sign the
@@ -150,7 +176,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				}
 				candidate := *repoState.LastSyncPayload
 				candidate.Regenerate = true
-				receipt, _, transmitErr := transmitSyncPayload(ctx, out, runtime, identity, triggerSource, fromAgent, candidate)
+				receipt, _, transmitErr := transmitSyncPayload(ctx, out, runtime, identity, triggerSource, fromAgent, candidate, refreshIdentity)
 				if errors.Is(transmitErr, errAgentReconnectRequired) {
 					return nil
 				}
@@ -484,7 +510,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// receipt.Status branch inside reportSyncOutcome) and to cache
 			// the exact signed payload that left the machine for a future
 			// `sync --resync`.
-			receipt, transmittedPayload, err := transmitSyncPayload(ctx, out, runtime, identity, triggerSource, fromAgent, payload)
+			receipt, transmittedPayload, err := transmitSyncPayload(ctx, out, runtime, identity, triggerSource, fromAgent, payload, refreshIdentity)
 			if errors.Is(err, errAgentReconnectRequired) {
 				return nil
 			}
@@ -547,7 +573,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 // `sync --resync` replay) relies on. Returns the receipt and the payload as
 // actually signed and transmitted (including the final DeviceKeyID/
 // DeviceSignature) so callers can cache exactly what left the machine.
-func transmitSyncPayload(ctx context.Context, out io.Writer, runtime runtimeContext, identity model.RemoteIdentity, triggerSource string, fromAgent bool, payload model.SyncPayload) (model.SyncReceipt, model.SyncPayload, error) {
+func transmitSyncPayload(ctx context.Context, out io.Writer, runtime runtimeContext, identity model.RemoteIdentity, triggerSource string, fromAgent bool, payload model.SyncPayload, refreshIdentity func(*model.SyncPayload) error) (model.SyncReceipt, model.SyncPayload, error) {
 	var receipt model.SyncReceipt
 	var transmitted model.SyncPayload
 	transmit := func() error {
@@ -610,11 +636,49 @@ func transmitSyncPayload(ctx context.Context, out io.Writer, runtime runtimeCont
 		}
 		return syncErr
 	}
-	err := withSpinner(out, "Transmitting proof…", triggerSource == "manual", func() error {
+	attempt := func() error {
 		if fromAgent {
 			return retryAfterAuthForAgent(ctx, out, runtime, transmit)
 		}
 		return retryAfterAuth(ctx, out, "project synchronization", transmit)
+	}
+	err := withSpinner(out, "Transmitting proof…", triggerSource == "manual", func() error {
+		err := attempt()
+		if !isNoLinkedProjectError(err) {
+			return err
+		}
+		// The backend has no project for this repository under the account
+		// that is now authenticated. That happens most often straight after a
+		// mid-sync reconnect: the session is repaired, the repository link is
+		// not, and the sync fails with a bare 400 that says nothing a user can
+		// act on. Everything needed to repair it is already in hand, so link
+		// and retransmit rather than reporting a status code.
+		_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
+			"Phase 8: Transmission", "warning", "no linked project; connecting this repository")
+		if _, printErr := fmt.Fprintln(out, "This repository is not connected to your Proofboard account yet. Connecting it now..."); printErr != nil {
+			return printErr
+		}
+		if linkErr := runLinkFlow(ctx, out); linkErr != nil {
+			return linkErr
+		}
+		// The payload's emailHash is an HMAC keyed with the project's
+		// emailHashKey, which the link response supplies. Reconnecting can
+		// land on a different account with a different key, so a payload built
+		// before linking carries a hash the backend cannot attribute to
+		// anyone. Rebuild it before resending.
+		if refreshIdentity != nil {
+			if refreshErr := refreshIdentity(&payload); refreshErr != nil {
+				return refreshErr
+			}
+		}
+		retryErr := attempt()
+		if isNoLinkedProjectError(retryErr) {
+			// Linking reported success and the backend still does not see a
+			// project. Say that, rather than repeating "run proofboard link"
+			// for something that was just run.
+			return errors.New("this repository was connected but the server still reports no linked project for it; check that the repository's remote matches the project on proofboard.io")
+		}
+		return retryErr
 	})
 	return receipt, transmitted, err
 }
