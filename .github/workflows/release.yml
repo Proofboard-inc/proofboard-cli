@@ -692,7 +692,7 @@ jobs:
           # hand — a host still serving the previous release's binaries is the
           # failure this exists to prevent.
           if [ -z "${RELEASES_REPO_TOKEN}" ]; then
-            echo "::warning title=Download host not updated::RELEASES_REPO_TOKEN is not set, so releases.proofboard.io still serves the previous release's artifacts from public/latest. Pinned-version URLs and the GitHub redirect are unaffected."
+            echo "::error title=Download host not updated::RELEASES_REPO_TOKEN is not set, so releases.proofboard.io still serves the previous release's artifacts AND its latest.json, meaning it reports the wrong version to everything that asks. verify-download-host will fail this release for that reason. Pinned-version URLs and the GitHub redirect still work."
             exit 0
           fi
 
