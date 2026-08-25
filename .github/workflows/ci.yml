@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.26"
 
       # The suite writes to the home directory. On Unix that is HOME; on
       # Windows Go reads USERPROFILE, so a test that sets only HOME would run
@@ -42,8 +42,12 @@ jobs:
           mkdir -p "$scratch"
           echo "HOME=$scratch" >> "$GITHUB_ENV"
           echo "USERPROFILE=$scratch" >> "$GITHUB_ENV"
-          echo "PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS=1" >> "$GITHUB_ENV"
-          echo "PROOFBOARD_DISABLE_KEYCHAIN=1" >> "$GITHUB_ENV"
+          # Only the home directory is redirected here. Setting the product's
+          # own switches job-wide — PROOFBOARD_DISABLE_KEYCHAIN in particular —
+          # changes the behaviour under test: four tests in internal/auth exist
+          # to assert that credentials reach the OS keychain, and they fail
+          # against a job that has globally turned it off. Tests that need a
+          # switch set it themselves.
 
       - name: Git identity for repository fixtures
         shell: bash
@@ -99,7 +103,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.26"
       - name: Build and vet each target
         run: |
           set -eu
@@ -121,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.26"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
