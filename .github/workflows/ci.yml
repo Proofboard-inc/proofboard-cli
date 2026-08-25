@@ -109,6 +109,26 @@ jobs:
           expected=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
           scripts/test_compiled_cli.sh "${RUNNER_TEMP}/proofboard" "$expected"
 
+      # The reproduction that matters: install the CLI, open a real
+      # interactive shell on this runner, cd into a repository that is not
+      # connected, and check the prompt appears. Everything else here tests
+      # a piece of that; this tests the thing a developer actually does.
+      - name: Auto project detection end to end
+        if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
+        shell: bash
+        run: |
+          go build -trimpath -o "${RUNNER_TEMP}/pb" ./cmd/proofboard
+          # zsh is the macOS default shell and bash the Linux one; both are
+          # present on these images, so both get exercised everywhere.
+          sh scripts/test_detection_e2e.sh "${RUNNER_TEMP}/pb" bash zsh
+
+      - name: Auto project detection end to end (Windows)
+        if: matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          go build -trimpath -o "$env:RUNNER_TEMP\pb.exe" ./cmd/proofboard
+          & ./scripts/test_detection_e2e.ps1 -Binary "$env:RUNNER_TEMP\pb.exe"
+
       - name: Compiled executable command surface (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -167,7 +187,8 @@ jobs:
             scripts/package_linux_appimage.sh scripts/package_macos_pkg.sh \
             scripts/package_macos_dmg.sh scripts/test_compiled_cli.sh \
             scripts/test_no_system_pollution.sh scripts/test_agent_reinstall.sh \
-            scripts/release_assets.sh scripts/test_package_arch.sh
+            scripts/release_assets.sh scripts/test_package_arch.sh \
+            scripts/test_detection_e2e.sh
           bash -n scripts/publish_release.sh
 
       - name: PowerShell scripts parse
