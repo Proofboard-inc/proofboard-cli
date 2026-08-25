@@ -155,8 +155,6 @@ The Career Agent may transmit only:
 
 It never transmits commit messages, file paths, repository or organization names, author emails, file contents, or diffs. See [SHREDDER.md](SHREDDER.md) for the audit guide.
 
-Website and dashboard copy is specified in [docs/career-agent-website-copy.md](docs/career-agent-website-copy.md).
-
 ## Local Files and Security
 
 All API calls use HTTPS, synchronized payloads require a CLI JWT, and hashes
