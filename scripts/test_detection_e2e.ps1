@@ -31,8 +31,14 @@ try {
     git -C $repoDir commit -qm probe
 
     # Both are set because Go reads USERPROFILE here and the shell reads HOME.
+    # LOCALAPPDATA too: the installer puts the executable under
+    # %LOCALAPPDATA%\Programs\Proofboard on Windows, so leaving it pointed at
+    # the real profile installs outside the scratch directory and leaves the
+    # binary behind on the machine.
     $env:HOME = $homeDir
     $env:USERPROFILE = $homeDir
+    $env:LOCALAPPDATA = Join-Path $homeDir 'AppData\Local'
+    New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
     $env:PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS = '1'
 
     & $Binary install *> (Join-Path $work 'install.log')
@@ -63,8 +69,15 @@ try {
         ) -join "`n" | Set-Content -Path $inputFile -Encoding ascii
 
         $outFile = Join-Path $work 'out.txt'
-        $binDir = Join-Path $homeDir '.local\bin'
+        # The hook calls `proofboard` by name, so the directory the installer
+        # actually used has to be on PATH. Using the Unix location here is what
+        # made the first run report "cd produced no detection prompt" when the
+        # real message was "The term 'proofboard' is not recognized".
+        $binDir = Join-Path $env:LOCALAPPDATA 'Programs\Proofboard'
         $env:PATH = "$binDir;$env:PATH"
+        if (-not (Test-Path (Join-Path $binDir 'proofboard.exe'))) {
+            Report-Fail "installer did not place proofboard.exe in $binDir"
+        }
         Get-Content $inputFile | & pwsh -NoLogo -NoExit *> $outFile
         $output = if (Test-Path $outFile) { Get-Content $outFile -Raw } else { '' }
 

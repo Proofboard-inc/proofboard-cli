@@ -27,16 +27,20 @@ jobs:
         # Every platform Dartvel publishes a binary for, on its own
         # architecture. ARM is not emulated here — ubuntu-24.04-arm and
         # windows-11-arm are real ARM runners, and macos-latest is Apple
-        # Silicon while macos-13 is the last Intel image. All are free with
-        # unlimited minutes on a public repository, so the six release targets
-        # are tested on six matching machines rather than inferred from one.
+        # Silicon. All are free with unlimited minutes on a public repository.
+        #
+        # darwin/amd64 has no entry: GitHub has retired its Intel macOS images,
+        # and a macos-13 job sat queued for twenty hours waiting for a runner
+        # that is never coming, blocking the whole workflow behind it. An
+        # unavailable label does not fail — it queues indefinitely, and
+        # timeout-minutes does not apply to queue time. Intel Macs are covered
+        # by the cross-compile job, which vets and builds that target; if a
+        # supported Intel image reappears, add it back here.
         include:
           - os: ubuntu-latest
             target: linux/amd64
           - os: ubuntu-24.04-arm
             target: linux/arm64
-          - os: macos-13
-            target: darwin/amd64
           - os: macos-latest
             target: darwin/arm64
           - os: windows-latest
