@@ -16,13 +16,7 @@ func TestAgentPIDLifecycle(t *testing.T) {
 	if running, pid := agentRunning(homeDir); !running || pid != os.Getpid() {
 		t.Fatalf("agentRunning() = %v, %d", running, pid)
 	}
-	info, err := os.Stat(agentPIDPath(homeDir))
-	if err != nil {
-		t.Fatalf("stat pid file: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("pid file mode = %v", info.Mode().Perm())
-	}
+	requireOwnerOnlyMode(t, agentPIDPath(homeDir))
 	releaseAgentPID(homeDir, os.Getpid())
 	if _, err := os.Stat(agentPIDPath(homeDir)); !os.IsNotExist(err) {
 		t.Fatalf("expected pid file removal, err=%v", err)

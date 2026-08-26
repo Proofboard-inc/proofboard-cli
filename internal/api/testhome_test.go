@@ -16,4 +16,15 @@ func setTestHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	// Credentials go to the OS secret store by default, which is per-user and
+	// lives nowhere near the home directory — Windows Credential Manager, the
+	// macOS login keychain. A test that redirected only HOME still wrote real
+	// credentials to the real machine and read back whatever a previous test
+	// had left there, which is how an end-to-end auth test came to report
+	// "Already authenticated as Proofboard user" on a fresh temp home.
+	//
+	// The tests that exercise the keychain deliberately inject their own
+	// in-memory secret store instead of calling this, so nothing that means to
+	// test that path is affected.
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 }

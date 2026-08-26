@@ -408,9 +408,7 @@ func TestLogsClearPurgesCurrentAndRotatedLogs(t *testing.T) {
 	if info.Size() != 0 {
 		t.Fatalf("reset log size = %d, want 0", info.Size())
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("reset log mode = %o, want 600", info.Mode().Perm())
-	}
+	requireOwnerOnlyMode(t, path)
 	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
 		t.Fatalf("rotated log still exists or stat failed: %v", err)
 	}

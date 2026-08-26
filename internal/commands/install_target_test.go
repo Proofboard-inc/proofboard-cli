@@ -3,9 +3,23 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// posixInstallPath is how these tests spell an expected location.
+//
+// They simulate a GOOS ("linux") that need not be the host's, while the code
+// under test joins paths with filepath — which uses the HOST separator. On
+// Windows that turns /home/engineer/.local/bin/proofboard into
+// \home\engineer\.local\bin\proofboard, and four of these tests failed on
+// exactly that: a backslash, not a wrong directory. The directory chosen is the
+// assertion worth making, so the expectation is built the same way the product
+// builds it.
+func posixInstallPath(parts ...string) string {
+	return filepath.Join(parts...)
+}
 
 func testInstallEnvironment(goos, homeDir string, values map[string]string) installEnvironment {
 	return installEnvironment{
@@ -27,7 +41,7 @@ func TestResolveInstallLocationDefaultsToUserDirectory(t *testing.T) {
 	if location.SystemWide {
 		t.Fatalf("install without administrator access must not be system wide: %+v", location)
 	}
-	if location.Executable != "/home/engineer/.local/bin/proofboard" {
+	if location.Executable != posixInstallPath("/home/engineer", ".local", "bin", "proofboard") {
 		t.Fatalf("unexpected executable location: %s", location.Executable)
 	}
 }
@@ -54,7 +68,7 @@ func TestResolveInstallLocationHonoursExplicitRequests(t *testing.T) {
 
 	location := resolveInstallLocation(env, true)
 
-	if !location.SystemWide || location.Executable != "/usr/local/bin/proofboard" {
+	if !location.SystemWide || location.Executable != posixInstallPath("/usr/local/bin", "proofboard") {
 		t.Fatalf("--system must install system wide: %+v", location)
 	}
 
@@ -62,18 +76,20 @@ func TestResolveInstallLocationHonoursExplicitRequests(t *testing.T) {
 		"PROOFBOARD_INSTALL_DIR": "/opt/proofboard/bin",
 	})
 	location = resolveInstallLocation(override, false)
-	if location.SystemWide || location.Executable != "/opt/proofboard/bin/proofboard" {
+	if location.SystemWide || location.Executable != posixInstallPath("/opt/proofboard/bin", "proofboard") {
 		t.Fatalf("explicit install directory was ignored: %+v", location)
 	}
 }
 
 func TestResolveInstallLocationKeepsExistingSystemInstallation(t *testing.T) {
 	env := testInstallEnvironment("linux", "/home/engineer", nil)
-	env.FileWritable = func(path string) bool { return path == "/usr/local/bin/proofboard" }
+	env.FileWritable = func(path string) bool {
+		return path == posixInstallPath("/usr/local/bin", "proofboard")
+	}
 
 	location := resolveInstallLocation(env, false)
 
-	if !location.SystemWide || location.Executable != "/usr/local/bin/proofboard" {
+	if !location.SystemWide || location.Executable != posixInstallPath("/usr/local/bin", "proofboard") {
 		t.Fatalf("a writable system installation should be upgraded in place: %+v", location)
 	}
 
@@ -93,7 +109,10 @@ func TestKnownInstallLocationsCoverUserAndSystemDirectories(t *testing.T) {
 	for _, location := range locations {
 		found[location.Executable] = true
 	}
-	for _, expected := range []string{"/home/engineer/.local/bin/proofboard", "/usr/local/bin/proofboard"} {
+	for _, expected := range []string{
+		posixInstallPath("/home/engineer", ".local", "bin", "proofboard"),
+		posixInstallPath("/usr/local/bin", "proofboard"),
+	} {
 		if !found[expected] {
 			t.Fatalf("uninstall would miss %s: %+v", expected, locations)
 		}
@@ -144,7 +163,9 @@ func TestInstallToUsesRequestedDirectoryWithoutElevation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("installed executable is missing: %v", err)
 	}
-	if info.Mode().Perm()&0o111 == 0 {
+	// Windows has no executable bit; an .exe is executable by extension, so
+	// this assertion is meaningful on Unix only.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("installed executable is not executable: %v", info.Mode().Perm())
 	}
 	if _, err := os.Stat(location.Executable + ".new"); !os.IsNotExist(err) {
