@@ -111,14 +111,14 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq rpm libfuse2 file || true
-          curl -fsSL -o /tmp/appimagetool \
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o /tmp/appimagetool \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
           # appimagetool embeds the runtime of its own architecture, so an
           # aarch64 AppImage needs the aarch64 runtime supplied explicitly.
           # Without it the build reports success and produces a file with an
           # x86-64 runtime that cannot start on an ARM machine.
-          curl -fsSL -o /tmp/runtime-aarch64 \
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o /tmp/runtime-aarch64 \
             https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64
       - name: Build the Linux packages
         run: |

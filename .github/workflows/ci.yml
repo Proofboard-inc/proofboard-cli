@@ -243,12 +243,15 @@ jobs:
 
       - name: Linux packages declare and carry the right architecture
         run: |
+          # The tools below come from github.com releases, so this step depends
+          # on someone else being up. A 502 fetching appimagetool failed a run
+          # that had nothing wrong with it, hence --retry on both downloads.
           sudo apt-get update -qq
           sudo apt-get install -y -qq rpm libfuse2 file
-          curl -fsSL -o /tmp/appimagetool \
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o /tmp/appimagetool \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
-          curl -fsSL -o /tmp/runtime-aarch64 \
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors -o /tmp/runtime-aarch64 \
             https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64
           APPIMAGETOOL=/tmp/appimagetool APPIMAGE_RUNTIME=/tmp/runtime-aarch64 \
             sh scripts/test_package_arch.sh
