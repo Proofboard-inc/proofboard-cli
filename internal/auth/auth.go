@@ -21,6 +21,17 @@ type Service struct {
 	agentAuthURL string
 }
 
+// defaultAuthorizationWindow bounds the wait for an approval when the server
+// does not say how long the device code lives. Ten minutes matches the usual
+// device-code lifetime and is long enough to open a browser, sign in and
+// approve without hurrying.
+//
+// A var rather than a const so a test can shorten it. Testing this by actually
+// waiting out the real window would take ten minutes, and a test that instead
+// leans on its own context deadline proves nothing about whether Login has a
+// bound of its own — which is precisely the bug.
+var defaultAuthorizationWindow = 10 * time.Minute
+
 func NewService(store CredentialStore, client api.Client, agentAuthURL ...string) Service {
 	authURL := "https://proofboard.io/agent/cli-auth"
 	if len(agentAuthURL) > 0 && strings.TrimSpace(agentAuthURL[0]) != "" {
@@ -44,12 +55,18 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 	if resp.UserCode == "" {
 		return model.Credentials{}, fmt.Errorf("device-code response did not include a user code")
 	}
-	pollCtx := ctx
+	// The wait is always bounded. It used to be bounded only when the server
+	// sent expiresIn, so a response that omitted it — or sent zero — left the
+	// poll loop below running forever, printing "Waiting for authentication..."
+	// and never returning. There is no answer coming at that point: the code
+	// the developer was given has no server-side lifetime either, and the only
+	// way out was to kill the process.
+	pollWindow := defaultAuthorizationWindow
 	if resp.ExpiresIn > 0 {
-		var cancel context.CancelFunc
-		pollCtx, cancel = context.WithTimeout(ctx, time.Duration(resp.ExpiresIn)*time.Second)
-		defer cancel()
+		pollWindow = time.Duration(resp.ExpiresIn) * time.Second
 	}
+	pollCtx, cancel := context.WithTimeout(ctx, pollWindow)
+	defer cancel()
 
 	fmt.Printf("Connect your Proofboard Career Agent.\n\n")
 	fmt.Printf("Your device code is: %s\n\n", resp.UserCode)
