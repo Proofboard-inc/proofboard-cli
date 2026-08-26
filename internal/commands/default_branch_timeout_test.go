@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -9,7 +10,22 @@ import (
 
 func newRepoWithRemote(t *testing.T, remote string) string {
 	t.Helper()
-	dir := t.TempDir()
+	// Deliberately not t.TempDir(). These tests bound a git call against an
+	// unreachable remote by killing it, and killing git leaves its transport
+	// helper alive for a moment longer. Unix does not care — a directory can
+	// be unlinked while a process still holds it — but Windows refuses, so
+	// t.TempDir's automatic cleanup failed the test with "The process cannot
+	// access the file because it is being used by another process" after the
+	// assertion it was making had already passed.
+	//
+	// Cleanup here is best effort for the same reason: a leftover temp
+	// directory on a CI runner is not worth failing a test that proved what it
+	// set out to prove.
+	dir, err := os.MkdirTemp("", "proofboard-branch-timeout-")
+	if err != nil {
+		t.Fatalf("create repository directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	for _, args := range [][]string{
 		{"init", "-q", "--initial-branch=main"},
 		{"remote", "add", "origin", remote},

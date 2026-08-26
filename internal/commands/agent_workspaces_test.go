@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -50,7 +51,16 @@ func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		t.Fatalf("mkdir editor state: %v", err)
 	}
-	data := []byte(`{"windowsState":{"lastActiveWindow":{"folder":"file://` + repoDir + `"}}}`)
+	// Written the way the editor actually writes it, which differs by platform:
+	// a Windows folder URI carries the drive inside the path and uses forward
+	// slashes ("file:///C:/Users/..."), so pasting a native path after
+	// "file://" produced a URI no editor would ever emit and a test that could
+	// only ever fail there.
+	folderURI := "file://" + filepath.ToSlash(repoDir)
+	if runtime.GOOS == "windows" {
+		folderURI = "file:///" + filepath.ToSlash(repoDir)
+	}
+	data := []byte(`{"windowsState":{"lastActiveWindow":{"folder":"` + folderURI + `"}}}`)
 	if err := os.WriteFile(statePath, data, 0o600); err != nil {
 		t.Fatalf("write editor state: %v", err)
 	}

@@ -36,17 +36,51 @@ func addWorkspaceCandidate(ctx context.Context, candidate string, seen map[strin
 	*workspaces = append(*workspaces, repoPath)
 }
 
+// workspacePathFromFileURI converts an editor's "file://" folder URI into a
+// filesystem path for the given operating system.
+//
+// The Windows case is the reason this is not a one-liner. VS Code writes the
+// open folder as file:///c%3A/Users/ada/project, so url.Parse hands back the
+// path /c:/Users/ada/project — with a leading slash that belongs to the URI
+// rather than to the path, and forward slashes throughout. Passing that to
+// filepath.Abs yields something like C:\c:\Users\ada\project, which matches
+// no repository on the machine, and discovery then returns nothing at all —
+// indistinguishable from having no editor open.
+//
+// goos is a parameter rather than read from runtime so both conventions can be
+// exercised from any host.
+func workspacePathFromFileURI(candidate, goos string) string {
+	parsed, err := url.Parse(candidate)
+	if err != nil || (parsed.Host != "" && parsed.Host != "localhost") {
+		return ""
+	}
+	path := parsed.Path
+	if goos != "windows" {
+		return path
+	}
+	// "/C:/Users/..." -> "C:/Users/...". Checked rather than assumed: a URI
+	// without a drive letter (a UNC share, say) must keep its leading slash.
+	if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	// Converted explicitly rather than with filepath.FromSlash, which switches
+	// on the HOST separator and is a no-op on Unix. This function takes goos as
+	// a parameter precisely so the Windows conversion can be exercised from any
+	// machine; using a host-dependent call here would have made that impossible
+	// and left the bug undiscoverable anywhere but on Windows.
+	return strings.ReplaceAll(path, "/", `\`)
+}
+
 func normalizeWorkspaceCandidate(candidate string) string {
 	candidate = strings.Trim(strings.TrimSpace(candidate), "\"'")
 	if candidate == "" || strings.HasPrefix(candidate, "-") {
 		return ""
 	}
 	if strings.HasPrefix(candidate, "file://") {
-		u, err := url.Parse(candidate)
-		if err != nil || u.Host != "" && u.Host != "localhost" {
+		candidate = workspacePathFromFileURI(candidate, runtime.GOOS)
+		if candidate == "" {
 			return ""
 		}
-		candidate = u.Path
 	}
 	absPath, err := filepath.Abs(candidate)
 	if err != nil {
