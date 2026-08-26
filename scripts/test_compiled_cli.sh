@@ -96,7 +96,17 @@ chmod 600 "$HOME/.proofboard/sync.log" "$HOME/.proofboard/sync.log.1"
 grep -q '^Proofboard logs cleared.$' "$TEST_ARTIFACT_DIR/logs-clear.txt"
 test ! -s "$HOME/.proofboard/sync.log"
 test ! -e "$HOME/.proofboard/sync.log.1"
-test "$(stat -c '%a' "$HOME/.proofboard/sync.log")" = 600
+# `stat -c` is GNU. BSD stat, which is what macOS ships, spells the same
+# question `stat -f '%Lp'` and rejects -c outright — so this line failed on
+# macOS with "illegal option -- c" without ever looking at the file.
+file_mode() {
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
+test "$(file_mode "$HOME/.proofboard/sync.log")" = 600
 
 "$COMPILED_BINARY" config set auto-update-dictionary false > "$TEST_ARTIFACT_DIR/config-set.txt"
 grep -q '^auto-update-dictionary=false$' "$TEST_ARTIFACT_DIR/config-set.txt"

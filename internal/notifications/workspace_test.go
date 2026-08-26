@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/proofboard/proofboard/internal/config"
@@ -40,7 +41,9 @@ func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat state file: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits; os.Stat reports 0666 there whatever
+	// the ACL says, so this compares nothing and fails for an unrelated reason.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("state file mode = %v", info.Mode().Perm())
 	}
 }
