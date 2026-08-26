@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'Proofboard-inc/proofboard-cli'
-$PinnedVersion = 'v1.16.3'
+$PinnedVersion = 'v1.16.4'
 $PublicDownloadHost = 'https://proofboard.io'
 # ARM Windows machines exist — the Surface and the Snapdragon laptops — and
 # were previously served the x64 build or refused outright. PROCESSOR_ARCHITECTURE
