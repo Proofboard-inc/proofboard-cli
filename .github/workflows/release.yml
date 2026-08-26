@@ -786,16 +786,25 @@ jobs:
           # The host resolves "latest" from the GitHub API, which can lag a
           # few seconds behind the release being created.
           for attempt in $(seq 1 20); do
-            # The host now serves the release's own latest.json, which spells
-            # the version without the leading v that the tag carries. Compare
-            # the bare versions so this is not a permanent false mismatch.
-            seen=$(curl -fsS --max-time 20 "$HOST/latest.json" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
+            # Read the version out of the install script, NOT /latest.json.
+            #
+            # /latest.json is answered by a route that resolves the current
+            # release live from the GitHub API, and in Next.js an exact route
+            # handler wins over a file of the same name in public/. So that
+            # endpoint reports the new tag the moment the release exists,
+            # whether or not a single byte on this host has been updated — and
+            # this check passed against a host still serving the previous
+            # release's artifacts, which is the one thing it exists to catch.
+            #
+            # install.sh is a static file with the release stamped into it, so
+            # it changes only when the host actually does.
+            seen=$(curl -fsS --max-time 20 "$HOST/install.sh" | sed -n 's/^PINNED_VERSION="\([^"]*\)"$/\1/p' | head -1)
             [ "${seen#v}" = "${TAG#v}" ] && break
-            echo "waiting for the host to see $TAG (currently ${seen:-unknown})"
+            echo "waiting for the host to serve $TAG (its install.sh says ${seen:-unknown})"
             sleep 15
           done
           [ "${seen#v}" = "${TAG#v}" ] || {
-            echo "::error title=Download host stale::releases.proofboard.io reports ${seen:-unknown}, not $TAG. If publish-download-host skipped, set the RELEASES_REPO_TOKEN secret: the host now serves its own copy of latest.json, so a host left behind reports the wrong version to everything that asks."
+            echo "::error title=Download host stale::releases.proofboard.io is serving ${seen:-unknown}, not $TAG. If publish-download-host skipped, set the RELEASES_REPO_TOKEN secret: the host now serves its own copy of latest.json, so a host left behind reports the wrong version to everything that asks."
             exit 1
           }
 
