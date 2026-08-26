@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +141,9 @@ func TestWriteSyncLogSanitizesLegacySensitiveDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat sanitized log: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits; os.Stat reports 0666 there whatever
+	// the ACL says, so this compares nothing and fails for an unrelated reason.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("sanitized log mode = %v, want 0600", info.Mode().Perm())
 	}
 }

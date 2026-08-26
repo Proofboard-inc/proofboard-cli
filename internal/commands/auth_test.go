@@ -128,11 +128,7 @@ func TestAuthCommandEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected stored email hash: got %s want %s", creds.EmailHash, expectedEmailHash)
 	}
 
-	if info, err := os.Stat(credPath); err != nil {
-		t.Fatalf("stat credentials: %v", err)
-	} else if info.Mode().Perm() != 0o600 {
-		t.Fatalf("unexpected credentials file mode: %v", info.Mode().Perm())
-	}
+	requireOwnerOnlyMode(t, credPath)
 }
 
 func initGitRepo(dir string) error {

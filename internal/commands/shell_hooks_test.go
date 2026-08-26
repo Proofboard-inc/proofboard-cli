@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +77,9 @@ func TestEnsureLineInFile_MigratesTrackedBackgroundJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat migrated hook: %v", err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	// Windows has no Unix permission bits; os.Stat reports 0666 there whatever
+	// the ACL says, so this compares nothing and fails for an unrelated reason.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("mode = %o, want 640", info.Mode().Perm())
 	}
 }

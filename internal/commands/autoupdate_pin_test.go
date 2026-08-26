@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +20,14 @@ import (
 func currentVersion() string { return version.Version }
 
 func TestInstallerIsPinnedToTheResolvedRelease(t *testing.T) {
+	// This drives scripts/install.sh, the POSIX installer. Windows updates
+	// through install.ps1 instead, and running a shell stub under Git Bash
+	// there only tests how Git Bash rewrites paths — it wrote its output
+	// somewhere the test could not read it back, which is a fact about the
+	// harness rather than about the updater.
+	if runtime.GOOS == "windows" {
+		t.Skip("the POSIX installer is not the update path on Windows")
+	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "install.sh")
 	out := filepath.Join(dir, "seen")
