@@ -163,7 +163,12 @@ jobs:
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP\proofboard.exe" ./cmd/proofboard
           $expected = (Select-String -Path internal/version/version.go -Pattern '^const Version = "(.*)"').Matches[0].Groups[1].Value
-          $actual = & "$env:RUNNER_TEMP\proofboard.exe" version
+          # Joined first: PowerShell hands back multi-line output as a string
+          # array, and -notmatch over an array FILTERS it rather than testing
+          # the whole thing — so a run that also printed "Dictionary updated
+          # successfully" failed this check even though the version line was
+          # right there in the output.
+          $actual = (& "$env:RUNNER_TEMP\proofboard.exe" version) -join ' '
           if ($actual -notmatch [regex]::Escape($expected)) {
             Write-Error "version reported '$actual', expected it to contain '$expected'"
             exit 1
