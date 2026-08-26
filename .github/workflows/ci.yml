@@ -103,14 +103,16 @@ jobs:
         # proving that wastes the run.
         run: go test -count=1 -timeout 4m ./...
 
-      # The race detector needs a C toolchain on Windows, which the runner does
-      # not ship. Linux and macOS cover the concurrent paths.
+      # The race detector needs a C toolchain on Windows, which neither Windows
+      # runner ships. Naming only windows-latest here left windows-11-arm
+      # running it and failing for a reason that has nothing to do with the
+      # code. Linux and macOS cover the concurrent paths.
       - name: Race detector
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         run: go test -race -count=1 ./...
 
       - name: Compiled executable command surface
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           go build -trimpath -o "${RUNNER_TEMP}/proofboard" ./cmd/proofboard
@@ -126,7 +128,7 @@ jobs:
         # even when an earlier step failed. The suite currently times out on
         # macOS in a package unrelated to detection, and without this the
         # detection result on that platform would never be produced at all.
-        if: always() && matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
+        if: always() && runner.os != 'Windows'
         shell: bash
         run: |
           go build -trimpath -o "${RUNNER_TEMP}/pb" ./cmd/proofboard
@@ -135,7 +137,7 @@ jobs:
           sh scripts/test_detection_e2e.sh "${RUNNER_TEMP}/pb" bash zsh
 
       - name: Auto project detection end to end (Windows)
-        if: always() && (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm')
+        if: always() && runner.os == 'Windows'
         shell: pwsh
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP\pb.exe" ./cmd/proofboard
@@ -158,7 +160,7 @@ jobs:
           }
 
       - name: Compiled executable command surface (Windows)
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP\proofboard.exe" ./cmd/proofboard
