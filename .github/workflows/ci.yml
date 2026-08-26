@@ -139,7 +139,23 @@ jobs:
         shell: pwsh
         run: |
           go build -trimpath -o "$env:RUNNER_TEMP\pb.exe" ./cmd/proofboard
-          & ./scripts/test_detection_e2e.ps1 -Binary "$env:RUNNER_TEMP\pb.exe"
+          # Both installation methods and both shells, because they are
+          # genuinely different code paths: the MSI and setup.exe run
+          # `agent enable` rather than `proofboard install`, and Windows
+          # PowerShell 5.1 reads a different profile from PowerShell 7.
+          # Every combination is run before the step fails, so one broken
+          # combination does not hide the state of the other three.
+          $failed = @()
+          foreach ($method in 'install', 'agent-enable') {
+            foreach ($sh in 'pwsh', 'powershell') {
+              & ./scripts/test_detection_e2e.ps1 -Binary "$env:RUNNER_TEMP\pb.exe" -Method $method -Shell $sh
+              if ($LASTEXITCODE -ne 0) { $failed += "$method/$sh" }
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Error ("detection failed for: " + ($failed -join ', '))
+            exit 1
+          }
 
       - name: Compiled executable command surface (Windows)
         if: matrix.os == 'windows-latest'
