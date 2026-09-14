@@ -135,7 +135,17 @@ func TestCareerAgentEndToEndAuthorizesConnectsAndSyncs(t *testing.T) {
 	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
 	t.Setenv("PROOFBOARD_AGENT_AUTH_URL", server.URL+"/agent/cli-auth")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A hang guard, not a performance assertion. It was ten seconds, which was
+	// sized on Linux, where this whole journey takes about one second. The
+	// journey spawns git repeatedly, and process creation on the Windows
+	// runners is an order of magnitude slower: internal/git takes 0.1-0.8s on
+	// ubuntu, 3.3s on windows-latest and 4.3-4.9s on windows-11-arm, and the
+	// same runner varied by about 40% between runs with no code change. On
+	// windows-11-arm that put this journey at 10.9-11.9s on slow runs and just
+	// under ten on fast ones, so the test passed and failed alternately on
+	// identical code. Sixty seconds still ends a genuine hang; it no longer
+	// fails a correct journey on slower hardware.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	current := state.Default()
 	current.AutoUpdateDictionary = false
