@@ -163,6 +163,13 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 	var milestones []struct{ title, bundleID string }
 
 	for _, n := range res.Data {
+		// The query asks for unread only, but the backend has answered it with
+		// notifications already read: its validation pipe turned the string
+		// "false" into true. Those were printed on every command, forever.
+		// Whatever the server says is read has been handled.
+		if n.IsRead {
+			continue
+		}
 		switch n.Type {
 		case "milestone_bundle_ready":
 			// Collected rather than printed one at a time: a single sync can
