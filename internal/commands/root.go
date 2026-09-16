@@ -68,6 +68,20 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 	return cmd
 }
 
+// startupLocalWorkBudget bounds the local work done before every command:
+// maintaining shell hooks, reading and writing state, loading the dictionary.
+// A var so a test can exhaust it.
+var startupLocalWorkBudget = 400 * time.Millisecond
+
+const (
+	// authNoticeBudget bounds the expired-session check: a credential read and
+	// a token decode, all local.
+	authNoticeBudget = 400 * time.Millisecond
+	// unreadNotificationsBudget bounds fetching and marking unread
+	// notifications, which goes over the network.
+	unreadNotificationsBudget = 900 * time.Millisecond
+)
+
 func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if os.Getenv("PROOFBOARD_DISABLE_STARTUP_CHECKS") == "1" {
 		return nil
@@ -84,15 +98,18 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// reachable and 34 KB in size. A slow answer to one question must not
 	// decide the outcome of the next.
 	const (
-		localWorkBudget    = 400 * time.Millisecond
 		versionCheckBudget = 600 * time.Millisecond
 		dictionaryBudget   = 900 * time.Millisecond
 	)
 
-	checkCtx, cancel := context.WithTimeout(ctx, localWorkBudget)
+	checkCtx, cancel := context.WithTimeout(ctx, startupLocalWorkBudget)
 	defer cancel()
 
-	runCtx, err := loadRuntime(checkCtx)
+	// Runtime loading reads local configuration and nothing else, and none of
+	// the checks below can run without it. It is not charged to the local-work
+	// budget: on a slow enough machine that budget would be gone before the
+	// runtime existed, and every notice below would be skipped with it.
+	runCtx, err := loadRuntime(ctx)
 	if err != nil {
 		return nil
 	}
@@ -166,8 +183,21 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		}
 	}
 
-	notifyAuthExpiry(checkCtx, cmd.OutOrStdout(), runCtx)
-	surfaceUnreadNotifications(checkCtx, cmd.OutOrStdout(), runCtx)
+	// The expired-session notice and unread notifications each get a deadline
+	// of their own. They used to run last on the shared local-work budget, and
+	// notifyAuthExpiry's first step — loading credentials — fails at once on an
+	// expired context and reports nothing. Wherever the local work above ran
+	// slow, the notice silently vanished: this check takes about 0.01s on Linux
+	// and 2.04s on the windows-latest runner, which is where it was caught
+	// printing nothing. A developer who is never told their session expired
+	// just sees sync stop working.
+	authCtx, cancelAuth := context.WithTimeout(ctx, authNoticeBudget)
+	notifyAuthExpiry(authCtx, cmd.OutOrStdout(), runCtx)
+	cancelAuth()
+
+	notificationsCtx, cancelNotifications := context.WithTimeout(ctx, unreadNotificationsBudget)
+	surfaceUnreadNotifications(notificationsCtx, cmd.OutOrStdout(), runCtx)
+	cancelNotifications()
 
 	return nil
 }
