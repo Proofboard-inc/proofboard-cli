@@ -90,6 +90,13 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if name == "update" || name == "update-dictionary" || name == "help" || name == "hook-maintain" || name == "notify" || name == "notify-activate" || name == "notices" || cmd.Parent() == nil {
 		return nil
 	}
+	// The background agent runs detached, its output going to /dev/null or a
+	// service journal. Surfacing notifications there marks them read with
+	// nobody to see them, and the round trips delay the pid claim that
+	// `proofboard update` waits on. The agent loop does its own update checks.
+	if name == "run" && cmd.Parent().Name() == "agent" {
+		return nil
+	}
 
 	// Each check below gets its OWN deadline. They used to share one, spent
 	// in order, so whatever the version check consumed was taken from the
