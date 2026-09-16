@@ -68,8 +68,8 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 	return cmd
 }
 
-// startupLocalWorkBudget bounds the local work done before every command:
-// maintaining shell hooks, reading and writing state, loading the dictionary.
+// startupLocalWorkBudget bounds shell-hook maintenance, the local work done
+// before every command that can actually be cut short.
 // A var so a test can exhaust it.
 var startupLocalWorkBudget = 400 * time.Millisecond
 
@@ -131,7 +131,14 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 
 	releases := api.NewReleaseClient(runCtx.config.ReleaseBaseURL)
 
-	stateData, stateErr := runCtx.state.Load(checkCtx)
+	// State and the local dictionary are read and written on the caller's
+	// context, not on the local-work budget. The stores check the context
+	// only on entry and cannot interrupt a file read once begun, so that
+	// deadline bounded nothing here; all it could do was make a load refuse
+	// to start after hook maintenance had spent it. On the windows-latest
+	// runner it was spent, and the version and dictionary checks were
+	// skipped without a word.
+	stateData, stateErr := runCtx.state.Load(ctx)
 
 	// 1. Check CLI Version, throttled like the dictionary below. This runs
 	// via PersistentPreRunE on every command, including the sync fired by a
@@ -143,7 +150,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		latestCLI, versionErr := releases.Latest(versionCtx, runCtx.config.LatestVersionPath)
 		cancelVersion()
 		stateData.LastVersionCheck = time.Now().UTC()
-		_ = runCtx.state.Save(checkCtx, stateData)
+		_ = runCtx.state.Save(ctx, stateData)
 		if versionErr == nil && latestCLI.Version != "" && latestCLI.Version != version.Version {
 			fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
 		}
@@ -157,10 +164,10 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// gate covers the ATTEMPT, not just successful updates: a failed check is
 	// throttled too, so a flaky/down release server can't turn into a
 	// check-on-every-command retry storm either.
-	stateData, err = runCtx.state.Load(checkCtx)
+	stateData, err = runCtx.state.Load(ctx)
 	if err == nil && stateData.AutoUpdateDictionary &&
 		(stateData.LastDictionaryUpdateCheck.IsZero() || time.Since(stateData.LastDictionaryUpdateCheck) >= 6*time.Hour) {
-		if localDict, loadErr := dictionary.LoadDefault(checkCtx); loadErr == nil {
+		if localDict, loadErr := dictionary.LoadDefault(ctx); loadErr == nil {
 			dictionaryURL := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
 			// Its own deadline, and a realistic one: this runs at most once
 			// every six hours, so a few seconds there costs nothing, while
@@ -186,7 +193,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 			case updateErr != nil:
 				_ = logging.WriteSyncLog(runCtx.homeDir, "", "startup", "dictionary check", "failure", updateErr.Error())
 			}
-			_ = runCtx.state.Save(checkCtx, stateData)
+			_ = runCtx.state.Save(ctx, stateData)
 		}
 	}
 
