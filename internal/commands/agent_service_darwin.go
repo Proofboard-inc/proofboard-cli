@@ -62,3 +62,10 @@ func uninstallAgentService(out io.Writer) error {
 	_, _ = fmt.Fprintln(out, "Proofboard Career Agent background service removed.")
 	return nil
 }
+
+// agentRegistered is false here: the service manager this platform registers
+// with starts the agent again after a reboot, so a shell hook has nothing to
+// resume.
+func agentRegistered(homeDir string) bool {
+	return false
+}

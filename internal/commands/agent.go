@@ -34,7 +34,7 @@ func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		enable:  enableAgent,
 		disable: uninstallAgentService,
 		start:   startAgent,
-		stop:    stopAgent,
+		stop:    stopAgentByUser,
 		status:  printAgentStatus,
 	})
 }
@@ -98,6 +98,11 @@ func newAgentCommandWithActions(ctx context.Context, out io.Writer, actions agen
 }
 
 func enableAgent(out io.Writer) error {
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		if err := clearAgentStopped(homeDir); err != nil {
+			return err
+		}
+	}
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve Career Agent executable: %w", err)
@@ -262,6 +267,9 @@ func pruneInactiveWorkspaceSessions(lastSyncLaunch map[string]time.Time, activeW
 func startAgent(ctx context.Context, out io.Writer) error {
 	runtime, err := loadRuntime(ctx)
 	if err != nil {
+		return fmt.Errorf("agent start: %w", err)
+	}
+	if err := clearAgentStopped(runtime.homeDir); err != nil {
 		return fmt.Errorf("agent start: %w", err)
 	}
 	if running, _ := agentRunning(runtime.homeDir); running {

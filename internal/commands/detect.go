@@ -30,6 +30,11 @@ func newDetectCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if err != nil {
 				return nil
 			}
+			// detect is the shell-startup hook. On Linux with no service manager and
+			// no desktop login it is the only thing that runs after a reboot, so it
+			// brings back an installed agent that did not come back on its own.
+			resumeRegisteredAgent(runtime.homeDir, startDetachedAgent)
+
 			if workspace == "" {
 				workspace = runtime.workingDir
 			}
