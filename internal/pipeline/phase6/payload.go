@@ -169,6 +169,10 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 var canonicalCategories = []string{
 	"Authentication & Security",
 	"API & Backend Services",
+	"Business Logic & Domain Services",
+	"Background Jobs & Queues",
+	"Integrations & Webhooks",
+	"Request Validation & Middleware",
 	"Database & Data Layer",
 	"Infrastructure & DevOps",
 	"Performance & Optimisation",
