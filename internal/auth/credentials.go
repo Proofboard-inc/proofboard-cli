@@ -62,7 +62,7 @@ var keychainCallTimeout = 5 * time.Second
 // callSecretStore runs one secret-store operation under keychainCallTimeout.
 // A call that overruns is abandoned rather than waited on, and reported as a
 // failure so the caller takes its fallback path. The goroutine may still be
-// parked in the syscall afterwards — there is no way to cancel it — but it no
+// parked in the syscall afterwards (there is no way to cancel it), but it no
 // longer holds up the command.
 func callSecretStore(operation func() error) error {
 	result := make(chan error, 1)
@@ -173,7 +173,7 @@ func (s CredentialStore) Delete(ctx context.Context) error {
 		// Best-effort, deliberately not fatal. Save and Load both fall back to
 		// the credentials file when no OS keyring is reachable, so making
 		// Delete the one operation that hard-fails meant `auth logout` aborted
-		// on headless Linux, in containers and over SSH — leaving the
+		// on headless Linux, in containers and over SSH, leaving the
 		// credentials it was asked to remove sitting on disk. Removing the
 		// file below is what actually logs the machine out.
 		_ = callSecretStore(func() error {

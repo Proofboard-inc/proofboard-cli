@@ -79,7 +79,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 
 	// Each check below gets its OWN deadline. They used to share one, spent
 	// in order, so whatever the version check consumed was taken from the
-	// dictionary check that followed — which is why the dictionary reported
+	// dictionary check that followed, which is why the dictionary reported
 	// "context deadline exceeded" on every command while being perfectly
 	// reachable and 34 KB in size. A slow answer to one question must not
 	// decide the outcome of the next.
@@ -112,7 +112,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// 1. Check CLI Version, throttled like the dictionary below. This runs
 	// via PersistentPreRunE on every command, including the sync fired by a
 	// git hook on every commit, so an unthrottled check meant a network round
-	// trip per command — paid by the developer in latency every time.
+	// trip per command, paid by the developer in latency every time.
 	if stateErr == nil && (stateData.LastVersionCheck.IsZero() ||
 		time.Since(stateData.LastVersionCheck) >= 6*time.Hour) {
 		versionCtx, cancelVersion := context.WithTimeout(ctx, versionCheckBudget)

@@ -19,10 +19,6 @@ type WorkspaceAction struct {
 	Target    string
 }
 
-func WorkspaceActionURI(kind, workspace string) string {
-	return WorkspaceTargetActionURI(kind, workspace, "")
-}
-
 func WorkspaceTargetActionURI(kind, workspace, target string) string {
 	v := url.Values{}
 	v.Set("kind", kind)
@@ -31,18 +27,6 @@ func WorkspaceTargetActionURI(kind, workspace, target string) string {
 		v.Set("target", target)
 	}
 	return "proofboard://notify-action?" + v.Encode()
-}
-
-func ParseWorkspaceActionURI(raw string) (kind string, workspace string, err error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", "", fmt.Errorf("parse notification uri: %w", err)
-	}
-	if u.Scheme != "proofboard" || u.Host != "notify-action" {
-		return "", "", fmt.Errorf("unsupported notification uri: %s", raw)
-	}
-	q := u.Query()
-	return q.Get("kind"), q.Get("workspace"), nil
 }
 
 func ParseWorkspaceTargetActionURI(raw string) (kind string, workspace string, target string, err error) {

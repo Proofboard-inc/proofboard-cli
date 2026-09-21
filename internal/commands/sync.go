@@ -1,14 +1,11 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/proofboard/proofboard/internal/api"
@@ -20,11 +17,8 @@ import (
 	"github.com/proofboard/proofboard/internal/hooks"
 	"github.com/proofboard/proofboard/internal/logging"
 	"github.com/proofboard/proofboard/internal/model"
-	"github.com/proofboard/proofboard/internal/notifications"
 	"github.com/proofboard/proofboard/internal/pipeline"
 	"github.com/proofboard/proofboard/internal/pipeline/phase1"
-	statestore "github.com/proofboard/proofboard/internal/state"
-	"github.com/proofboard/proofboard/internal/style"
 	"github.com/spf13/cobra"
 )
 
@@ -83,63 +77,16 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			repoState, linked := current.LinkedRepos[identity.RepoHash]
-			if !linked {
-				repoPath, err := filepath.Abs(repo.Path)
-				if err != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "failure", err.Error())
-					return err
-				}
-				if statestore.IsWorkspaceSuppressed(current, repoPath) {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "workspace suppressed")
-					return nil
-				}
-				if fromHook {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "link check", "skipped", "unlinked repo in hook")
-					return nil
-				}
-				notifications.PrintEvent(out, notifications.NewProjectDetected(identity.Repo))
-				fmt.Fprintln(out, "Preparing this project for automatic tracking...")
-				linkCmd := newLinkCommand(ctx, out)
-				if fromAgent {
-					linkCmd.SetArgs([]string{"--non-interactive"})
-				} else {
-					linkCmd.SetArgs([]string{})
-				}
-				if err := linkCmd.ExecuteContext(ctx); err != nil {
-					return err
-				}
-				current, err = runtime.state.Load(ctx)
-				if err != nil {
-					return err
-				}
-				repoState, linked = current.LinkedRepos[identity.RepoHash]
-				if !linked {
-					return fmt.Errorf("project connection did not complete")
-				}
+			current, repoState, err = ensureRepoLinked(ctx, out, runtime, identity, triggerSource, fromHook, fromAgent, repo, current, repoState, linked)
+			if errors.Is(err, errSkipSync) {
+				return nil
 			}
-			if repoState.EmailHashKey == "" {
-				// Legacy state predates per-project email HMAC keys. Recover it
-				// through the same documented handshake as `proofboard link`;
-				// sending the stale project ID as the initial request can return
-				// 404 after the backend's repository mapping has changed.
-				linkCmd := newLinkCommand(ctx, out)
-				linkCmd.SetArgs([]string{"--non-interactive"})
-				if err := linkCmd.ExecuteContext(ctx); err != nil {
-					return fmt.Errorf("refresh project security keys: %w", err)
-				}
-				current, err = runtime.state.Load(ctx)
-				if err != nil {
-					return fmt.Errorf("reload project security keys: %w", err)
-				}
-				var refreshed bool
-				repoState, refreshed = current.LinkedRepos[identity.RepoHash]
-				if !refreshed || repoState.EmailHashKey == "" {
-					return fmt.Errorf("refresh project security keys: link response did not include emailHashKey")
-				}
+			if err != nil {
+				return err
 			}
 			// Recomputes the payload's email hash when linking changed the
 			// project's emailHashKey. The git email is read, used and dropped
-			// here exactly as it is when the payload is first built — it is
+			// here exactly as it is when the payload is first built, it is
 			// never held for the lifetime of the sync.
 			refreshIdentity := func(candidate *model.SyncPayload) error {
 				current, stateErr := runtime.state.Load(ctx)
@@ -181,7 +128,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					return nil
 				}
 				if transmitErr != nil {
-					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", transmitErr.Error())
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "failure", transmitErr.Error())
 					var apiErr *api.Error
 					if errors.As(transmitErr, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
 						if apiErr.RetryAfter > 0 {
@@ -195,7 +142,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					}
 					return fmt.Errorf("transmit resync payload: %w", transmitErr)
 				}
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "success", "")
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "success", "")
 				if err := reportSyncOutcome(out, receipt, candidate, false); err != nil {
 					return err
 				}
@@ -441,18 +388,24 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					isDefaultBranch = pbgit.IsProductionBranch(currentBranch, current.WatchedBranches)
 				}
 			}
+			// Lifetime total including this batch, see
+			// model.LinkedRepoState.TotalCommitsSynced. Persisted below
+			// only after a successful transmit, matching how LastHeadSHA
+			// etc. are only advanced on success.
+			totalCommitsSynced := repoState.TotalCommitsSynced + len(raw)
 			payload, err := pipeline.New(dict).Run(ctx, pipeline.RunInput{
-				Raw:               raw,
-				OrgHash:           identity.OrgHash,
-				RepoHash:          identity.RepoHash,
-				EmailHash:         payloadEmailHash,
-				IdentityEmailHash: identityEmailHash,
-				Provider:          identity.Provider,
-				ExpectedOrgHash:   repoState.OrgHash,
-				MergeTimestamps:   mergeTimestamps,
-				PreviousHead:      previousHead,
-				Stack:             stack,
-				IsDefaultBranch:   isDefaultBranch,
+				Raw:                raw,
+				OrgHash:            identity.OrgHash,
+				RepoHash:           identity.RepoHash,
+				EmailHash:          payloadEmailHash,
+				IdentityEmailHash:  identityEmailHash,
+				Provider:           identity.Provider,
+				ExpectedOrgHash:    repoState.OrgHash,
+				MergeTimestamps:    mergeTimestamps,
+				PreviousHead:       previousHead,
+				Stack:              stack,
+				IsDefaultBranch:    isDefaultBranch,
+				TotalCommitsSynced: totalCommitsSynced,
 			})
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phases 2-5: Pipeline", "failure", err.Error())
@@ -474,7 +427,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 					current.LinkedRepos[identity.RepoHash] = repoState
 					_ = runtime.state.Save(ctx, current)
 				}
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "skipped", "no commits to send")
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "skipped", "no commits to send")
 				if triggerSource != "manual" {
 					return nil
 				}
@@ -502,7 +455,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 
 			if verbose {
-				fmt.Fprintln(out, "Phase 6: transmit")
+				fmt.Fprintln(out, "Phase 7: transmit")
 			}
 			// receipt/transmittedPayload are populated by transmitSyncPayload
 			// on a successful call to runtime.api.Sync, read after it
@@ -515,10 +468,10 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return nil
 			}
 			if err != nil {
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "failure", err.Error())
+				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "failure", err.Error())
 				return fmt.Errorf("transmit sync payload: %w", err)
 			}
-			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 8: Transmission", "success", "")
+			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "success", "")
 			head, err := pbgit.Head(ctx, repo)
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "get HEAD", "failure", err.Error())
@@ -528,6 +481,7 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			repoState.LastSyncAt = time.Now().UTC()
 			repoState.DictionaryVersion = dict.Version
 			repoState.MetadataHash = metadataHash
+			repoState.TotalCommitsSynced = totalCommitsSynced
 			// Cache the exact transmitted (signed) payload so a future
 			// `sync --resync` can replay it verbatim without re-ingesting
 			// git history.
@@ -567,193 +521,6 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	return cmd
 }
 
-// transmitSyncPayload signs payload with the device key and sends it via
-// runtime.api.Sync, threading the same auth-retry/spinner machinery and
-// no-linked-project org/repo-hash swap that every sync (including a
-// `sync --resync` replay) relies on. Returns the receipt and the payload as
-// actually signed and transmitted (including the final DeviceKeyID/
-// DeviceSignature) so callers can cache exactly what left the machine.
-func transmitSyncPayload(ctx context.Context, out io.Writer, runtime runtimeContext, identity model.RemoteIdentity, triggerSource string, fromAgent bool, payload model.SyncPayload, refreshIdentity func(*model.SyncPayload) error) (model.SyncReceipt, model.SyncPayload, error) {
-	var receipt model.SyncReceipt
-	var transmitted model.SyncPayload
-	transmit := func() error {
-		freshCredentials, err := runtime.credentials.Load(ctx)
-		if err != nil {
-			return fmt.Errorf("reload credentials: %w", err)
-		}
-		if freshCredentials.Token == "" {
-			return fmt.Errorf("missing authentication token")
-		}
-		signedPayload := payload
-		// Device signing is mandatory: the backend unconditionally
-		// rejects any sync payload missing deviceKeyId/deviceSignature
-		// (cli-ingest.service.ts), so there is no optional path here.
-		keyStore := pbauth.NewDeviceKeyStore(runtime.homeDir)
-		deviceKey, keyErr := keyStore.Ensure(ctx, runtime.api, freshCredentials.Token, false)
-		if keyErr != nil {
-			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
-				"register device key", "warning", keyErr.Error())
-			return fmt.Errorf("register device signing key: %w", keyErr)
-		}
-		freshCredentials.DeviceKeyID = deviceKey.DeviceKeyID
-		if err := runtime.credentials.Save(ctx, freshCredentials); err != nil {
-			return fmt.Errorf("persist device key id: %w", err)
-		}
-		signedPayload.DeviceKeyID = deviceKey.DeviceKeyID
-
-		// The signature has to cover the payload exactly as sent, so it
-		// is recomputed whenever the payload changes.
-		sign := func(candidate model.SyncPayload) (model.SyncPayload, error) {
-			candidate.DeviceSignature = ""
-			signingBytes, err := crypto.CanonicalJSON(candidate)
-			if err != nil {
-				return candidate, fmt.Errorf("marshal sync payload for signing: %w", err)
-			}
-			signature, err := keyStore.Sign(ctx, signingBytes)
-			if err != nil {
-				return candidate, fmt.Errorf("sign sync payload: %w", err)
-			}
-			candidate.DeviceSignature = signature
-			return candidate, nil
-		}
-
-		signedPayload, signErr := sign(signedPayload)
-		if signErr != nil {
-			return signErr
-		}
-		syncReceipt, syncErr := runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
-		if isNoLinkedProjectError(syncErr) {
-			signedPayload.OrgHash, signedPayload.RepoHash = signedPayload.RepoHash, signedPayload.OrgHash
-			signedPayload, signErr = sign(signedPayload)
-			if signErr != nil {
-				return signErr
-			}
-			syncReceipt, syncErr = runtime.api.Sync(ctx, freshCredentials.Token, signedPayload)
-		}
-		if syncErr == nil {
-			receipt = syncReceipt
-			transmitted = signedPayload
-		}
-		return syncErr
-	}
-	attempt := func() error {
-		if fromAgent {
-			return retryAfterAuthForAgent(ctx, out, runtime, transmit)
-		}
-		return retryAfterAuth(ctx, out, "project synchronization", transmit)
-	}
-	err := withSpinner(out, "Transmitting proof…", triggerSource == "manual", func() error {
-		err := attempt()
-		if !isNoLinkedProjectError(err) {
-			return err
-		}
-		// The backend has no project for this repository under the account
-		// that is now authenticated. That happens most often straight after a
-		// mid-sync reconnect: the session is repaired, the repository link is
-		// not, and the sync fails with a bare 400 that says nothing a user can
-		// act on. Everything needed to repair it is already in hand, so link
-		// and retransmit rather than reporting a status code.
-		_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource,
-			"Phase 8: Transmission", "warning", "no linked project; connecting this repository")
-		if _, printErr := fmt.Fprintln(out, "This repository is not connected to your Proofboard account yet. Connecting it now..."); printErr != nil {
-			return printErr
-		}
-		if linkErr := runLinkFlow(ctx, out); linkErr != nil {
-			return linkErr
-		}
-		// The payload's emailHash is an HMAC keyed with the project's
-		// emailHashKey, which the link response supplies. Reconnecting can
-		// land on a different account with a different key, so a payload built
-		// before linking carries a hash the backend cannot attribute to
-		// anyone. Rebuild it before resending.
-		if refreshIdentity != nil {
-			if refreshErr := refreshIdentity(&payload); refreshErr != nil {
-				return refreshErr
-			}
-		}
-		retryErr := attempt()
-		if isNoLinkedProjectError(retryErr) {
-			// Linking reported success and the backend still does not see a
-			// project. Say that, rather than repeating "run proofboard link"
-			// for something that was just run.
-			return errors.New("this repository was connected but the server still reports no linked project for it; check that the repository's remote matches the project on proofboard.io")
-		}
-		return retryErr
-	})
-	return receipt, transmitted, err
-}
-
-// reportSyncOutcome prints the final user-facing line(s) for a completed
-// transmit, branching on the backend's receipt status. Shared by the normal
-// sync flow and `sync --resync` so both surface identical wording for
-// "deduped"/"regenerating" responses.
-func reportSyncOutcome(out io.Writer, receipt model.SyncReceipt, payload model.SyncPayload, metadataOnly bool) error {
-	switch receipt.Status {
-	case "deduped", "duplicate":
-		if _, err := fmt.Fprintln(out, "No new commits since your last sync (nothing changed on the server)."); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(out, "To regenerate your milestone summaries without new commits, run: proofboard sync --resync"); err != nil {
-			return err
-		}
-	case "regenerating":
-		if _, err := fmt.Fprintf(out, "%s %s %s\n",
-			style.Success(out, "✓"),
-			style.Brand(out, "Proofboard"),
-			style.Heading(out, "— Regenerate requested for your milestone summaries. Refresh your dashboard shortly to see updated text.")); err != nil {
-			return err
-		}
-	default:
-		// Print one live line per detected cluster as they're found, so
-		// every category synced this run is visible in real time. This is
-		// informational only: the backend's clustering/AI-summary pass is
-		// still async at this point, so there's nothing to review yet.
-		// The actionable "ready to review" prompt surfaces later, once
-		// that finishes, via the sync-complete notification (see
-		// `proofboard notices`, wired into shell startup).
-		for _, cluster := range payload.MilestoneClusters {
-			fmt.Fprintln(out, style.ClusterLine(out, cluster.Category, cluster.ImpactType, cluster.ImpactScale, cluster.CommitCount))
-		}
-		var err error
-		if len(payload.SHAs) == 0 && metadataOnly {
-			_, err = fmt.Fprintf(out, "%s %s %s\n",
-				style.Success(out, "✓"), style.Brand(out, "Proofboard"), style.Heading(out, "— Repository metadata synchronized."))
-		} else {
-			_, err = fmt.Fprintf(out, "%s %s %s\n",
-				style.Success(out, "✓"), style.Brand(out, "Proofboard"),
-				style.Heading(out, fmt.Sprintf("— Synced %d commits. Clusters detected: %d.", len(payload.SHAs), len(payload.MilestoneClusters))))
-		}
-		if err != nil {
-			return err
-		}
-		if len(payload.MilestoneClusters) > 0 {
-			if _, err := fmt.Fprintln(out, style.Muted(out, "Finishing analysis — check your dashboard shortly to review and publish.")); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// formatRetryDuration renders a Retry-After duration as a whole-minute,
-// human-readable hint ("15m"), rounding up so the hint never undersells how
-// long the throttle window actually is.
-func formatRetryDuration(d time.Duration) string {
-	minutes := int((d + time.Minute - 1) / time.Minute)
-	if minutes < 1 {
-		minutes = 1
-	}
-	return fmt.Sprintf("%dm", minutes)
-}
-
-func isNoLinkedProjectError(err error) bool {
-	var apiErr *api.Error
-	if errors.As(err, &apiErr) {
-		return strings.Contains(strings.ToLower(apiErr.Message), "no linked project")
-	}
-	return false
-}
-
 func deferExpiredAgentSession(ctx context.Context, runtime runtimeContext, out io.Writer) (bool, error) {
 	if current, err := runtime.state.Load(ctx); err == nil && current.AuthLoggedOut {
 		return true, nil
@@ -781,29 +548,4 @@ func deferExpiredAgentSession(ctx context.Context, runtime runtimeContext, out i
 		return false, err
 	}
 	return true, nil
-}
-
-func isDocFile(filePath string) bool {
-	lower := strings.ToLower(filepath.Base(filePath))
-	if strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".rst") {
-		return true
-	}
-	if strings.HasPrefix(lower, "readme") || strings.HasPrefix(lower, "changelog") || strings.HasPrefix(lower, "license") {
-		return true
-	}
-	return false
-}
-
-func isRevertSubject(subject []byte) bool {
-	trimmed := bytes.TrimSpace(subject)
-	prefix := [...]byte{'r', 'e', 'v', 'e', 'r', 't', ':'}
-	return len(trimmed) >= len(prefix) && bytes.EqualFold(trimmed[:len(prefix)], prefix[:])
-}
-
-func abortSync(homeDir, repoHash string) error {
-	return abortSyncWithTrigger(homeDir, repoHash, "manual")
-}
-
-func abortSyncWithTrigger(homeDir, repoHash, triggerSource string) error {
-	return logging.WriteSyncLog(homeDir, repoHash, triggerSource, "pre-classification filter", "aborted", "trivial merge skipped")
 }

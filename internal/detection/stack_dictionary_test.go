@@ -96,7 +96,7 @@ func TestDetectStackPicksTheMostFrequentIndustrySignal(t *testing.T) {
 	}
 }
 
-// Regression test for "the dictionary only covers JS/npm projects" — a
+// Regression test for "the dictionary only covers JS/npm projects": a
 // Python, Java, or .NET repo should get the same dictionary-driven breadth
 // an npm project already gets, not just the small built-in fallback.
 func TestDetectStackUsesManifestStackSignalsForNonNpmEcosystems(t *testing.T) {
@@ -164,7 +164,7 @@ func TestDetectStackUsesManifestStackSignalsForNonNpmEcosystems(t *testing.T) {
 // (src/modules/{vendors,products,orders,carts,delivery}) that merely uses
 // Stripe for checkout was labeled "Fintech" with zero E-commerce/Logistics
 // hints, because industry detection only ever looked at manifest
-// dependencies — and Stripe/payment-processor presence is far too generic
+// dependencies, and Stripe/payment-processor presence is far too generic
 // to imply the business itself is a financial product. Folder/module names
 // are the actual strongest signal here.
 func TestDetectStackPathKeywordsOutrankGenericPaymentProcessorDependency(t *testing.T) {
@@ -216,7 +216,7 @@ func TestDetectStackPathKeywordsOutrankGenericPaymentProcessorDependency(t *test
 }
 
 // Regression test for "a pure-Go CLI tool has no path to any industry
-// signal at all" — go.mod (a non-npm manifest) resolving two of its own
+// signal at all": go.mod (a non-npm manifest) resolving two of its own
 // dependencies to the same industry label must clear the 2-match confidence
 // floor on its own, the same way package.json already could.
 func TestDetectStackNonNpmManifestIndustrySignalsClearConfidenceFloor(t *testing.T) {
@@ -248,7 +248,7 @@ func TestDetectStackNonNpmManifestIndustrySignalsClearConfidenceFloor(t *testing
 
 // Pins the confidence-floor behavior directly: a single incidental path
 // match (one file, one directory) must never produce an industry hint on
-// its own — this is the exact false-positive shape from the original bug
+// its own: this is the exact false-positive shape from the original bug
 // report (one PaymentTracker.tsx file wrongly tagging an entire repo
 // E-commerce).
 func TestDetectStackSingleIncidentalPathMatchProducesNoIndustryHint(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 // The directory-change hook is what makes project detection fire when someone
 // cd's into a repository in a terminal that is already open. The startup line
 // runs once per session, so without this hook the feature only ever works in a
-// brand-new terminal — which looks, to a user, exactly like detection having
+// brand-new terminal, which looks, to a user, exactly like detection having
 // silently stopped working.
 //
 // Nothing asserted that this hook is installed. The existing coverage tests

@@ -114,7 +114,7 @@ func TestEnsureLineInFile_MigratesLegacyBackgroundedDetectLine(t *testing.T) {
 		t.Fatalf("expected migrated hook to contain %q, got: %q", shellDetectionLine, data)
 	}
 	// The old line discarded stdout too (">/dev/null 2>&1", plus backgrounded
-	// with "&") — the new one must only suppress stderr and run synchronously.
+	// with "&"), the new one must only suppress stderr and run synchronously.
 	if strings.Contains(shellDetectionLine, "1>/dev/null") || strings.Contains(shellDetectionLine, "2>&1") || strings.HasSuffix(strings.TrimSpace(shellDetectionLine), "&") {
 		t.Fatalf("new detect line must not discard stdout or run backgrounded: %q", shellDetectionLine)
 	}
@@ -194,7 +194,7 @@ func TestEnsureShellDetectionHooks_RecoversBurnedPromptsOnLegacyMigration(t *tes
 
 // Most real-world affected installs already had their rc file silently
 // migrated to the new synchronous line by an earlier CLI run, well before
-// this fix existed — by the time a developer upgrades, there is no legacy
+// this fix existed, so by the time a developer upgrades, there is no legacy
 // line left to catch. Recovery must still run and heal already-burned state
 // in that case, not only when it happens to observe a live migration.
 func TestEnsureShellDetectionHooks_RecoversBurnedPromptsEvenWithoutLiveLegacyLine(t *testing.T) {

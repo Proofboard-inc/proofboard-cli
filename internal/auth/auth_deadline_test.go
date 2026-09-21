@@ -14,7 +14,7 @@ import (
 
 // Login polls until the authorization is approved. The only thing that ever
 // stopped it was a deadline derived from the server's expiresIn, so a response
-// that omitted it — or sent zero — left the loop polling forever: no deadline,
+// that omitted it, or sent zero, left the loop polling forever: no deadline,
 // no cancellation, nothing to end it but killing the process.
 //
 // That is not hypothetical. It is what hung CI on macOS until the ten-minute

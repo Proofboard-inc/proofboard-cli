@@ -9,7 +9,7 @@ import (
 // The automatic reconnect runs precisely because the server rejected the
 // credentials on disk. If it invokes sign-in without forcing, the command
 // sees a token present, reports "already authenticated", returns success
-// without signing in, and the caller retries with the same rejected token —
+// without signing in, and the caller retries with the same rejected token,
 // so an expired session can never recover on its own.
 func TestReconnectForcesAFreshSignIn(t *testing.T) {
 	cmd := newAuthCommand(context.Background(), nil)

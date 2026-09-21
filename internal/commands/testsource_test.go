@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// readSource lets a test assert on wiring that has no runtime seam — here,
+// readSource lets a test assert on wiring that has no runtime seam: here,
 // that the reconnect passes --force. Asserting on behaviour is preferred, but
 // the sign-in flow opens a browser and blocks on a device code, so there is
 // no way to exercise it in a unit test without a fake, which this project

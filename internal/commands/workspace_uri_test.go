@@ -3,7 +3,7 @@ package commands
 import "testing"
 
 // VS Code records the open folder as a file URI. On Windows that URI carries
-// the drive letter inside the path — "file:///c%3A/Users/ada/project" — and the
+// the drive letter inside the path ("file:///c%3A/Users/ada/project"), and the
 // leading slash in "/c:/Users/ada/project" is part of the URI, not the path.
 //
 // Handing that straight to filepath.Abs produced something like

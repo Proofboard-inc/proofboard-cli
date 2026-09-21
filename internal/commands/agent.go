@@ -124,7 +124,7 @@ func runAgent(ctx context.Context) error {
 	// Executable auto-update rides this loop rather than a timer of its own:
 	// the agent is already the thing that runs unattended, and
 	// maybeAutoUpdateCLI is internally throttled to once a day, so calling it
-	// every scan costs a state read and nothing else. It never blocks — the
+	// every scan costs a state read and nothing else. It never blocks: the
 	// installer is started detached and abandoned.
 	maybeAutoUpdateCLI(ctx, runtime)
 

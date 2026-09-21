@@ -48,7 +48,7 @@ func discoverIDEWorkspaces(ctx context.Context, configured []string) ([]string, 
 
 func configuredIDENames(configured []string) []string {
 	if len(configured) == 0 {
-		return []string{"code.exe", "code-insiders.exe", "cursor.exe", "webstorm64.exe", "idea64.exe", "zed.exe", "sublime_text.exe", "vim.exe", "nvim.exe"}
+		return []string{"code.exe", "code-insiders.exe", "cursor.exe", "webstorm64.exe", "idea64.exe", "pycharm64.exe", "zed.exe", "sublime_text.exe", "antigravity.exe", "vim.exe", "nvim.exe"}
 	}
 	return configured
 }

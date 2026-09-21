@@ -205,7 +205,7 @@ func TestStartupUpdateChecks(t *testing.T) {
 		fmt.Fprintf(w, `{"version": %q, "url": "https://proofboard.io/9.9.9"}`, latestCLIVersion)
 	})
 	// The real GET /cli/dictionary endpoint is public and returns the full
-	// dictionary directly, in one step — no separate version-pointer/download
+	// dictionary directly, in one step, no separate version-pointer/download
 	// round trip.
 	mux.HandleFunc("/dictionary/latest.json", func(w http.ResponseWriter, r *http.Request) {
 		newDict := model.Dictionary{

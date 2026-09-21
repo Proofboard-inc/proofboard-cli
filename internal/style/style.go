@@ -37,10 +37,9 @@ func wrap(w io.Writer, code, text string) string {
 	return code + text + reset
 }
 
-// Success, Warn, Muted, Heading, and Accent color a piece of text for
-// terminal output, falling back to plain text for non-TTY/NO_COLOR writers.
+// Success, Muted, Heading, and Accent color a piece of text for terminal
+// output, falling back to plain text for non-TTY/NO_COLOR writers.
 func Success(w io.Writer, text string) string { return wrap(w, green, text) }
-func Warn(w io.Writer, text string) string    { return wrap(w, yellow, text) }
 func Muted(w io.Writer, text string) string   { return wrap(w, gray, text) }
 func Heading(w io.Writer, text string) string { return wrap(w, bold, text) }
 func Accent(w io.Writer, text string) string  { return wrap(w, cyan, text) }

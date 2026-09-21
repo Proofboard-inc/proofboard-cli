@@ -159,7 +159,7 @@ func sanitizeLegacyLog(path string) error {
 // name, or anything shredded out of a commit.
 //
 // This exists because the log previously kept a short allowlist of exact
-// phrases and reduced every other detail to "[details redacted]" — including
+// phrases and reduced every other detail to "[details redacted]", including
 // the status code behind a failed sync. A developer whose sync returned 400
 // had no way to find out anything at all about why, and neither did anyone
 // helping them. Redacting the reason a request failed protects nothing.

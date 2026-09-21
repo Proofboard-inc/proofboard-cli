@@ -49,7 +49,7 @@ func TestSuppressWorkspacePersistsNeverAskAgain(t *testing.T) {
 }
 
 // reconnect (session expiry) is the only case reserved for an OS-level
-// popup now — project-detected, sync-needed, and milestone-ready all moved
+// popup now. Project-detected, sync-needed, and milestone-ready all moved
 // to plain terminal output and must not carry the old interactive labels
 // (Sync Project/Review/Publish/etc.) that implied a clickable popup exists
 // for them.
@@ -71,8 +71,8 @@ func TestWorkspaceActionLabelsOnlyReconnectIsARealPopup(t *testing.T) {
 }
 
 // FIX: ActivateWorkspaceAction's "Review"/"Publish" (with no known bundle)
-// fallback used to open a hardcoded "https://proofboard.io/dashboard" — the
-// release/download domain, not the deployed frontend app — so clicking those
+// fallback used to open a hardcoded "https://proofboard.io/dashboard" (the
+// release/download domain, not the deployed frontend app), so clicking those
 // buttons sent the user to the wrong site. appBaseURL must resolve the CLI's
 // actual configured app URL instead.
 func TestAppBaseURLRespectsConfigOverride(t *testing.T) {

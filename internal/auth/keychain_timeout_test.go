@@ -32,7 +32,7 @@ func (b *blockingSecretStore) Delete(service, account string) error {
 // until the package timeout killed it (go-keyring/keyring_darwin.go:99).
 //
 // On a developer's Mac the same thing means `proofboard auth` freezes after
-// signing in — the credentials are in hand and the CLI never comes back. There
+// signing in, the credentials are in hand and the CLI never comes back. There
 // is a perfectly good file fallback a few lines below; nothing reaches it while
 // the keychain call is still waiting.
 func TestSaveFallsBackWhenTheKeychainDoesNotAnswer(t *testing.T) {

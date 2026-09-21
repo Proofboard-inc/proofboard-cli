@@ -9,7 +9,7 @@ import (
 	"github.com/proofboard/proofboard/internal/pipeline/phase3"
 	"github.com/proofboard/proofboard/internal/pipeline/phase4"
 	"github.com/proofboard/proofboard/internal/pipeline/phase5"
-	"github.com/proofboard/proofboard/internal/pipeline/phase7"
+	"github.com/proofboard/proofboard/internal/pipeline/phase6"
 	"github.com/proofboard/proofboard/internal/version"
 )
 
@@ -35,6 +35,11 @@ type RunInput struct {
 	Stack *model.StackReport
 	// IsDefaultBranch: see model.SyncPayload.IsDefaultBranch.
 	IsDefaultBranch bool
+	// TotalCommitsSynced: the repo's lifetime commit count including this
+	// batch (repoState.TotalCommitsSynced + len(raw)), used instead of this
+	// batch's size for AntiFraudSignals.LowCommitCount. See
+	// model.LinkedRepoState.TotalCommitsSynced.
+	TotalCommitsSynced int
 }
 
 func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, error) {
@@ -45,20 +50,21 @@ func (p Pipeline) Run(ctx context.Context, input RunInput) (model.SyncPayload, e
 	scored := phase3.Score(classified, p.dictionary.Version)
 	clusters := phase4.Detect(scored, input.MergeTimestamps)
 	safe := phase5.Shred(input.Raw, classified)
-	payload := phase7.Assemble(phase7.AssemblyInput{
-		Commits:           safe,
-		Clusters:          clusters,
-		OrgHash:           input.OrgHash,
-		RepoHash:          input.RepoHash,
-		EmailHash:         input.EmailHash,
-		IdentityEmailHash: input.IdentityEmailHash,
-		Provider:          input.Provider,
-		CLIVersion:        version.Version,
-		DictionaryVersion: p.dictionary.Version,
-		ExpectedOrgHash:   input.ExpectedOrgHash,
-		PreviousHead:      input.PreviousHead,
-		Stack:             input.Stack,
-		IsDefaultBranch:   input.IsDefaultBranch,
+	payload := phase6.Assemble(phase6.AssemblyInput{
+		Commits:            safe,
+		Clusters:           clusters,
+		OrgHash:            input.OrgHash,
+		RepoHash:           input.RepoHash,
+		EmailHash:          input.EmailHash,
+		IdentityEmailHash:  input.IdentityEmailHash,
+		Provider:           input.Provider,
+		CLIVersion:         version.Version,
+		DictionaryVersion:  p.dictionary.Version,
+		ExpectedOrgHash:    input.ExpectedOrgHash,
+		PreviousHead:       input.PreviousHead,
+		Stack:              input.Stack,
+		IsDefaultBranch:    input.IsDefaultBranch,
+		TotalCommitsSynced: input.TotalCommitsSynced,
 	})
 	return payload, nil
 }

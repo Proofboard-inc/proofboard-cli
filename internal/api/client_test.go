@@ -28,19 +28,6 @@ func TestEndpointAllowsLocalhostHTTPForTests(t *testing.T) {
 	}
 }
 
-func TestRedactJSONForLogKeepsOnlyNumericStatusCode(t *testing.T) {
-	input := []byte(`{"token":"access-secret","refreshToken":"refresh-secret","nested":{"deviceSignature":"signature-secret"},"status":"approved","statusCode":200,"projectName":"Confidential Payments","message":"Repository Confidential Payments is linked"}`)
-	got := redactJSONForLog(input)
-	for _, secret := range []string{"access-secret", "refresh-secret", "signature-secret", "Confidential Payments", "Repository", "approved"} {
-		if strings.Contains(got, secret) {
-			t.Fatalf("redacted log contains %q: %s", secret, got)
-		}
-	}
-	if !strings.Contains(got, `"statusCode":200`) {
-		t.Fatalf("expected safe numeric status code to remain: %s", got)
-	}
-}
-
 func TestClientNeverPersistsRequestOrResponseBodies(t *testing.T) {
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)

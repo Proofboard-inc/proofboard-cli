@@ -1,4 +1,4 @@
-package phase7
+package phase6
 
 import (
 	"bytes"
@@ -62,6 +62,41 @@ func TestAssembleAddsTrustSignalsAndPreviousHead(t *testing.T) {
 	}
 }
 
+func TestAssembleUsesLifetimeTotalNotBatchSizeForLowCommitCount(t *testing.T) {
+	// The bug this fixes: a repo with 40 real commits, synced incrementally
+	// in small batches, tripped LowCommitCount on every batch after the
+	// first because the check only ever looked at the current batch's
+	// size. TotalCommitsSynced carries the true lifetime count.
+	now := time.Now().UTC()
+	smallBatch := []model.SafeCommit{
+		{SHA: "a", TimestampUnix: now.Unix(), Category: "Feature Development", ImpactType: "feature"},
+		{SHA: "b", TimestampUnix: now.Unix(), Category: "Feature Development", ImpactType: "feature"},
+	}
+
+	withLifetimeHistory := Assemble(AssemblyInput{
+		Commits:            smallBatch,
+		TotalCommitsSynced: 40, // 38 from prior syncs + this batch of 2
+	})
+	if withLifetimeHistory.AntiFraudSignals.LowCommitCount {
+		t.Fatal("a small incremental batch on a repo with 40 lifetime commits must not set lowCommitCount")
+	}
+
+	genuinelyNew := Assemble(AssemblyInput{
+		Commits:            smallBatch,
+		TotalCommitsSynced: 2, // first-ever sync, genuinely only 2 commits total
+	})
+	if !genuinelyNew.AntiFraudSignals.LowCommitCount {
+		t.Fatal("a genuinely low lifetime commit count must still set lowCommitCount")
+	}
+
+	// A caller that hasn't threaded TotalCommitsSynced through yet (zero
+	// value) must fall back to batch size, not silently disable the check.
+	noLifetimeTotalPassed := Assemble(AssemblyInput{Commits: smallBatch})
+	if !noLifetimeTotalPassed.AntiFraudSignals.LowCommitCount {
+		t.Fatal("omitted TotalCommitsSynced must fall back to batch size, not skip the check")
+	}
+}
+
 func TestAssembleEnforcesEndpointLimits(t *testing.T) {
 	commits := make([]model.SafeCommit, maxPayloadCommits+20)
 	for i := range commits {
@@ -100,7 +135,7 @@ func TestAssembleUsesPlainIdentityHashForMismatchSignal(t *testing.T) {
 }
 
 // Assemble must copy Stack through unchanged when present, and omit
-// it (nil) when absent — plumbing only.
+// it (nil) when absent: plumbing only.
 func TestAssemblePassesStackThrough(t *testing.T) {
 	stack := &model.StackReport{Languages: map[string]int{"Go": 1}, HasTests: true}
 
@@ -128,7 +163,7 @@ func TestAssemblePassesIsDefaultBranchThrough(t *testing.T) {
 }
 
 // NormalizeCategory must map every known alias correctly (regression)
-// and must never pass an unmapped/unknown category through raw — it must
+// and must never pass an unmapped/unknown category through raw: it must
 // always fall back to "Feature Development" so the backend's ~25-value
 // CLI_CATEGORY_VOCABULARY @IsIn validator never 400s on an unrecognized
 // category string.
@@ -147,7 +182,7 @@ func TestNormalizeCategory(t *testing.T) {
 		{"empty string never passes through raw", "", "Feature Development"},
 		{"arbitrary garbage never passes through raw", "XYZ", "Feature Development"},
 		// FIX: these are what phase2/intent.go's Classify() (via phase5's
-		// shredder) actually produces — the full canonical category name, not
+		// shredder) actually produces: the full canonical category name, not
 		// a short alias. Before the canonicalCategoryByUpper lookup was added,
 		// every one of these fell through to the default case and got
 		// silently relabeled "Feature Development", discarding all real

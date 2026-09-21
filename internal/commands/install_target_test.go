@@ -11,7 +11,7 @@ import (
 // posixInstallPath is how these tests spell an expected location.
 //
 // They simulate a GOOS ("linux") that need not be the host's, while the code
-// under test joins paths with filepath — which uses the HOST separator. On
+// under test joins paths with filepath, which uses the HOST separator. On
 // Windows that turns /home/engineer/.local/bin/proofboard into
 // \home\engineer\.local\bin\proofboard, and four of these tests failed on
 // exactly that: a backslash, not a wrong directory. The directory chosen is the

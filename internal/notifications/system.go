@@ -126,15 +126,6 @@ func NewProjectDetected(_ string) Event {
 	}
 }
 
-func ProjectSyncNeeded(projectName string) Event {
-	return Event{
-		Title:           "Project needs sync",
-		Body:            fmt.Sprintf("%s\nThe Career Agent will capture the latest work automatically.", projectName),
-		PrimaryAction:   "Sync Project",
-		SecondaryAction: "Not Now",
-	}
-}
-
 func ProofOfShipCaptured(milestoneCount int) Event {
 	return Event{
 		Title:           "Milestone detected",
@@ -155,24 +146,6 @@ func MilestoneDetected(title string) Event {
 		PrimaryAction:   "Review",
 		SecondaryAction: "Publish",
 		TertiaryAction:  "Skip",
-	}
-}
-
-func UpdateAvailable(version string) Event {
-	return Event{
-		Title:           "Update available",
-		Body:            fmt.Sprintf("Proofboard Career Agent %s is available.", version),
-		PrimaryAction:   "Update Now",
-		SecondaryAction: "Later",
-	}
-}
-
-func AuthExpiringSoon(days int) Event {
-	return Event{
-		Title:           "Your Proofboard session has expired",
-		Body:            fmt.Sprintf("Your current session expires in %d days. The Career Agent will refresh it automatically when possible.", days),
-		PrimaryAction:   "Reconnect",
-		SecondaryAction: "Later",
 	}
 }
 

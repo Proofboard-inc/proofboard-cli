@@ -134,9 +134,9 @@ func TestLinkAndUnlinkCommandLifecycle(t *testing.T) {
 }
 
 // If the backend unlink call fails (offline, auth failure after retry,
-// or any non-404 error), local hook/state cleanup must still proceed — a user
+// or any non-404 error), local hook/state cleanup must still proceed. A user
 // who has already lost network access or auth should still be able to remove
-// hooks from their own machine — but a clear warning must be printed
+// hooks from their own machine, but a clear warning must be printed
 // distinguishing "hooks removed locally" from "backend was not notified."
 func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 	homeDir := t.TempDir()
@@ -189,9 +189,9 @@ func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 	if !strings.Contains(unlinkOut.String(), "Warning") {
 		t.Fatalf("unlink output missing warning about failed backend notification: %q", unlinkOut.String())
 	}
-	// When the backend call genuinely fails (not a 404 — a real failure to
+	// When the backend call genuinely fails (not a 404, a real failure to
 	// notify), the output must NOT claim the plain, unqualified "Repository
-	// unlinked." success line — that would be a false-success report. It
+	// unlinked." success line: that would be a false-success report. It
 	// should say "unlinked locally" instead, honestly distinguishing local
 	// cleanup (which always happens) from backend confirmation (which didn't).
 	if strings.Contains(unlinkOut.String(), "Repository unlinked. Hooks removed.") {
@@ -216,10 +216,10 @@ func TestUnlinkCommandStillCleansUpLocallyWhenBackendCallFails(t *testing.T) {
 
 func TestUnlinkCommandReportsCleanSuccessOn404(t *testing.T) {
 	// A 404 on the backend unlink call means "nothing to unlink there" (e.g.
-	// the project was already deleted some other way) — a genuine success
+	// the project was already deleted some other way), a genuine success
 	// case, not a failure. This must still print the plain, unqualified
 	// success line, not the "unlinked locally... could not confirm" warning
-	// path — that path is reserved for real failures (network/5xx/auth).
+	// path: that path is reserved for real failures (network/5xx/auth).
 	homeDir := t.TempDir()
 	repoDir := createTempGitRepo(t)
 	setTestHome(t, homeDir)

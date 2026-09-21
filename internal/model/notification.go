@@ -24,7 +24,3 @@ type PaginationMeta struct {
 	Limit      int `json:"limit"`
 	TotalPages int `json:"totalPages"`
 }
-
-type UnreadCountResponse struct {
-	Count int `json:"count"`
-}

@@ -187,14 +187,14 @@ func detectFrameworks(report *model.StackReport, repoPath string, files []string
 		if key := manifestKeyForFile(base); key != "" {
 			labels := manifestSignalsOrDefault(key, dict)
 			// Non-npm manifests (go.mod, requirements.txt, Cargo.toml, etc.)
-			// now resolve industries the same way package.json always did —
+			// now resolve industries the same way package.json always did:
 			// dict.IndustrySignals is matched by raw substring against the
 			// manifest text regardless of ecosystem, so a Go CLI's go.mod
 			// dependency on cobra/urfave-cli, or a Rust CLI's Cargo.toml
 			// dependency on clap, can now surface a "Developer Tools &
 			// Infrastructure" hint the same way an npm project's package.json
 			// already could for its own industry signals. Previously this
-			// code path only ever resolved framework labels — a Go CLI tool
+			// code path only ever resolved framework labels: a Go CLI tool
 			// (like this CLI's own repo) had literally no way to contribute
 			// an industry signal from its manifest at all.
 			if len(labels) > 0 || len(dict.IndustrySignals) > 0 {
@@ -220,7 +220,7 @@ func detectFrameworks(report *model.StackReport, repoPath string, files []string
 
 // countIndustryPathMatches scans every tracked file's path for
 // dict.IndustryPathKeywords matches, counting DISTINCT containing
-// directories per label (immediate parent dir, not top-level segment —
+// directories per label (immediate parent dir, not top-level segment:
 // top-level-only dedup breaks on repos where most files share one root,
 // e.g. Next.js app router under app/).
 func countIndustryPathMatches(files []string, dict model.Dictionary, counts map[string]int) {
@@ -349,7 +349,7 @@ func parsePackageJSONSignals(
 }
 
 // scanTextManifestForFrameworks now also resolves industries, mirroring
-// parsePackageJSONSignals — see the call site comment in detectFrameworks
+// parsePackageJSONSignals, see the call site comment in detectFrameworks
 // for why this matters for non-npm (Go/Rust/Python/etc.) manifests.
 func scanTextManifestForFrameworks(
 	path string, labels, industrySignals map[string]string,

@@ -1,4 +1,4 @@
-package phase7
+package phase6
 
 import (
 	"strings"
@@ -34,6 +34,23 @@ type AssemblyInput struct {
 	Stack *model.StackReport
 	// IsDefaultBranch: see model.SyncPayload.IsDefaultBranch.
 	IsDefaultBranch bool
+	// TotalCommitsSynced: the repo's lifetime commit count including this
+	// batch. Used for AntiFraudSignals.LowCommitCount instead of
+	// len(Commits): a repo with 30+ real commits synced incrementally in
+	// small batches must not trip "low commit count" on every batch after
+	// the first just because that one batch alone was small.
+	TotalCommitsSynced int
+}
+
+// effectiveTotalCommits returns the larger of the two: a caller passing a
+// real lifetime total gets that; a caller that left TotalCommitsSynced at
+// its Go zero value (0) falls back to the current batch size instead of
+// looking artificially "low commit count" on every sync.
+func effectiveTotalCommits(totalSynced, batchSize int) int {
+	if totalSynced > batchSize {
+		return totalSynced
+	}
+	return batchSize
 }
 
 func Assemble(input AssemblyInput) model.SyncPayload {
@@ -47,7 +64,7 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 	}
 	// Copied into a slice that is empty rather than nil. append to a nil
 	// slice with nothing to add returns nil, Go marshals nil as null, and the
-	// service requires an array — so a sync that simply produced no clusters
+	// service requires an array, so a sync that simply produced no clusters
 	// was rejected with "milestoneClusters must be an array". Empty and
 	// absent are different things on the wire.
 	clusters = append(make([]model.Cluster, 0, len(clusters)), clusters...)
@@ -73,7 +90,13 @@ func Assemble(input AssemblyInput) model.SyncPayload {
 		Stack:             input.Stack,
 		IsDefaultBranch:   input.IsDefaultBranch,
 		AntiFraudSignals: model.AntiFraudSignals{
-			LowCommitCount:      len(commits) < 3,
+			// Threshold matches the backend's documented "< 5 commits"
+			// cutoff (cli-payload.interface.ts). Uses the repo's lifetime
+			// commit total, not this batch's size, falls back to
+			// len(commits) for any caller that hasn't threaded
+			// TotalCommitsSynced through yet, since the zero value must
+			// never look like "always low commit count".
+			LowCommitCount:      effectiveTotalCommits(input.TotalCommitsSynced, len(commits)) < 5,
 			OrgHashMismatch:     input.ExpectedOrgHash != "" && input.ExpectedOrgHash != input.OrgHash,
 			SingleCommitRepoCap: false,
 		},

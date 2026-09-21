@@ -19,7 +19,7 @@ func TestLoadDefaultDictionaryIsValid(t *testing.T) {
 // Regression test for the "tech stack only detected Jest, NestJS" bug: the
 // checked-in embedded fallback (internal/dictionary/dictionary.json, used by
 // LoadDefault on a fresh install or whenever no live fetch has ever landed)
-// had gone stale at 0 stackSignals/industrySignals — a NestJS+MongoDB+
+// had gone stale at 0 stackSignals/industrySignals: a NestJS+MongoDB+
 // Stripe+Redis backend detected as just "Jest, NestJS" until the very first
 // live dictionary fetch happened to succeed. Guards against the bundled
 // fallback silently degrading back to that state.

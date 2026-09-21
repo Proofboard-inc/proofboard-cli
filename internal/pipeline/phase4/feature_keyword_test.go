@@ -24,7 +24,7 @@ func TestDominantFeatureKeywordRequiresAMinimumShare(t *testing.T) {
 		"", "", "", "", "", "", "", "", "", "",
 		"", "", "", "", "", "", "", "", "", "",
 		"", "", "", "", "",
-	) // 45 commits, only 1 mentions "comments" — a ~2% share
+	) // 45 commits, only 1 mentions "comments": a ~2% share
 
 	got := dominantFeatureKeyword(commits)
 
@@ -58,7 +58,7 @@ func TestDominantFeatureKeywordHandlesEmptyCluster(t *testing.T) {
 }
 
 // Regression test for a real dogfooding case: a 23-commit cluster where 5
-// commits (21.7%) independently matched "checkout" — genuinely the
+// commits (21.7%) independently matched "checkout": genuinely the
 // cluster's theme, not a coincidence, but just under the old 0.4 (and then
 // 0.25) share floor, so the milestone title fell back to a fully generic
 // "medium-scale API effort" sentence. minFeatureKeywordShare was lowered to
@@ -81,7 +81,7 @@ func TestDominantFeatureKeywordAcceptsRealMinoritySignal(t *testing.T) {
 }
 
 // A share just above 0.2 achieved by a single lucky match in a small cluster
-// must still lose to the absolute-count floor — minFeatureKeywordShare
+// must still lose to the absolute-count floor: minFeatureKeywordShare
 // alone isn't enough protection once it's this low.
 func TestDominantFeatureKeywordSingleMatchStillRejectedAtLowShare(t *testing.T) {
 	commits := commitsWithKeywords("dashboard", "", "", "", "") // 1/5 = 20%, exactly at the share floor but only 1 commit

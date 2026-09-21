@@ -9,7 +9,7 @@ import (
 // A manifest dependency and a module path that point at the same industry are
 // two independent signals and must accumulate. Counting only the path matches
 // (assigning instead of adding) dropped the manifest evidence entirely, which
-// pushed genuine hints below minIndustryMatches — the case where two signals
+// pushed genuine hints below minIndustryMatches: the case where two signals
 // agree is the strongest one, not one to discard.
 func TestIndustrySignalsFromManifestAndPathAccumulate(t *testing.T) {
 	dir := t.TempDir()

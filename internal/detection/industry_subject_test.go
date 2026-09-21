@@ -8,8 +8,8 @@ import (
 )
 
 // IndustryHintsFromCommits fills in industries manifest-based detection
-// (DetectStack/topIndustries, matched against dependency names) couldn't see
-// — e.g. a repo that talks to an industry-specific API over raw HTTP with no
+// (DetectStack/topIndustries, matched against dependency names) couldn't see,
+// e.g. a repo that talks to an industry-specific API over raw HTTP with no
 // matching npm dependency. These tests exercise it directly against raw
 // commits, independent of any git repo fixture.
 
@@ -71,7 +71,7 @@ func TestIndustryHintsFromCommitsRanksByFrequencyThenAlphabeticalTie(t *testing.
 	// (minIndustryMatches) before it's reported at all. Fintech matches
 	// three times, the rest twice each -> Fintech ranks first by frequency;
 	// the remaining three-way tie at count 2 breaks alphabetically
-	// (E-commerce, Logistics, Telecom) — all 4 fit under the cap of 5, so
+	// (E-commerce, Logistics, Telecom): all 4 fit under the cap of 5, so
 	// none are dropped.
 	raw := []model.RawCommit{
 		{SHA: "a1", Subject: []byte("add delivery estimate")},
@@ -99,7 +99,7 @@ func TestIndustryHintsFromCommitsIsCaseInsensitive(t *testing.T) {
 		},
 	}
 	// Two matches (mixed-case phrase, then upper-case) needed to clear the
-	// confidence floor — this test's point is that BOTH still match
+	// confidence floor, this test's point is that BOTH still match
 	// case-insensitively despite differing from the dictionary's casing and
 	// from each other.
 	raw := []model.RawCommit{

@@ -28,7 +28,7 @@ const testEmailHashKey = "0123456789abcdef0123456789abcdef0123456789abcdef012345
 // A sync with no commits is not transmitted.
 //
 // The service requires shas and timestamps to be non-empty and rejects the
-// request otherwise — the live response is "shas should not be empty;
+// request otherwise: the live response is "shas should not be empty;
 // timestamps should not be empty" with a 400. This previously sent the request
 // anyway, so a repository whose commits are not attributed to the signed-in
 // account failed on every sync with a status code and no explanation.
@@ -117,7 +117,7 @@ func TestSyncSkipsTransmissionWhenThereAreNoCommits(t *testing.T) {
 		t.Fatalf("a commit-less payload was transmitted and the service rejects those: SHAs=%v", received.SHAs)
 	}
 
-	// Run by hand, the developer is told what happened and what to check —
+	// Run by hand, the developer is told what happened and what to check,
 	// otherwise a repository that syncs nothing looks identical to one that
 	// is broken.
 	var manualOut bytes.Buffer
@@ -328,34 +328,6 @@ func TestIsRevertSubjectUsesByteInput(t *testing.T) {
 	}
 }
 
-func TestAbortSync(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "proofboard-test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", tempDir)
-	}
-	defer os.RemoveAll(tempDir)
-
-	repoHash := "test-repo-hash"
-	err = abortSync(tempDir, repoHash)
-	if err != nil {
-		t.Fatalf("abortSync failed: %v", err)
-	}
-
-	logPath := filepath.Join(tempDir, ".proofboard", "sync.log")
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
-	}
-
-	logContent := string(data)
-	if !strings.Contains(logContent, "trivial merge skipped") {
-		t.Errorf("expected log content to contain 'trivial merge skipped', got: %s", logContent)
-	}
-	if !strings.Contains(logContent, repoHash) {
-		t.Errorf("expected log content to contain repo hash %q, got: %s", repoHash, logContent)
-	}
-}
-
 func TestSyncPipelineOrdering(t *testing.T) {
 	tempHome := t.TempDir()
 	repoDir := t.TempDir()
@@ -470,7 +442,7 @@ func TestSyncPipelineOrdering(t *testing.T) {
 		if strings.Contains(line, "Phases 2-5: Pipeline") {
 			pipelineIndex = idx
 		}
-		if strings.Contains(line, "Phase 6: transmit") {
+		if strings.Contains(line, "Phase 7: transmit") {
 			transmitIndex = idx
 		}
 	}
@@ -588,7 +560,7 @@ func TestSyncPrintsProofOfShipEcho(t *testing.T) {
 // TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork verifies that
 // `sync --resync` on a repo that has never completed a real sync (no
 // LastSyncPayload cached yet) prints the guidance message and returns a
-// non-nil error without ever reaching the network — no device-key
+// non-nil error without ever reaching the network: no device-key
 // registration, no /cli/sync call, nothing.
 func TestSyncResyncWithoutCachedPayloadErrorsBeforeNetwork(t *testing.T) {
 	homeDir := t.TempDir()
@@ -776,7 +748,7 @@ func TestSyncResyncReSignsCachedPayloadWithRegenerateTrue(t *testing.T) {
 // TestSyncNoCommitsHintsResyncOnlyWithCachedPayload verifies the zero-new-
 // commits "No commits to sync." short-circuit only suggests
 // `proofboard sync --resync` when a previous sync actually cached a
-// replayable payload — a fresh, never-synced project has nothing to
+// replayable payload: a fresh, never-synced project has nothing to
 // regenerate, so the hint would be misleading there.
 func TestSyncNoCommitsHintsResyncOnlyWithCachedPayload(t *testing.T) {
 	for _, tc := range []struct {
@@ -802,7 +774,7 @@ func TestSyncNoCommitsHintsResyncOnlyWithCachedPayload(t *testing.T) {
 				t.Fatalf("head: %v", err)
 			}
 			// MetadataFingerprint hashes remote-tracking refs, so it must be
-			// computed AFTER the remote ref below is created — otherwise it
+			// computed AFTER the remote ref below is created, otherwise it
 			// won't match what the sync run itself computes, and the "no
 			// commits, metadata unchanged" short-circuit this test targets
 			// would never trigger.

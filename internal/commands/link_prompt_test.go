@@ -31,40 +31,53 @@ func TestInferRoleTitle(t *testing.T) {
 	}
 }
 
-// FIX: declining the detected organisation must not abandon the autofill
-// flow — the user still gets a chance to type their own company name, and
-// role title still defaults to the stack-inferred suggestion.
-func TestPromptForCompanyAndRoleStillAsksAfterDecliningOrg(t *testing.T) {
-	in := strings.NewReader("n\nAcme Corp\n\n")
-	var out bytes.Buffer
-	stack := &model.StackReport{TechStack: []string{"React", "Next.js"}}
-
-	company, role := promptForCompanyAndRole(in, &out, "Proboardly", stack)
-	if company != "Acme Corp" {
-		t.Errorf("company = %q, want %q", company, "Acme Corp")
+func TestPromptForOwnershipReturnsSelectedBranch(t *testing.T) {
+	cases := []struct {
+		input string
+		want  repoOwnership
+	}{
+		{"1\n", ownershipPersonal},
+		{"2\n", ownershipEmployer},
+		{"3\n", ownershipPublic},
 	}
-	if role != "Frontend Engineer" {
-		t.Errorf("role = %q, want inferred %q", role, "Frontend Engineer")
-	}
-	if !strings.Contains(out.String(), "Detected organisation: Proboardly") {
-		t.Errorf("expected detected-organisation line, got %q", out.String())
-	}
-	if !strings.Contains(out.String(), "Frontend Engineer") {
-		t.Errorf("expected inferred role suggested in prompt text, got %q", out.String())
+	for _, c := range cases {
+		got := promptForOwnership(strings.NewReader(c.input), &bytes.Buffer{})
+		if got != c.want {
+			t.Errorf("promptForOwnership(%q) = %v, want %v", c.input, got, c.want)
+		}
 	}
 }
 
-func TestPromptForCompanyAndRoleAcceptsOrgAndOverridesInferredRole(t *testing.T) {
-	in := strings.NewReader("y\nStaff Engineer\n")
+func TestPromptForOwnershipReprompsOnInvalidChoice(t *testing.T) {
+	in := strings.NewReader("bogus\n2\n")
 	var out bytes.Buffer
-	stack := &model.StackReport{TechStack: []string{"NestJS"}}
+	if got := promptForOwnership(in, &out); got != ownershipEmployer {
+		t.Errorf("promptForOwnership() = %v, want ownershipEmployer after invalid input", got)
+	}
+}
 
-	company, role := promptForCompanyAndRole(in, &out, "Proboardly", stack)
+func TestPromptCompanyNameWithDetectedDefaultAcceptsOrg(t *testing.T) {
+	company := promptCompanyNameWithDetectedDefault(strings.NewReader("\n"), &bytes.Buffer{}, "Proboardly")
 	if company != "Proboardly" {
 		t.Errorf("company = %q, want detected org %q", company, "Proboardly")
 	}
-	if role != "Staff Engineer" {
-		t.Errorf("role = %q, want typed override %q", role, "Staff Engineer")
+}
+
+func TestPromptCompanyNameWithDetectedDefaultOverridesOrg(t *testing.T) {
+	company := promptCompanyNameWithDetectedDefault(strings.NewReader("Acme Corp\n"), &bytes.Buffer{}, "Proboardly")
+	if company != "Acme Corp" {
+		t.Errorf("company = %q, want typed override %q", company, "Acme Corp")
+	}
+}
+
+func TestPromptCompanyNameWithDetectedDefaultFallsBackToFreeTextWhenNoOrgDetected(t *testing.T) {
+	var out bytes.Buffer
+	company := promptCompanyNameWithDetectedDefault(strings.NewReader("\n"), &out, "")
+	if company != "" {
+		t.Errorf("company = %q, want empty", company)
+	}
+	if strings.Contains(out.String(), "Detected organisation") {
+		t.Errorf("should not print a detected-organisation line when no org was detected: %q", out.String())
 	}
 }
 
@@ -74,32 +87,29 @@ func TestPromptForCompanyAndRoleAcceptsOrgAndOverridesInferredRole(t *testing.T)
 // buffer instead of moving a cursor. Reproduces a real corrupted value seen
 // in production: roleTitle stored as "\x1b[ASweeftly" (ESC '[' 'A' = Up,
 // immediately followed by the typed text).
-func TestPromptForCompanyAndRoleStripsArrowKeyEscapeSequence(t *testing.T) {
-	in := strings.NewReader("n\nAcme Corp\n\x1b[ASweeftly\n")
-	var out bytes.Buffer
-
-	company, role := promptForCompanyAndRole(in, &out, "Proboardly", nil)
-	if company != "Acme Corp" {
-		t.Errorf("company = %q, want %q", company, "Acme Corp")
-	}
+func TestPromptRoleTitleStripsArrowKeyEscapeSequence(t *testing.T) {
+	role := promptRoleTitle(strings.NewReader("\x1b[ASweeftly\n"), &bytes.Buffer{}, "")
 	if role != "Sweeftly" {
 		t.Errorf("role = %q, want escape sequence stripped to %q", role, "Sweeftly")
 	}
 }
 
-func TestPromptForCompanyAndRoleSkipsOrgConfirmWhenNoOrgDetected(t *testing.T) {
-	in := strings.NewReader("\n\n")
-	var out bytes.Buffer
+func TestPromptRoleTitleFallsBackToSuggestion(t *testing.T) {
+	role := promptRoleTitle(strings.NewReader("\n"), &bytes.Buffer{}, "Frontend Engineer")
+	if role != "Frontend Engineer" {
+		t.Errorf("role = %q, want inferred %q", role, "Frontend Engineer")
+	}
+}
 
-	company, role := promptForCompanyAndRole(in, &out, "", nil)
-	if company != "" {
-		t.Errorf("company = %q, want empty", company)
+func TestPromptEmployerAuthorizationDefaultsToNoOnReadError(t *testing.T) {
+	if promptEmployerAuthorization(strings.NewReader(""), &bytes.Buffer{}) {
+		t.Error("promptEmployerAuthorization() = true on read error, want false (safe/anonymizing default)")
 	}
-	if role != "" {
-		t.Errorf("role = %q, want empty", role)
-	}
-	if strings.Contains(out.String(), "Is this your employer") {
-		t.Errorf("should not ask org-confirmation question when no org was detected: %q", out.String())
+}
+
+func TestPromptPersonalProjectConfirmDefaultsToYesOnReadError(t *testing.T) {
+	if !promptPersonalProjectConfirm(strings.NewReader(""), &bytes.Buffer{}) {
+		t.Error("promptPersonalProjectConfirm() = false on read error, want true")
 	}
 }
 
@@ -121,7 +131,7 @@ func TestPromptForProjectPrintsTwoColumnsWithoutRepoFullName(t *testing.T) {
 	}
 }
 
-// FIX: two Volume-Proof projects can share the same name/role — the picker
+// FIX: two Volume-Proof projects can share the same name/role, the picker
 // must show the repo identity as a third column so the user can tell them
 // apart before attaching a CLI proof to the wrong project.
 func TestPromptForProjectPrintsThreeColumnsWithRepoFullName(t *testing.T) {

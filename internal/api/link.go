@@ -6,17 +6,12 @@ import (
 	"github.com/proofboard/proofboard/internal/model"
 )
 
-type LinkHandshake struct {
-	SSHTest bool `json:"sshTest"`
-}
-
 type LinkRequest struct {
-	OrgHash           string         `json:"orgHash"`
-	RepoHash          string         `json:"repoHash"`
-	Provider          string         `json:"provider"`
-	ExistingProjectID string         `json:"existingProjectId,omitempty"`
-	CreateNew         bool           `json:"createNew,omitempty"`
-	Handshake         *LinkHandshake `json:"handshake,omitempty"`
+	OrgHash           string `json:"orgHash"`
+	RepoHash          string `json:"repoHash"`
+	Provider          string `json:"provider"`
+	ExistingProjectID string `json:"existingProjectId,omitempty"`
+	CreateNew         bool   `json:"createNew,omitempty"`
 	// Locally-detected tech stack + structural signals, optional.
 	Stack *model.StackReport `json:"stack,omitempty"`
 	// Locally-detected org name + human-confirmed role title.
