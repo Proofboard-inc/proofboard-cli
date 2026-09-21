@@ -13,6 +13,7 @@ import (
 
 	"github.com/proofboard/proofboard/internal/detection"
 	"github.com/proofboard/proofboard/internal/logging"
+	"github.com/proofboard/proofboard/internal/model"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +34,7 @@ func newAgentCommand(ctx context.Context, out io.Writer) *cobra.Command {
 		enable:  enableAgent,
 		disable: uninstallAgentService,
 		start:   startAgent,
-		stop:    stopAgent,
+		stop:    stopAgentByUser,
 		status:  printAgentStatus,
 	})
 }
@@ -97,6 +98,11 @@ func newAgentCommandWithActions(ctx context.Context, out io.Writer, actions agen
 }
 
 func enableAgent(out io.Writer) error {
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		if err := clearAgentStopped(homeDir); err != nil {
+			return err
+		}
+	}
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve Career Agent executable: %w", err)
@@ -152,6 +158,26 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, lastSyncL
 	if err != nil {
 		return err
 	}
+	syncDiscoveredWorkspaces(ctx, runtime, workspaces, lastSyncLaunch, time.Now(), launchWorkspaceSync)
+	return nil
+}
+
+// syncDiscoveredWorkspaces decides which of the workspaces open in an editor
+// get a background sync launched, and launches them. It is separate from
+// process discovery so the decision can be exercised without real editor
+// processes.
+func syncDiscoveredWorkspaces(
+	ctx context.Context,
+	runtime runtimeContext,
+	workspaces []string,
+	lastSyncLaunch map[string]time.Time,
+	now time.Time,
+	launch func(context.Context, string) error,
+) {
+	// Failure records live in state, written by the sync processes this
+	// function launches. Read once per scan rather than per workspace.
+	current, stateErr := runtime.state.Load(ctx)
+
 	activeWorkspaces := make(map[string]bool, len(workspaces))
 	for _, workspace := range workspaces {
 		activeWorkspaces[workspace] = true
@@ -170,14 +196,64 @@ func inspectIDEWorkspaces(ctx context.Context, runtime runtimeContext, lastSyncL
 			// surface for this event; the agent only acts on ActionSync below,
 			// which has no user-facing prompt of its own.
 		case detection.ActionSync:
-			if time.Since(lastSyncLaunch[result.WorkspacePath]) >= time.Minute {
-				lastSyncLaunch[result.WorkspacePath] = time.Now()
-				_ = launchWorkspaceSync(ctx, result.WorkspacePath)
+			// Throttle per repository, not per path. Editor helper processes
+			// each report their own working directory, so one repository
+			// arrives as its root plus whichever subfolders terminals and
+			// extensions sit in. Keyed by path, every one of those launched a
+			// sync of its own, and the same repository was transmitted two and
+			// three times within a second.
+			key := result.RepoHash
+			if key == "" {
+				key = result.RepoPath
 			}
+			activeWorkspaces[key] = true
+			if now.Sub(lastSyncLaunch[key]) < time.Minute {
+				continue
+			}
+			if stateErr == nil {
+				if repo, ok := current.LinkedRepos[result.RepoHash]; ok && inTransmitBackoff(repo, now) {
+					continue
+				}
+			}
+			lastSyncLaunch[key] = now
+			_ = launch(ctx, result.WorkspacePath)
 		}
 	}
 	pruneInactiveWorkspaceSessions(lastSyncLaunch, activeWorkspaces)
-	return nil
+}
+
+// agentMaxTransmitBackoff caps how long the agent waits before retrying a
+// repository whose transmissions keep failing. An hour keeps a server-side
+// rejection from being resent all day while still recovering from a transient
+// outage without anyone intervening.
+const agentMaxTransmitBackoff = time.Hour
+
+// transmitBackoff is the wait after the given number of consecutive failed
+// transmissions: a minute, doubling each time, capped.
+func transmitBackoff(failures int) time.Duration {
+	if failures <= 0 {
+		return 0
+	}
+	backoff := time.Minute
+	for i := 1; i < failures && backoff < agentMaxTransmitBackoff; i++ {
+		backoff *= 2
+	}
+	if backoff > agentMaxTransmitBackoff {
+		backoff = agentMaxTransmitBackoff
+	}
+	return backoff
+}
+
+// inTransmitBackoff reports whether the agent should leave a repository alone
+// for now because its recent transmissions failed. The agent scans every
+// fifteen seconds and used to relaunch a failing sync about once a minute for
+// as long as the editor stayed open — 216 identical 500s for one repository in
+// a day and a half. A sync the developer runs by hand is never subject to this.
+func inTransmitBackoff(repo model.LinkedRepoState, now time.Time) bool {
+	if repo.TransmitFailures <= 0 || repo.LastTransmitFailureAt.IsZero() {
+		return false
+	}
+	return now.Sub(repo.LastTransmitFailureAt) < transmitBackoff(repo.TransmitFailures)
 }
 
 func pruneInactiveWorkspaceSessions(lastSyncLaunch map[string]time.Time, activeWorkspaces map[string]bool) {
@@ -191,6 +267,9 @@ func pruneInactiveWorkspaceSessions(lastSyncLaunch map[string]time.Time, activeW
 func startAgent(ctx context.Context, out io.Writer) error {
 	runtime, err := loadRuntime(ctx)
 	if err != nil {
+		return fmt.Errorf("agent start: %w", err)
+	}
+	if err := clearAgentStopped(runtime.homeDir); err != nil {
 		return fmt.Errorf("agent start: %w", err)
 	}
 	if running, _ := agentRunning(runtime.homeDir); running {

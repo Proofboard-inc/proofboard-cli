@@ -77,4 +77,11 @@ type LinkedRepoState struct {
 	// without re-ingesting/re-classifying git history. Nil until the first
 	// successful sync.
 	LastSyncPayload *SyncPayload `json:"lastSyncPayload,omitempty"`
+	// TransmitFailures counts consecutive failed transmissions of this
+	// repository's sync payload, and LastTransmitFailureAt is when the most
+	// recent one happened. Both are cleared by a successful transmission. The
+	// background agent uses them to back off instead of resending a payload the
+	// server keeps rejecting.
+	TransmitFailures      int       `json:"transmitFailures,omitempty"`
+	LastTransmitFailureAt time.Time `json:"lastTransmitFailureAt,omitempty"`
 }

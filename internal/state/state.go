@@ -1,9 +1,11 @@
 package state
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,13 +44,78 @@ func (s Store) Save(ctx context.Context, state model.State) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeFileAtomically(path, data, 0o600); err != nil {
 		return fmt.Errorf("write state: %w", err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("secure state file: %w", err)
+	return nil
+}
+
+// writeFileAtomically replaces path with data so that no reader ever sees a
+// partial document and no two writers can interleave their bytes.
+//
+// state.json used to be written with os.WriteFile, which truncates the file
+// and then fills it. It has many writers that run at the same time — the shell
+// cd hook, the git hook sync, the background agent, the startup checks — and
+// between one writer truncating and writing, a reader saw an empty or half
+// written file. Worse, two writers could both truncate, write documents of
+// different lengths over each other, and leave a complete document followed by
+// the longer one's leftover bytes. That is how a real state.json came to end in
+// a stray "}" and turned every command into
+// "decode state: invalid character '}' after top-level value".
+//
+// Writing to a sibling temporary file and renaming it over the target is
+// atomic on every platform the CLI ships for: readers see the old document or
+// the new one, never a mixture. Concurrent writers can still overwrite each
+// other's changes — last rename wins — but they can no longer corrupt the file.
+func writeFileAtomically(path string, data []byte, mode os.FileMode) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	cleanup := func() { _ = os.Remove(tempPath) }
+
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		cleanup()
+		return err
+	}
+	// Flush to disk before the rename, or a crash straight after it can leave
+	// the new name pointing at an empty file.
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		cleanup()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Chmod(tempPath, mode); err != nil {
+		cleanup()
+		return err
+	}
+	if err := renameReplacing(tempPath, path); err != nil {
+		cleanup()
+		return err
 	}
 	return nil
+}
+
+// renameReplacing renames over an existing file, retrying briefly. On Windows
+// a rename onto a file another process has open for reading fails rather than
+// waiting, and state.json is read constantly; a reader holds it for
+// microseconds, so a few short retries clear it. On Unix the first attempt
+// succeeds.
+func renameReplacing(from, to string) error {
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		if err = os.Rename(from, to); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
+	}
+	return err
 }
 
 func (s Store) Load(ctx context.Context) (model.State, error) {
@@ -62,9 +129,26 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 	if err != nil {
 		return model.State{}, fmt.Errorf("read state: %w", err)
 	}
-	var state model.State
-	if err := json.Unmarshal(data, &state); err != nil {
-		return model.State{}, fmt.Errorf("decode state: %w", err)
+	state, recovered, decodeErr := decodeStateRecovering(data)
+	if decodeErr != nil {
+		// Nothing decodable is in the file. Refusing to run over it is what
+		// turned a corrupted state.json into every command failing, logout and
+		// login included, until someone edited JSON by hand. Set it aside —
+		// never delete it, so whatever it held can still be examined — and
+		// carry on from defaults.
+		aside := fmt.Sprintf("%s.corrupt-%s", s.Path(), time.Now().UTC().Format("20060102T150405Z"))
+		if renameErr := os.Rename(s.Path(), aside); renameErr != nil {
+			return model.State{}, fmt.Errorf("decode state: %w (and could not set the file aside: %v)", decodeErr, renameErr)
+		}
+		return Default(), nil
+	}
+	if recovered {
+		// A complete document followed by leftover bytes from an interrupted
+		// or overlapping write. Put the repaired document back on disk, or
+		// every other command keeps reading the broken file.
+		if repaired, marshalErr := json.MarshalIndent(state, "", "  "); marshalErr == nil {
+			_ = writeFileAtomically(s.Path(), repaired, 0o600)
+		}
 	}
 	if state.LinkedRepos == nil {
 		state.LinkedRepos = make(map[string]model.LinkedRepoState)
@@ -106,6 +190,29 @@ func (s Store) Load(ctx context.Context) (model.State, error) {
 		}
 	}
 	return state, nil
+}
+
+// decodeStateRecovering decodes state.json, tolerating bytes after the first
+// complete document. It reports recovered when it had to ignore such bytes.
+//
+// The document before them is kept rather than rejected: on a real machine it
+// was the last full write, and the bytes after it were the tail of an earlier,
+// longer one.
+func decodeStateRecovering(data []byte) (model.State, bool, error) {
+	var state model.State
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&state); err != nil {
+		return model.State{}, false, err
+	}
+	var extra json.RawMessage
+	switch err := decoder.Decode(&extra); {
+	case err == io.EOF:
+		return state, false, nil
+	default:
+		// Anything after the document — another value, a stray brace, or
+		// garbage the decoder cannot parse at all — is leftover, not state.
+		return state, true, nil
+	}
 }
 
 func Default() model.State {

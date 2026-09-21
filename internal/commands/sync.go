@@ -469,6 +469,11 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			}
 			if err != nil {
 				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "failure", err.Error())
+				// Leave a trace, so the background agent can back off instead
+				// of resending a payload the server keeps rejecting. This used
+				// to return without touching state, which made a repository
+				// that had just failed indistinguishable from one never tried.
+				recordTransmitFailure(ctx, runtime, identity.RepoHash, time.Now())
 				return fmt.Errorf("transmit sync payload: %w", err)
 			}
 			_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "Phase 7: Transmission", "success", "")
@@ -478,6 +483,8 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			repoState.LastHeadSHA = head
+			repoState.TransmitFailures = 0
+			repoState.LastTransmitFailureAt = time.Time{}
 			repoState.LastSyncAt = time.Now().UTC()
 			repoState.DictionaryVersion = dict.Version
 			repoState.MetadataHash = metadataHash
@@ -548,4 +555,22 @@ func deferExpiredAgentSession(ctx context.Context, runtime runtimeContext, out i
 		return false, err
 	}
 	return true, nil
+}
+
+// recordTransmitFailure counts a failed transmission against a repository.
+// Best effort: failing to record it must not replace the transmission error the
+// caller is about to return.
+func recordTransmitFailure(ctx context.Context, runtime runtimeContext, repoHash string, at time.Time) {
+	current, err := runtime.state.Load(ctx)
+	if err != nil {
+		return
+	}
+	repo, ok := current.LinkedRepos[repoHash]
+	if !ok {
+		return
+	}
+	repo.TransmitFailures++
+	repo.LastTransmitFailureAt = at.UTC()
+	current.LinkedRepos[repoHash] = repo
+	_ = runtime.state.Save(ctx, current)
 }

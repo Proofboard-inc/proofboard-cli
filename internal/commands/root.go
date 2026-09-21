@@ -68,11 +68,32 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 	return cmd
 }
 
+// startupLocalWorkBudget bounds shell-hook maintenance, the local work done
+// before every command that can actually be cut short.
+// A var so a test can exhaust it.
+var startupLocalWorkBudget = 400 * time.Millisecond
+
+const (
+	// authNoticeBudget bounds the expired-session check: a credential read and
+	// a token decode, all local.
+	authNoticeBudget = 400 * time.Millisecond
+	// unreadNotificationsBudget bounds fetching and marking unread
+	// notifications, which goes over the network.
+	unreadNotificationsBudget = 900 * time.Millisecond
+)
+
 func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if os.Getenv("PROOFBOARD_DISABLE_STARTUP_CHECKS") == "1" {
 		return nil
 	}
 	if cmd.Parent() == nil || isInternalCommand([]string{cmd.Name()}) {
+		return nil
+	}
+	// The background agent runs detached, its output going to /dev/null or a
+	// service journal. Surfacing notifications there marks them read with
+	// nobody to see them, and the round trips delay the pid claim that
+	// `proofboard update` waits on. The agent loop does its own update checks.
+	if cmd.Name() == "run" && cmd.Parent().Name() == "agent" {
 		return nil
 	}
 
@@ -83,15 +104,18 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// reachable and 34 KB in size. A slow answer to one question must not
 	// decide the outcome of the next.
 	const (
-		localWorkBudget    = 400 * time.Millisecond
 		versionCheckBudget = 600 * time.Millisecond
 		dictionaryBudget   = 900 * time.Millisecond
 	)
 
-	checkCtx, cancel := context.WithTimeout(ctx, localWorkBudget)
+	checkCtx, cancel := context.WithTimeout(ctx, startupLocalWorkBudget)
 	defer cancel()
 
-	runCtx, err := loadRuntime(checkCtx)
+	// Runtime loading reads local configuration and nothing else, and none of
+	// the checks below can run without it. It is not charged to the local-work
+	// budget: on a slow enough machine that budget would be gone before the
+	// runtime existed, and every notice below would be skipped with it.
+	runCtx, err := loadRuntime(ctx)
 	if err != nil {
 		return nil
 	}
@@ -106,7 +130,14 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 
 	releases := api.NewReleaseClient(runCtx.config.ReleaseBaseURL)
 
-	stateData, stateErr := runCtx.state.Load(checkCtx)
+	// State and the local dictionary are read and written on the caller's
+	// context, not on the local-work budget. The stores check the context
+	// only on entry and cannot interrupt a file read once begun, so that
+	// deadline bounded nothing here; all it could do was make a load refuse
+	// to start after hook maintenance had spent it. On the windows-latest
+	// runner it was spent, and the version and dictionary checks were
+	// skipped without a word.
+	stateData, stateErr := runCtx.state.Load(ctx)
 
 	// 1. Check CLI Version, throttled like the dictionary below. This runs
 	// via PersistentPreRunE on every command, including the sync fired by a
@@ -118,7 +149,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 		latestCLI, versionErr := releases.Latest(versionCtx, runCtx.config.LatestVersionPath)
 		cancelVersion()
 		stateData.LastVersionCheck = time.Now().UTC()
-		_ = runCtx.state.Save(checkCtx, stateData)
+		_ = runCtx.state.Save(ctx, stateData)
 		if versionErr == nil && latestCLI.Version != "" && latestCLI.Version != version.Version {
 			fmt.Fprintf(cmd.OutOrStdout(), "A new version of Proofboard Career Agent is available. Run: proofboard update\n")
 		}
@@ -132,10 +163,10 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// gate covers the ATTEMPT, not just successful updates: a failed check is
 	// throttled too, so a flaky/down release server can't turn into a
 	// check-on-every-command retry storm either.
-	stateData, err = runCtx.state.Load(checkCtx)
+	stateData, err = runCtx.state.Load(ctx)
 	if err == nil && stateData.AutoUpdateDictionary &&
 		(stateData.LastDictionaryUpdateCheck.IsZero() || time.Since(stateData.LastDictionaryUpdateCheck) >= 6*time.Hour) {
-		if localDict, loadErr := dictionary.LoadDefault(checkCtx); loadErr == nil {
+		if localDict, loadErr := dictionary.LoadDefault(ctx); loadErr == nil {
 			dictionaryURL := fmt.Sprintf("%s%s", runCtx.config.APIBaseURL, runCtx.config.DictionaryPath)
 			// Its own deadline, and a realistic one: this runs at most once
 			// every six hours, so a few seconds there costs nothing, while
@@ -161,12 +192,25 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 			case updateErr != nil:
 				_ = logging.WriteSyncLog(runCtx.homeDir, "", "startup", "dictionary check", "failure", updateErr.Error())
 			}
-			_ = runCtx.state.Save(checkCtx, stateData)
+			_ = runCtx.state.Save(ctx, stateData)
 		}
 	}
 
-	notifyAuthExpiry(checkCtx, cmd.OutOrStdout(), runCtx)
-	surfaceUnreadNotifications(checkCtx, cmd.OutOrStdout(), runCtx)
+	// The expired-session notice and unread notifications each get a deadline
+	// of their own. They used to run last on the shared local-work budget, and
+	// notifyAuthExpiry's first step — loading credentials — fails at once on an
+	// expired context and reports nothing. Wherever the local work above ran
+	// slow, the notice silently vanished: this check takes about 0.01s on Linux
+	// and 2.04s on the windows-latest runner, which is where it was caught
+	// printing nothing. A developer who is never told their session expired
+	// just sees sync stop working.
+	authCtx, cancelAuth := context.WithTimeout(ctx, authNoticeBudget)
+	notifyAuthExpiry(authCtx, cmd.OutOrStdout(), runCtx)
+	cancelAuth()
+
+	notificationsCtx, cancelNotifications := context.WithTimeout(ctx, unreadNotificationsBudget)
+	surfaceUnreadNotifications(notificationsCtx, cmd.OutOrStdout(), runCtx)
+	cancelNotifications()
 
 	return nil
 }

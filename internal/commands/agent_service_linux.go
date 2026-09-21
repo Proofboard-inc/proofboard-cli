@@ -113,3 +113,17 @@ func uninstallAgentService(out io.Writer) error {
 	_, _ = fmt.Fprintln(out, "Proofboard Career Agent background service removed.")
 	return nil
 }
+
+// agentRegistered reports whether the agent was installed to start at sign-in,
+// through either registration installAgentService writes.
+func agentRegistered(homeDir string) bool {
+	for _, path := range []string{
+		filepath.Join(homeDir, ".config", "systemd", "user", "proofboard-career-agent.service"),
+		filepath.Join(homeDir, ".config", "autostart", "proofboard-career-agent.desktop"),
+	} {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+	}
+	return false
+}
