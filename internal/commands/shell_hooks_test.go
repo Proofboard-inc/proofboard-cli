@@ -237,11 +237,17 @@ func TestIsInternalCommand(t *testing.T) {
 		args []string
 		want bool
 	}{
-		"notify":          {args: []string{"notify"}, want: true},
-		"notify-activate": {args: []string{"notify-activate"}, want: true},
-		"hook-maintain":   {args: []string{"hook-maintain"}, want: true},
-		"sync":            {args: []string{"sync"}, want: false},
-		"empty":           {args: nil, want: false},
+		"notify":            {args: []string{"notify"}, want: true},
+		"notify-activate":   {args: []string{"notify-activate"}, want: true},
+		"notices":           {args: []string{"notices"}, want: true},
+		"milestone-action":  {args: []string{"milestone-action"}, want: true},
+		"hook-maintain":     {args: []string{"hook-maintain"}, want: true},
+		"agent":             {args: []string{"agent"}, want: true},
+		"update":            {args: []string{"update"}, want: true},
+		"update-dictionary": {args: []string{"update-dictionary"}, want: true},
+		"help":              {args: []string{"help"}, want: true},
+		"sync":              {args: []string{"sync"}, want: false},
+		"empty":             {args: nil, want: false},
 	}
 
 	for name, tc := range cases {

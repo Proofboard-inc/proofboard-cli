@@ -72,8 +72,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if os.Getenv("PROOFBOARD_DISABLE_STARTUP_CHECKS") == "1" {
 		return nil
 	}
-	name := cmd.Name()
-	if name == "update" || name == "update-dictionary" || name == "help" || name == "hook-maintain" || name == "notify" || name == "notify-activate" || name == "notices" || cmd.Parent() == nil {
+	if cmd.Parent() == nil || isInternalCommand([]string{cmd.Name()}) {
 		return nil
 	}
 
@@ -172,14 +171,18 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
+// isInternalCommand reports whether the named command is one the startup
+// version/dictionary checks must never run for: agent-invoked or
+// notification-driven commands that need to stay fast and quiet, plus update
+// itself (checking for updates from inside the update command is
+// self-referential) and help (a formatting command, not a network one).
 func isInternalCommand(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
 	switch args[0] {
-	case "notify", "notify-activate", "notices", "milestone-action", "hook-maintain":
-		return true
-	case "agent":
+	case "notify", "notify-activate", "notices", "milestone-action", "hook-maintain",
+		"agent", "update", "update-dictionary", "help":
 		return true
 	default:
 		return false
