@@ -478,6 +478,10 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				LastHeadSHA:        existingRepoState.LastHeadSHA,
 				LastSyncAt:         existingRepoState.LastSyncAt,
 				MetadataHash:       existingRepoState.MetadataHash,
+				// A key refresh or relink of a repository that has already
+				// synced must keep its lifetime count, or the next small sync
+				// is reported to the service as a low-commit-count repository.
+				TotalCommitsSynced: existingRepoState.TotalCommitsSynced,
 			}
 			if linkedRepoState.ProjectID == "" {
 				linkedRepoState.ProjectID = existingRepoState.ProjectID

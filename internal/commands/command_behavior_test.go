@@ -356,6 +356,69 @@ func TestLinkMigratesLegacyStateWithHandshakeBeforeProjectSelection(t *testing.T
 	}
 }
 
+// Sync refreshes a legacy repository's security keys by running link again,
+// which rebuilds the repository's state from scratch. The lifetime commit
+// count must survive that, or the next small sync reports the repository to
+// the service as having too few commits.
+func TestLinkKeepsLifetimeCommitCountWhenRefreshingKeys(t *testing.T) {
+	homeDir := t.TempDir()
+	repoDir := createTempGitRepo(t)
+	setTestHome(t, homeDir)
+	t.Setenv("PROOFBOARD_DISABLE_DESKTOP_NOTIFICATIONS", "1")
+
+	repoHash := crypto.SHA256("github:org/repo")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/cli/repos/link" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"isNewProject":      false,
+			"projectId":         "project-1",
+			"dictionaryVersion": "1.2.0",
+			"emailHashKey":      testEmailHashKey,
+		})
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PROOFBOARD_API_BASE_URL", server.URL)
+
+	ctx := context.Background()
+	if err := pbauth.NewCredentialStore(homeDir).Save(ctx, model.Credentials{Token: "test-token"}); err != nil {
+		t.Fatalf("save credentials: %v", err)
+	}
+	current := statestore.Default()
+	current.LinkedRepos[repoHash] = model.LinkedRepoState{
+		RepoHash:           repoHash,
+		OrgHash:            crypto.SHA256("github:org"),
+		Provider:           "github",
+		ProjectID:          "project-1",
+		LastHeadSHA:        "0123456789abcdef0123456789abcdef01234567",
+		TotalCommitsSynced: 42,
+	}
+	if err := statestore.NewStore(homeDir).Save(ctx, current); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	restoreWorkingDirectory(t, repoDir)
+
+	var out bytes.Buffer
+	command := newLinkCommand(ctx, &out)
+	command.SetArgs([]string{"--non-interactive"})
+	if err := command.ExecuteContext(ctx); err != nil {
+		t.Fatalf("refresh link: %v\n%s", err, out.String())
+	}
+	persisted, err := statestore.NewStore(homeDir).Load(ctx)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	linked := persisted.LinkedRepos[repoHash]
+	if linked.EmailHashKey != testEmailHashKey {
+		t.Fatalf("keys were not refreshed: %+v", linked)
+	}
+	if linked.TotalCommitsSynced != 42 {
+		t.Fatalf("TotalCommitsSynced = %d after relinking, want 42 carried over", linked.TotalCommitsSynced)
+	}
+}
+
 func TestLogsCommandPrintsRequestedTail(t *testing.T) {
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)
