@@ -156,29 +156,26 @@ func newSyncCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				return err
 			}
 			metadataChanged := repoState.MetadataHash == "" || repoState.MetadataHash != metadataHash
-
-			// Branch filter applies to every sync, not just hook-triggered ones.
-			// It used to be fromHook-only, which let a manual `proofboard sync`
-			// run on a feature branch and score its commits by their original
-			// SHAs; if that branch was later squash-merged into a watched
-			// branch, the squash commit (a new SHA covering the same diff) got
-			// scored again on the next sync, double-counting the same work. A
-			// non-standard default branch name is still supported via
-			// WatchedBranches/`add-branch`, not by allowing arbitrary branches.
-			branch, err := pbgit.CurrentBranch(ctx, repo)
-			if err != nil {
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "check branch", "failure", err.Error())
-				return err
-			}
-			allowedBranches := current.WatchedBranches
-			if len(repoState.ProductionBranches) > 0 {
-				allowedBranches = append(append([]string{}, allowedBranches...), repoState.ProductionBranches...)
-			}
-			if !pbgit.IsProductionBranch(branch, allowedBranches) {
-				_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "branch filter", "skipped", "not a production branch")
-				return nil
-			}
 			if fromHook {
+				// Only hook-triggered runs are limited to production
+				// branches: a post-commit on a feature branch is not work
+				// the developer asked to record yet. A manual `proofboard
+				// sync` and the Career Agent send any branch, and the
+				// payload's isDefaultBranch tells the backend how to weigh
+				// it.
+				branch, err := pbgit.CurrentBranch(ctx, repo)
+				if err != nil {
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "check branch", "failure", err.Error())
+					return err
+				}
+				allowedBranches := current.WatchedBranches
+				if len(repoState.ProductionBranches) > 0 {
+					allowedBranches = append(append([]string{}, allowedBranches...), repoState.ProductionBranches...)
+				}
+				if !pbgit.IsProductionBranch(branch, allowedBranches) {
+					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "branch filter", "skipped", "not a production branch")
+					return nil
+				}
 				changed, err := hooks.PostRewrite(ctx, repo, repoState.LastHeadSHA)
 				if err != nil {
 					_ = logging.WriteSyncLog(runtime.homeDir, identity.RepoHash, triggerSource, "post-rewrite hook check", "failure", err.Error())
