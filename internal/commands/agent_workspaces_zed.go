@@ -67,11 +67,13 @@ func discoverZedWorkspacesFromDB(ctx context.Context, path string, seen map[stri
 		if rows.Scan(&paths) != nil {
 			continue
 		}
-		// A multi-root Zed workspace stores its roots comma-joined in this
-		// column (confirmed against this machine's own single-root entries;
-		// no multi-root sample was available to verify the separator
-		// directly, so this is the best-effort reading of the schema).
-		for _, candidate := range strings.Split(paths, ",") {
+		// Zed stores a multi-root workspace's roots newline-separated in
+		// this column (PathList::serialize in crates/util/src/path_list.rs;
+		// the migration that introduced the column rewrote the older
+		// comma-joined local_paths_array with replace(..., ',', CHAR(10))).
+		// Splitting on a comma instead missed every root of a multi-root
+		// workspace and broke any path that contains a comma.
+		for _, candidate := range strings.Split(paths, "\n") {
 			addWorkspaceCandidate(ctx, candidate, seen, workspaces)
 		}
 	}
