@@ -152,7 +152,7 @@ The Career Agent may transmit only:
 - `orgHash`, `repoHash`, and `emailHash`;
 - anti-fraud counters and agent/dictionary versions.
 
-It never transmits commit messages, file paths, repository or organization names, author emails, file contents, or diffs.
+It never transmits commit messages, file paths, repository or organization names, author emails, file contents, or diffs. See [SHREDDER.md](SHREDDER.md) for the audit guide.
 
 ## Local Files and Security
 
