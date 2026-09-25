@@ -154,3 +154,40 @@ func TestPromptForProjectPrintsThreeColumnsWithRepoFullName(t *testing.T) {
 		t.Errorf("expected 3-column line for option 2, got %q", got)
 	}
 }
+
+// Answers piped in one go (a script, or a paste of several lines) must reach
+// the prompt each was meant for. Each prompt used to wrap stdin in its own
+// bufio.Reader, so the first prompt buffered every line and the later ones
+// saw end of input and fell back to their defaults: "1\nn\n" linked a
+// personal project the developer had just declined.
+func TestResolveOwnershipHonoursPipedAnswers(t *testing.T) {
+	stack := &model.StackReport{TechStack: []string{"React", "Next.js"}}
+	cases := []struct {
+		name        string
+		input       string
+		wantErr     error
+		wantCompany string
+		wantRole    string
+	}{
+		{name: "personal declined", input: "1\nn\n", wantErr: errPersonalProjectDeclined},
+		{name: "personal accepted", input: "1\ny\n"},
+		{name: "employer authorized", input: "2\ny\nAcme Corp\nStaff Engineer\n", wantCompany: "Acme Corp", wantRole: "Staff Engineer"},
+		{name: "employer authorized, defaults accepted", input: "2\ny\n\n\n", wantCompany: "Proboardly", wantRole: "Frontend Engineer"},
+		{name: "employer not authorized", input: "2\nn\nStaff Engineer\n", wantCompany: privateCompanyPlaceholder, wantRole: "Staff Engineer"},
+		{name: "public", input: "3\n", wantErr: errPublicProjectNotLinked},
+		{name: "invalid then personal declined", input: "9\n1\nno\n", wantErr: errPersonalProjectDeclined},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A plain io.Reader, not a bufio.Reader: the same shape os.Stdin has.
+			in := strings.NewReader(tc.input)
+			company, role, err := resolveOwnership(in, &bytes.Buffer{}, "Proboardly", stack)
+			if err != tc.wantErr {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if company != tc.wantCompany || role != tc.wantRole {
+				t.Fatalf("company, role = %q, %q; want %q, %q", company, role, tc.wantCompany, tc.wantRole)
+			}
+		})
+	}
+}

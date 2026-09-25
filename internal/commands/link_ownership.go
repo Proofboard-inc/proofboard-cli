@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/proofboard/proofboard/internal/model"
 )
 
 // errPublicProjectNotLinked signals that the ownership prompt identified this
@@ -31,6 +33,36 @@ const (
 	ownershipEmployer
 	ownershipPublic
 )
+
+// resolveOwnership runs the ownership-branch prompts for a not-yet-linked
+// repository and returns the company name and role title to send with the
+// link request. It returns errPublicProjectNotLinked or
+// errPersonalProjectDeclined when the answers mean the repository must not
+// be linked. Every prompt reads through the same buffered reader: a second
+// bufio.Reader over the same input would miss whatever the first one had
+// already buffered.
+func resolveOwnership(in io.Reader, out io.Writer, org string, stack *model.StackReport) (companyName string, roleTitle string, err error) {
+	reader := bufio.NewReader(in)
+	switch promptForOwnership(reader, out) {
+	case ownershipPublic:
+		printPublicProjectNotice(out)
+		return "", "", errPublicProjectNotLinked
+	case ownershipPersonal:
+		if !promptPersonalProjectConfirm(reader, out) {
+			fmt.Fprintln(out, "Okay, not connecting this project for now. Run `proofboard link` any time to reconsider.")
+			return "", "", errPersonalProjectDeclined
+		}
+		return "", "", nil
+	default: // ownershipEmployer
+		if promptEmployerAuthorization(reader, out) {
+			companyName = promptCompanyNameWithDetectedDefault(reader, out, org)
+		} else {
+			companyName = privateCompanyPlaceholder
+		}
+		roleTitle = promptRoleTitle(reader, out, inferRoleTitle(stack))
+		return companyName, roleTitle, nil
+	}
+}
 
 // promptForOwnership asks who owns the repository being linked. This only
 // runs once per repository, on the not-yet-linked path: callers never

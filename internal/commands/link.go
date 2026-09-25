@@ -259,6 +259,11 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if dismiss {
 				return dismissWorkspacePrompt(ctx, cmd.OutOrStdout())
 			}
+			// One reader for every prompt in this run. Each prompt creating its
+			// own bufio.Reader over os.Stdin let the first one buffer answers
+			// meant for the next, so piped input ("1\nn\n") had its later
+			// answers silently dropped and replaced by the prompt defaults.
+			stdin := bufio.NewReader(os.Stdin)
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
@@ -349,22 +354,9 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// gets stored.
 			var companyName, roleTitle string
 			if !nonInteractive {
-				switch promptForOwnership(os.Stdin, out) {
-				case ownershipPublic:
-					printPublicProjectNotice(out)
-					return errPublicProjectNotLinked
-				case ownershipPersonal:
-					if !promptPersonalProjectConfirm(os.Stdin, out) {
-						fmt.Fprintln(out, "Okay, not connecting this project for now. Run `proofboard link` any time to reconsider.")
-						return errPersonalProjectDeclined
-					}
-				default: // ownershipEmployer
-					if promptEmployerAuthorization(os.Stdin, out) {
-						companyName = promptCompanyNameWithDetectedDefault(os.Stdin, out, identity.Org)
-					} else {
-						companyName = privateCompanyPlaceholder
-					}
-					roleTitle = promptRoleTitle(os.Stdin, out, inferRoleTitle(stack))
+				companyName, roleTitle, err = resolveOwnership(stdin, out, identity.Org, stack)
+				if err != nil {
+					return err
 				}
 			} else {
 				companyName = privateCompanyPlaceholder
@@ -411,7 +403,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 						req.CreateNew = true
 					}
 				} else {
-					existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
+					existingID, createNew := promptForProject(stdin, out, response.ExistingProjectOptions)
 					req.ExistingProjectID = existingID
 					req.CreateNew = createNew
 				}
@@ -465,7 +457,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				if nonInteractive {
 					branch = "main"
 				} else {
-					branch = promptForBranch(os.Stdin, out)
+					branch = promptForBranch(stdin, out)
 				}
 			}
 			if !nonInteractive {
