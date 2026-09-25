@@ -26,8 +26,8 @@ type Error struct {
 }
 
 // Error deliberately excludes e.Message. The server echoes request content
-// back in it — the test fixture for this is a message naming a repository and
-// an employer — so printing it would leak exactly the identifiers this tool
+// back in it (the test fixture for this is a message naming a repository and
+// an employer), so printing it would leak exactly the identifiers this tool
 // exists to keep local. The status code and the structured code are safe and
 // are what a failure is diagnosed from; the message stays on the struct for a
 // caller that has a safe use for it.
@@ -107,12 +107,6 @@ func NewClient(baseURL string, linkPath string, checkPath string, syncPath strin
 	}
 }
 
-func NewClientWithHTTP(baseURL string, linkPath string, checkPath string, syncPath string, httpClient *http.Client, optionalPaths ...string) Client {
-	client := NewClient(baseURL, linkPath, checkPath, syncPath, optionalPaths...)
-	client.httpClient = httpClient
-	return client
-}
-
 func (c Client) requestJSON(ctx context.Context, method string, path string, token string, query url.Values, request any, response any) error {
 	endpoint, err := c.endpoint(path)
 	if err != nil {
@@ -168,27 +162,6 @@ func (c Client) requestJSON(ctx context.Context, method string, path string, tok
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
-}
-
-func redactJSONForLog(data []byte) string {
-	var value any
-	if err := json.Unmarshal(data, &value); err != nil {
-		return "[NON_JSON_RESPONSE_REDACTED]"
-	}
-	safe := make(map[string]any)
-	if object, ok := value.(map[string]any); ok {
-		for _, key := range []string{"statusCode"} {
-			switch item := object[key].(type) {
-			case string, float64, bool:
-				safe[key] = item
-			}
-		}
-	}
-	redacted, err := json.Marshal(safe)
-	if err != nil {
-		return "[REDACTED]"
-	}
-	return string(redacted)
 }
 
 func (c Client) postJSON(ctx context.Context, path string, token string, request any, response any) error {

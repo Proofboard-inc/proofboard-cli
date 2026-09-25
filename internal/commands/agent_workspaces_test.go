@@ -41,7 +41,7 @@ func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	}
 	// Use whatever path editorStateFiles() actually looks at for this OS
 	// (e.g. ~/Library/Application Support/Code/... on macOS) rather than a
-	// hardcoded Linux-only ~/.config path — otherwise this test writes its
+	// hardcoded Linux-only ~/.config path, otherwise this test writes its
 	// fixture somewhere discoverEditorStateWorkspaces never looks on darwin.
 	statePaths := editorStateFiles()
 	if len(statePaths) == 0 {
@@ -66,7 +66,7 @@ func TestDiscoverEditorStateWorkspacesFindsLastActiveRepository(t *testing.T) {
 	}
 	// git resolves symlinks in its reported toplevel path (relevant on macOS,
 	// where a temp dir is typically under /var/folders, itself a symlink to
-	// /private/var/folders) — resolve the expected path the same way so the
+	// /private/var/folders), resolve the expected path the same way so the
 	// comparison isn't just an artifact of an unresolved vs. resolved path.
 	wantRepoDir := repoDir
 	if resolved, err := filepath.EvalSymlinks(repoDir); err == nil {

@@ -28,7 +28,7 @@ func TestUpdateDictionaryCommand_Success(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Spin up a mock backend serving the CLI dictionary endpoint directly —
+	// Spin up a mock backend serving the CLI dictionary endpoint directly:
 	// the real endpoint (GET /cli/dictionary) is public, unauthenticated, and
 	// returns the full dictionary (version, categories, featureKeywords) in a
 	// single response, not a version-pointer-then-download two-step CDN flow.
@@ -106,7 +106,7 @@ func TestUpdateDictionaryCommand_SchemaCheckFailure(t *testing.T) {
 	ctx := context.Background()
 
 	// Spin up a mock backend advertising a newer version but with an invalid
-	// schema (no categories) — the version check passes, so Update proceeds
+	// schema (no categories). The version check passes, so Update proceeds
 	// to Validate(), which must reject it before anything is written.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

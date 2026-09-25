@@ -15,8 +15,8 @@ const (
 	DefaultAPIBaseURL = "https://api.proofboard.io"
 	DefaultAppBaseURL = "https://proofboard.io"
 	// DefaultAgentAuthURL is where sign-in sends the browser. Note that the
-	// production frontend does not serve /cli-auth yet — it answers 307 and
-	// redirects to the homepage, where the development frontend answers 200 —
+	// production frontend does not serve /cli-auth yet, it answers 307 and
+	// redirects to the homepage, where the development frontend answers 200,
 	// so sign-in cannot complete against production until that page ships.
 	// Override PROOFBOARD_APP_BASE_URL in the meantime.
 	DefaultAgentAuthURL = DefaultAppBaseURL + "/cli-auth"

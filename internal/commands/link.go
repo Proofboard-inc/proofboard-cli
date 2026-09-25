@@ -29,7 +29,7 @@ const localDefaultBranchTimeout = 5 * time.Second
 
 // remoteDefaultBranchTimeout bounds `git remote show origin`, which contacts
 // the remote. Without a bound, git waits indefinitely whenever the remote
-// needs credentials it cannot obtain non-interactively — a private repo whose
+// needs credentials it cannot obtain non-interactively: a private repo whose
 // helper has nothing cached, or an unreachable host. Sync runs from
 // post-commit and post-merge hooks and from the background agent, so an
 // unbounded call there left one stuck git process per commit.
@@ -37,7 +37,7 @@ const remoteDefaultBranchTimeout = 10 * time.Second
 
 // gitWaitDelay is what actually makes the timeouts above effective.
 // exec.CommandContext kills only the git process it started, while
-// cmd.Output() waits for the stdout pipe to reach EOF — and git's own
+// cmd.Output() waits for the stdout pipe to reach EOF, and git's own
 // helpers (git-remote-https, a credential helper) inherit that pipe, so
 // killing the parent leaves Output() blocked on grandchildren that are still
 // holding it open. WaitDelay forces those pipes closed shortly after the
@@ -47,7 +47,7 @@ const gitWaitDelay = 2 * time.Second
 
 // detectDefaultBranch resolves the repository's default branch, consulting the
 // remote when the local ref is absent. Use it only where waiting on the
-// network is acceptable and a person is present — `link` is interactive and a
+// network is acceptable and a person is present: `link` is interactive and a
 // pause there is visible and explicable.
 func detectDefaultBranch(ctx context.Context, repoPath string) string {
 	if branch := localDefaultBranch(ctx, repoPath); branch != "" {
@@ -153,7 +153,7 @@ var mobileLanguageSignals = map[string]bool{
 
 // inferRoleTitle suggests a role from the locally-detected tech stack, never
 // asserted outright, only offered as an editable default the user confirms
-// or overrides in promptForCompanyAndRole.
+// or overrides via promptRoleTitle.
 func inferRoleTitle(stack *model.StackReport) string {
 	if stack == nil {
 		return ""
@@ -185,53 +185,6 @@ func inferRoleTitle(stack *model.StackReport) string {
 	default:
 		return ""
 	}
-}
-
-// promptForCompanyAndRole is the interactive, human-confirmed company/role
-// autofill: it never guesses from repo/org *content* (commit messages, file
-// structure); only the org name already computed locally by
-// pbgit.ParseRemote, and the tech-stack labels already computed locally by
-// detection.DetectStack, are offered back to the user to confirm or edit.
-// Nothing is sent unless the user confirms. Callers must skip this entirely
-// in non-interactive/agent runs.
-//
-// Declining the detected organisation does not skip the prompt outright:
-// the user still gets to type their own company name and confirm/edit a
-// role title, so there's always a chance to fill both in rather than leave
-// them at the backend's placeholder.
-func promptForCompanyAndRole(in io.Reader, out io.Writer, org string, stack *model.StackReport) (companyName string, roleTitle string) {
-	reader := bufio.NewReader(in)
-
-	if strings.TrimSpace(org) != "" {
-		fmt.Fprintf(out, "Detected organisation: %s\n", org)
-		fmt.Fprintf(out, "Is this your employer/client for this project? [Y/n]: ")
-		line, _ := reader.ReadString('\n')
-		answer := strings.ToLower(sanitizeTypedInput(line))
-		if answer == "n" || answer == "no" {
-			fmt.Fprintf(out, "Company name (optional, press enter to skip): ")
-			companyLine, _ := reader.ReadString('\n')
-			companyName = sanitizeTypedInput(companyLine)
-		} else {
-			companyName = org
-		}
-	} else {
-		fmt.Fprintf(out, "Company name (optional, press enter to skip): ")
-		companyLine, _ := reader.ReadString('\n')
-		companyName = sanitizeTypedInput(companyLine)
-	}
-
-	suggestedRole := inferRoleTitle(stack)
-	if suggestedRole != "" {
-		fmt.Fprintf(out, "Role title [%s] (press enter to accept, or type your own): ", suggestedRole)
-	} else {
-		fmt.Fprintf(out, "Role title (optional, press enter to skip): ")
-	}
-	roleLine, _ := reader.ReadString('\n')
-	roleTitle = sanitizeTypedInput(roleLine)
-	if roleTitle == "" {
-		roleTitle = suggestedRole
-	}
-	return companyName, roleTitle
 }
 
 // sanitizeTypedInput cleans a line read via a raw bufio.Reader from an
@@ -306,6 +259,11 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			if dismiss {
 				return dismissWorkspacePrompt(ctx, cmd.OutOrStdout())
 			}
+			// One reader for every prompt in this run. Each prompt creating its
+			// own bufio.Reader over os.Stdin let the first one buffer answers
+			// meant for the next, so piped input ("1\nn\n") had its later
+			// answers silently dropped and replaced by the prompt defaults.
+			stdin := bufio.NewReader(os.Stdin)
 			runtime, err := loadRuntime(ctx)
 			if err != nil {
 				return fmt.Errorf("link: %w", err)
@@ -383,24 +341,32 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				stack = &report
 			}
 
-			// Human-confirmed company/role autofill. Only offered
-			// interactively, never in --non-interactive/agent-triggered
-			// runs, and only applied by the backend if this request ends up
-			// creating a brand new project (never overwrites an existing
-			// one's values).
+			// Ownership-branch flow: decides how (or whether) this
+			// not-yet-linked repo gets connected. Only offered interactively;
+			// only applied by the backend if this request ends up creating a
+			// brand new project (never overwrites an existing one's values).
+			//
+			// A non-interactive/agent-triggered run never assumes authorization
+			// to disclose an employer or client identity, so it skips the
+			// prompt entirely and falls back to the safe, anonymizing default
+			// ("Private Company") rather than guessing. This never blocks the
+			// project from connecting and syncing, it only affects which name
+			// gets stored.
 			var companyName, roleTitle string
 			if !nonInteractive {
-				companyName, roleTitle = promptForCompanyAndRole(os.Stdin, out, identity.Org, stack)
+				companyName, roleTitle, err = resolveOwnership(stdin, out, identity.Org, stack)
+				if err != nil {
+					return err
+				}
+			} else {
+				companyName = privateCompanyPlaceholder
 			}
 
 			// Call 1
 			req := api.LinkRequest{
-				OrgHash:  identity.OrgHash,
-				RepoHash: identity.RepoHash,
-				Provider: identity.Provider,
-				Handshake: &api.LinkHandshake{
-					SSHTest: true,
-				},
+				OrgHash:     identity.OrgHash,
+				RepoHash:    identity.RepoHash,
+				Provider:    identity.Provider,
 				Stack:       stack,
 				CompanyName: companyName,
 				RoleTitle:   roleTitle,
@@ -437,7 +403,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 						req.CreateNew = true
 					}
 				} else {
-					existingID, createNew := promptForProject(os.Stdin, out, response.ExistingProjectOptions)
+					existingID, createNew := promptForProject(stdin, out, response.ExistingProjectOptions)
 					req.ExistingProjectID = existingID
 					req.CreateNew = createNew
 				}
@@ -491,7 +457,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				if nonInteractive {
 					branch = "main"
 				} else {
-					branch = promptForBranch(os.Stdin, out)
+					branch = promptForBranch(stdin, out)
 				}
 			}
 			if !nonInteractive {
@@ -511,8 +477,11 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				ProductionBranches: []string{branch},
 				LastHeadSHA:        existingRepoState.LastHeadSHA,
 				LastSyncAt:         existingRepoState.LastSyncAt,
-				LastHandshake:      existingRepoState.LastHandshake,
 				MetadataHash:       existingRepoState.MetadataHash,
+				// A key refresh or relink of a repository that has already
+				// synced must keep its lifetime count, or the next small sync
+				// is reported to the service as a low-commit-count repository.
+				TotalCommitsSynced: existingRepoState.TotalCommitsSynced,
 			}
 			if linkedRepoState.ProjectID == "" {
 				linkedRepoState.ProjectID = existingRepoState.ProjectID
@@ -543,6 +512,14 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			return err
 		},
 	}
+	// link is invoked as a detached, parentless command from ensureRepoLinked
+	// and retryLinkForAuth (see sync_link.go / auth_retry.go), not only as a
+	// root subcommand. cobra only inherits Silence* from a root when the
+	// command it runs has a parent, so without setting these directly here,
+	// that detached path would print a raw "Error: ..." plus a usage block
+	// after link.go's own errors, which already explain themselves.
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "connect the project without terminal prompts")
 	_ = cmd.Flags().MarkHidden("non-interactive")
 	cmd.Flags().BoolVar(&dismiss, "dismiss", false, "stop Proofboard from asking to connect this workspace again")

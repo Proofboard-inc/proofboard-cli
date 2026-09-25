@@ -104,7 +104,7 @@ func TestLogReturnsOnlyExactConfiguredIdentityCommits(t *testing.T) {
 }
 
 // ParseBodies unit tests covering edge cases in the STX/ETX-delimited
-// body format — empty body, whitespace-only body, and a body containing
+// body format: empty body, whitespace-only body, and a body containing
 // characters that could collide with the OTHER call's delimiters (\x1e/\x1f)
 // or literal newlines, none of which should confuse this parser since it uses
 // distinct \x02/\x03/\x1f delimiters.
@@ -136,7 +136,7 @@ func TestParseBodiesHandlesMultilineAndEdgeCases(t *testing.T) {
 
 // Log() must attach multi-line commit bodies via the separate git log
 // call without corrupting the primary header/numstat parse of adjacent
-// commits — the two git log invocations are entirely independent, so a body
+// commits: the two git log invocations are entirely independent, so a body
 // with embedded blank lines must not shift what the numstat parser sees.
 func TestLogAttachesMultilineBodiesWithoutCorruptingNumstat(t *testing.T) {
 	repoDir := t.TempDir()

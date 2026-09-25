@@ -51,7 +51,7 @@ func TestPipelinePayloadContainsNoProprietaryText(t *testing.T) {
 }
 
 // RunInput.Stack must flow through unchanged into the final
-// SyncPayload.Stack — plumbing only, no live filesystem detection needed.
+// SyncPayload.Stack (plumbing only, no live filesystem detection needed).
 func TestPipelinePassesStackThrough(t *testing.T) {
 	t.Parallel()
 	dict, err := dictionary.LoadDefault(context.Background())

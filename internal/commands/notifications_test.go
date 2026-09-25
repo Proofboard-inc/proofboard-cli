@@ -60,7 +60,7 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 						IsRead: false,
 						Meta:   map[string]any{"message": "A visitor opened your public Proofboard."},
 					},
-					// Proposals/Dealboard aren't part of the CLI experience —
+					// Proposals/Dealboard aren't part of the CLI experience,
 					// this must be marked read without ever being printed.
 					{
 						ID:     "notif-2",
@@ -115,7 +115,7 @@ func TestStartupUpdateChecksSurfacesDesktopNotifications(t *testing.T) {
 // so it must call the CLI-guarded mirror /api/v1/cli/notifications rather
 // than the user-session-only /api/v1/notifications, which rejects it
 // outright. This used to just skip surfacing notifications entirely for CLI
-// tokens — silently disabling sync-complete/milestone-ready notices for
+// tokens, silently disabling sync-complete/milestone-ready notices for
 // every real (device-code-authenticated) CLI install.
 func TestStartupUpdateChecksUsesCliScopedRouteForCLIToken(t *testing.T) {
 	tempHome := t.TempDir()

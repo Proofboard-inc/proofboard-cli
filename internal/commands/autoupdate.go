@@ -155,7 +155,7 @@ func launchInstallScript(ctx context.Context, rt runtimeContext, release api.Git
 	cmd := exec.CommandContext(installCtx, interpreter, args...)
 	// Pin the installer to the release this updater actually decided on.
 	// Without it the script re-resolves "latest" on its own and, if both of
-	// its lookups fail, falls back to a version pinned inside the script —
+	// its lookups fail, falls back to a version pinned inside the script,
 	// which would silently DOWNGRADE a machine running a newer build,
 	// unattended, and again every day after. The tag is already known here,
 	// so there is no reason to let the script guess.

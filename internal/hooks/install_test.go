@@ -88,8 +88,8 @@ func TestUninstallRemovesProofboardOnlyAndLegacyHooks(t *testing.T) {
 func TestInstallWrapsAndRestoresNonShellHook(t *testing.T) {
 	// The assertion is that an existing hook still runs after being wrapped,
 	// which it checks by executing the hook file directly. Windows cannot
-	// execute a script that way — there is no shebang handling and no
-	// executable bit — so the failure is about how the test invokes the file,
+	// execute a script that way (there is no shebang handling and no
+	// executable bit), so the failure is about how the test invokes the file,
 	// not about whether the wrapping preserved it.
 	if runtime.GOOS == "windows" {
 		t.Skip("executing a hook script directly is a POSIX behaviour")

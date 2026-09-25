@@ -247,7 +247,7 @@ func TestStatusPendingStates(t *testing.T) {
 			t.Errorf("expected output to contain matching head: %q, got: %q", expected, output)
 		}
 
-		// Also check that the other repository (not in working directory) outputs pending=unknown and tier maps correctly to "SHA Proof — handshake skipped"
+		// Also check that the other repository (not in working directory) outputs pending=unknown and tier maps correctly to "SHA Proof, handshake skipped"
 		expectedOther := "some-other-repo projectID=proj-456 lastSync=2026-06-17T12:00:00Z lastHead=some-sha pending=unknown\n"
 		if !strings.Contains(output, expectedOther) {
 			t.Errorf("expected other repo output: %q, got: %q", expectedOther, output)

@@ -95,7 +95,7 @@ func TestClassifyAndNoiseScore(t *testing.T) {
 }
 
 // A commit whose Subject alone gives no signal ("updates") must still
-// classify correctly using Body text — the biggest accuracy lever. Also
+// classify correctly using Body text, the biggest accuracy lever. Also
 // verifies Body is nil/zeroed after Classify returns, mirroring Subject.
 func TestClassifySubjectAloneInsufficientBodyClassifies(t *testing.T) {
 	dict := model.Dictionary{
@@ -193,7 +193,7 @@ func TestClassifyDeterministicTieBreak(t *testing.T) {
 
 // A commit where two categories tie on total score must resolve to the one
 // backed by a structural file-path match, even when it is alphabetically
-// last — structural evidence (which files actually changed) is more
+// last, structural evidence (which files actually changed) is more
 // trustworthy than a text-only keyword match, so it wins ties.
 func TestClassifyStructuralPathBreaksScoreTies(t *testing.T) {
 	dict := model.Dictionary{
@@ -230,7 +230,7 @@ func TestClassifyStructuralPathBreaksScoreTies(t *testing.T) {
 }
 
 // A 20-file commit with 2 markdown files and 18 backend
-// files must classify as the backend category, not Documentation — the
+// files must classify as the backend category, not Documentation: the
 // structural (path) signal must not be hijacked by determinism-only changes.
 // This does not test path-score normalization, only that the existing
 // path-weighted signal still wins as expected once iteration is deterministic.

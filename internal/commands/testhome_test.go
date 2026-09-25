@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -13,15 +14,21 @@ import (
 // nothing on Windows: os.UserHomeDir, which every code path here uses to find
 // the Proofboard directory, reads USERPROFILE on Windows and HOME everywhere
 // else. A test that set only HOME therefore ran the product against the real
-// user profile on Windows — writing credentials and state outside the temp
+// user profile on Windows, writing credentials and state outside the temp
 // directory, and failing with "The system cannot find the path specified"
 // when it looked for fixtures that had been written to HOME instead.
 func setTestHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	// On Windows, editor state (Zed, JetBrains, VS Code) and install targets
+	// live under APPDATA and LOCALAPPDATA, not under the home directory. With
+	// only HOME redirected, the Zed tests shared the runner's real
+	// %APPDATA%\Zed database: the second one found the first one's table.
+	t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "AppData", "Local"))
 	// Credentials go to the OS secret store by default, which is per-user and
-	// lives nowhere near the home directory — Windows Credential Manager, the
+	// lives nowhere near the home directory: Windows Credential Manager, the
 	// macOS login keychain. A test that redirected only HOME still wrote real
 	// credentials to the real machine and read back whatever a previous test
 	// had left there, which is how an end-to-end auth test came to report
@@ -38,8 +45,8 @@ func setTestHome(t *testing.T, dir string) {
 // Windows has no Unix permission bits. os.Stat reports 0666 for any writable
 // file there whatever its ACL says, so comparing against 0600 tests nothing and
 // fails for a reason unrelated to how the file is actually protected. The
-// property still matters on Windows — it is carried by an ACL rather than a
-// mode — but asserting it needs a different mechanism than this, and pretending
+// property still matters on Windows (it is carried by an ACL rather than a
+// mode), but asserting it needs a different mechanism than this, and pretending
 // a mode comparison covers it would be worse than saying so.
 func requireOwnerOnlyMode(t *testing.T, path string) {
 	t.Helper()

@@ -236,7 +236,7 @@ func recoverBurnedWorkspacePrompts(ctx context.Context) error {
 // Ordered LONGEST FIRST, which is load-bearing rather than cosmetic.
 // legacyShellDetectionLine is a complete line inside the two-line fish value,
 // so checking it first replaced only fish's first line and left a bare
-// `disown $last_pid` behind — a job-control builtin with no job to act on,
+// `disown $last_pid` behind, a job-control builtin with no job to act on,
 // which errored on every new fish shell. Longest-first makes the most
 // specific value win.
 var legacyDetectionLines = sortedLongestFirst([]string{

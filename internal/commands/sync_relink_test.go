@@ -21,7 +21,7 @@ import (
 )
 
 // A session that expires mid-sync reconnects, and the reconnect can land on an
-// account that has no project linked for this repository — which is exactly
+// account that has no project linked for this repository, which is exactly
 // what happened to a user whose sync reported:
 //
 //	Authenticated as <user>. Proofboard Career Agent is connected...

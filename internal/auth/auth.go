@@ -29,7 +29,7 @@ type Service struct {
 // A var rather than a const so a test can shorten it. Testing this by actually
 // waiting out the real window would take ten minutes, and a test that instead
 // leans on its own context deadline proves nothing about whether Login has a
-// bound of its own — which is precisely the bug.
+// bound of its own, which is precisely the bug.
 var defaultAuthorizationWindow = 10 * time.Minute
 
 func NewService(store CredentialStore, client api.Client, agentAuthURL ...string) Service {
@@ -56,7 +56,7 @@ func (s Service) Login(ctx context.Context, emailHash string) (model.Credentials
 		return model.Credentials{}, fmt.Errorf("device-code response did not include a user code")
 	}
 	// The wait is always bounded. It used to be bounded only when the server
-	// sent expiresIn, so a response that omitted it — or sent zero — left the
+	// sent expiresIn, so a response that omitted it, or sent zero, left the
 	// poll loop below running forever, printing "Waiting for authentication..."
 	// and never returning. There is no answer coming at that point: the code
 	// the developer was given has no server-side lifetime either, and the only

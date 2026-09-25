@@ -130,7 +130,7 @@ func TestUpdateFetchFailureLeavesExistingDictionaryUntouched(t *testing.T) {
 func TestUpdateValidationFailureLeavesExistingDictionaryUntouched(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cli/dictionary", func(w http.ResponseWriter, r *http.Request) {
-		// Newer version but missing required fields (no categories) — fails Validate.
+		// Newer version but missing required fields (no categories), fails Validate.
 		_ = json.NewEncoder(w).Encode(map[string]any{"version": "2.0.0"})
 	})
 	srv := httptest.NewServer(mux)

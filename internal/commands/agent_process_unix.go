@@ -55,7 +55,7 @@ func discoverIDEWorkspaces(ctx context.Context, configured []string) ([]string, 
 
 func configuredIDENames(configured []string) []string {
 	if len(configured) == 0 {
-		return []string{"code", "code-insiders", "cursor", "webstorm", "idea", "zed", "sublime_text", "vim", "nvim"}
+		return []string{"code", "code-insiders", "cursor", "webstorm", "idea", "pycharm", "zed", "sublime_text", "antigravity", "vim", "nvim"}
 	}
 	return configured
 }

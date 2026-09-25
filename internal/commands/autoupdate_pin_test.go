@@ -13,7 +13,7 @@ import (
 
 // The installer re-resolves "latest" on its own and, when neither lookup
 // succeeds, falls back to a version pinned inside the script. The updater
-// already knows which release it decided to install, so it must say so —
+// already knows which release it decided to install, so it must say so,
 // otherwise a machine that cannot reach either lookup installs the pinned
 // version instead, which can be OLDER than what is already running, silently
 // and once a day.
@@ -22,7 +22,7 @@ func currentVersion() string { return version.Version }
 func TestInstallerIsPinnedToTheResolvedRelease(t *testing.T) {
 	// This drives scripts/install.sh, the POSIX installer. Windows updates
 	// through install.ps1 instead, and running a shell stub under Git Bash
-	// there only tests how Git Bash rewrites paths — it wrote its output
+	// there only tests how Git Bash rewrites paths: it wrote its output
 	// somewhere the test could not read it back, which is a fact about the
 	// harness rather than about the updater.
 	if runtime.GOOS == "windows" {

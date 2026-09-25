@@ -57,27 +57,6 @@ func TestGetNotificationsReal(t *testing.T) {
 	}
 }
 
-func TestGetUnreadNotificationCount(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/notifications/unread-count" {
-			t.Errorf("expected path /api/v1/notifications/unread-count, got %s", r.URL.Path)
-		}
-		resp := model.UnreadCountResponse{Count: 5}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
-	res, err := client.GetUnreadNotificationCount(context.Background(), "mock-token")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Count != 5 {
-		t.Fatalf("expected count 5, got %d", res.Count)
-	}
-}
-
 func TestMarkNotificationRead(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/notifications/notif-1/read" {
@@ -92,25 +71,6 @@ func TestMarkNotificationRead(t *testing.T) {
 
 	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
 	err := client.MarkNotificationRead(context.Background(), "mock-token", "notif-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestMarkAllNotificationsRead(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/notifications/mark-all-read" {
-			t.Errorf("expected path /api/v1/notifications/mark-all-read, got %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPatch {
-			t.Errorf("expected PATCH method, got %s", r.Method)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "/cli/link", "/cli/check", "/cli/sync")
-	err := client.MarkAllNotificationsRead(context.Background(), "mock-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

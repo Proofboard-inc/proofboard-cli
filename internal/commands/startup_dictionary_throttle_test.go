@@ -18,7 +18,7 @@ import (
 )
 
 // RunStartupUpdateChecks (fired via PersistentPreRunE on every
-// command — including `sync`, triggered by post-merge/post-pull git hooks)
+// command, including `sync`, triggered by post-merge/post-pull git hooks)
 // must throttle the dictionary version check to at most once per 6h,
 // regardless of how many commands run in that window.
 func TestStartupUpdateChecksThrottlesDictionaryCheckTo6Hours(t *testing.T) {
@@ -95,7 +95,7 @@ func TestStartupUpdateChecksThrottlesDictionaryCheckTo6Hours(t *testing.T) {
 		t.Fatal("expected LastDictionaryUpdateCheck to be persisted after the first check")
 	}
 
-	// Simulate 6+ hours passing — a third call must check again.
+	// Simulate 6+ hours passing, a third call must check again.
 	afterFirst.LastDictionaryUpdateCheck = time.Now().UTC().Add(-7 * time.Hour)
 	if err := stateStore.Save(ctx, afterFirst); err != nil {
 		t.Fatalf("save backdated state: %v", err)
@@ -108,7 +108,7 @@ func TestStartupUpdateChecksThrottlesDictionaryCheckTo6Hours(t *testing.T) {
 	}
 }
 
-// A failing dictionary check must still be throttled — otherwise a
+// A failing dictionary check must still be throttled, otherwise a
 // flaky/down release server would be hit on every single command with no
 // backoff at all.
 func TestStartupUpdateChecksThrottlesEvenOnFailure(t *testing.T) {

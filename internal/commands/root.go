@@ -86,21 +86,20 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	if os.Getenv("PROOFBOARD_DISABLE_STARTUP_CHECKS") == "1" {
 		return nil
 	}
-	name := cmd.Name()
-	if name == "update" || name == "update-dictionary" || name == "help" || name == "hook-maintain" || name == "notify" || name == "notify-activate" || name == "notices" || cmd.Parent() == nil {
+	if cmd.Parent() == nil || isInternalCommand([]string{cmd.Name()}) {
 		return nil
 	}
 	// The background agent runs detached, its output going to /dev/null or a
 	// service journal. Surfacing notifications there marks them read with
 	// nobody to see them, and the round trips delay the pid claim that
 	// `proofboard update` waits on. The agent loop does its own update checks.
-	if name == "run" && cmd.Parent().Name() == "agent" {
+	if cmd.Name() == "run" && cmd.Parent().Name() == "agent" {
 		return nil
 	}
 
 	// Each check below gets its OWN deadline. They used to share one, spent
 	// in order, so whatever the version check consumed was taken from the
-	// dictionary check that followed — which is why the dictionary reported
+	// dictionary check that followed, which is why the dictionary reported
 	// "context deadline exceeded" on every command while being perfectly
 	// reachable and 34 KB in size. A slow answer to one question must not
 	// decide the outcome of the next.
@@ -143,7 +142,7 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	// 1. Check CLI Version, throttled like the dictionary below. This runs
 	// via PersistentPreRunE on every command, including the sync fired by a
 	// git hook on every commit, so an unthrottled check meant a network round
-	// trip per command — paid by the developer in latency every time.
+	// trip per command, paid by the developer in latency every time.
 	if stateErr == nil && (stateData.LastVersionCheck.IsZero() ||
 		time.Since(stateData.LastVersionCheck) >= 6*time.Hour) {
 		versionCtx, cancelVersion := context.WithTimeout(ctx, versionCheckBudget)
@@ -216,14 +215,18 @@ func runStartupUpdateChecks(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
+// isInternalCommand reports whether the named command is one the startup
+// version/dictionary checks must never run for: agent-invoked or
+// notification-driven commands that need to stay fast and quiet, plus update
+// itself (checking for updates from inside the update command is
+// self-referential) and help (a formatting command, not a network one).
 func isInternalCommand(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
 	switch args[0] {
-	case "notify", "notify-activate", "notices", "milestone-action", "hook-maintain":
-		return true
-	case "agent":
+	case "notify", "notify-activate", "notices", "milestone-action", "hook-maintain",
+		"agent", "update", "update-dictionary", "help":
 		return true
 	default:
 		return false

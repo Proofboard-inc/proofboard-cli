@@ -12,8 +12,8 @@ func newRepoWithRemote(t *testing.T, remote string) string {
 	t.Helper()
 	// Deliberately not t.TempDir(). These tests bound a git call against an
 	// unreachable remote by killing it, and killing git leaves its transport
-	// helper alive for a moment longer. Unix does not care — a directory can
-	// be unlinked while a process still holds it — but Windows refuses, so
+	// helper alive for a moment longer. Unix does not care (a directory can
+	// be unlinked while a process still holds it), but Windows refuses, so
 	// t.TempDir's automatic cleanup failed the test with "The process cannot
 	// access the file because it is being used by another process" after the
 	// assertion it was making had already passed.
@@ -40,7 +40,7 @@ func newRepoWithRemote(t *testing.T, remote string) string {
 
 // refs/remotes/origin/HEAD is written by `git clone` and NOT by `git init`
 // plus `git remote add`, so this is the ordinary state of many working
-// repositories — and the state that used to send sync to the network.
+// repositories, and the state that used to send sync to the network.
 func TestLocalDefaultBranchNeverTouchesTheNetwork(t *testing.T) {
 	// A remote that would hang rather than refuse: a routable-but-black-holed
 	// address. If localDefaultBranch consulted it, this test would sit here

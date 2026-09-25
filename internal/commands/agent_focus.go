@@ -17,8 +17,10 @@ var ideFrontmostAliases = map[string][]string{
 	"cursor":        {"cursor"},
 	"webstorm":      {"webstorm"},
 	"idea":          {"idea", "intellij"},
+	"pycharm":       {"pycharm"},
 	"zed":           {"zed"},
 	"sublime_text":  {"sublime"},
+	"antigravity":   {"antigravity"},
 }
 
 // matchesFrontmostIDEName reports whether the frontmost GUI application name

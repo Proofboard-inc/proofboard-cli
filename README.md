@@ -100,16 +100,15 @@ proofboard uninstall
 
 ## Local Pipeline
 
-Every synchronization runs the same eight phases:
+Every synchronization runs the same seven phases:
 
 1. Local Git ingest
 2. Classification
 3. Scoring
 4. Milestone detection
 5. Shredder
-6. Handshake
-7. Payload assembly
-8. Transmission
+6. Payload assembly
+7. Transmission
 
 Commit messages, file paths, repository and organization names, author emails,
 file contents, and diffs must not survive Phase 5.
@@ -151,7 +150,7 @@ The Career Agent may transmit only:
 - additions, deletions, and file counts;
 - category labels and milestone cluster metadata;
 - `orgHash`, `repoHash`, and `emailHash`;
-- handshake status, anti-fraud counters, and agent/dictionary versions.
+- anti-fraud counters and agent/dictionary versions.
 
 It never transmits commit messages, file paths, repository or organization names, author emails, file contents, or diffs. See [SHREDDER.md](SHREDDER.md) for the audit guide.
 

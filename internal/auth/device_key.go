@@ -223,20 +223,6 @@ func (s DeviceKeyStore) Ensure(ctx context.Context, client api.Client, token str
 	return record, nil
 }
 
-func (s DeviceKeyStore) RegisterIfNeeded(ctx context.Context, client api.Client, token string, record DeviceKeyRecord) (DeviceKeyRecord, error) {
-	if record.DeviceKeyID != "" {
-		return record, nil
-	}
-	registered, err := s.register(ctx, client, token, record)
-	if err != nil {
-		return DeviceKeyRecord{}, err
-	}
-	if err := s.Save(ctx, registered); err != nil {
-		return DeviceKeyRecord{}, err
-	}
-	return registered, nil
-}
-
 func (s DeviceKeyStore) Sign(ctx context.Context, payload []byte) (string, error) {
 	record, err := s.Load(ctx)
 	if err != nil {

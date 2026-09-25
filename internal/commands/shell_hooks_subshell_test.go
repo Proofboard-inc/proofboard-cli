@@ -8,7 +8,7 @@ import (
 // The chpwd install guard must NOT be exported. The hook function and the
 // prompt wiring it installs are per-shell and are never inherited, so an
 // exported guard makes every child shell believe the hook is already present
-// and skip installing it — leaving directory detection dead in tmux panes,
+// and skip installing it, leaving directory detection dead in tmux panes,
 // editor terminals and any nested shell. The startup guard
 // (PROOFBOARD_DETECTED) is deliberately exported; this one must not be.
 func TestChpwdInstallGuardIsNotExported(t *testing.T) {

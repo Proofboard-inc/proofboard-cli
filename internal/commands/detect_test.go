@@ -18,7 +18,7 @@ import (
 // detached `notify` subprocess to raise an OS-level popup for a newly
 // detected repository. `detect` always runs inside the terminal the user is
 // already looking at (the shell-open hook backgrounds it in the current
-// session), so that OS popup was unnecessary machinery — it now prints the
+// session), so that OS popup was unnecessary machinery. It now prints the
 // "New repository detected" prompt straight to its own stdout instead, and
 // no longer shells out to `notify` for this case.
 func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
@@ -62,7 +62,7 @@ func TestDetectCommandPrintsLinkPromptAndLogsWorkspaceState(t *testing.T) {
 		t.Fatalf("expected suggested `proofboard sync` command in terminal output, got: %q", printed)
 	}
 	// The real privacy invariant is "never print the actual repo/org
-	// identifier" (here, the test remote's "org/repo") — not "never use the
+	// identifier" (here, the test remote's "org/repo"), not "never use the
 	// English word 'repository'", which the new terminal-print copy
 	// ("New repository detected") legitimately does.
 	if strings.Contains(printed, "org/repo") {

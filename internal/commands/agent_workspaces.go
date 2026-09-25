@@ -41,10 +41,10 @@ func addWorkspaceCandidate(ctx context.Context, candidate string, seen map[strin
 //
 // The Windows case is the reason this is not a one-liner. VS Code writes the
 // open folder as file:///c%3A/Users/ada/project, so url.Parse hands back the
-// path /c:/Users/ada/project — with a leading slash that belongs to the URI
+// path /c:/Users/ada/project, with a leading slash that belongs to the URI
 // rather than to the path, and forward slashes throughout. Passing that to
 // filepath.Abs yields something like C:\c:\Users\ada\project, which matches
-// no repository on the machine, and discovery then returns nothing at all —
+// no repository on the machine, and discovery then returns nothing at all,
 // indistinguishable from having no editor open.
 //
 // goos is a parameter rather than read from runtime so both conventions can be
@@ -157,6 +157,8 @@ func discoverEditorStateWorkspaces(ctx context.Context, seen map[string]bool, wo
 			addWorkspaceCandidate(ctx, candidate, seen, workspaces)
 		})
 	}
+	discoverJetBrainsWorkspaces(ctx, seen, workspaces)
+	discoverZedWorkspaces(ctx, seen, workspaces)
 }
 
 func visitWorkspaceStrings(value any, visit func(string)) {
@@ -174,26 +176,60 @@ func visitWorkspaceStrings(value any, visit func(string)) {
 	}
 }
 
+// editorStateFiles lists the JSON workspace-state files for every VS
+// Code-family editor (VS Code, VS Code Insiders, Cursor, Antigravity) plus
+// Sublime Text's session file. All of these are plain JSON regardless of
+// their differing filenames, so discoverEditorStateWorkspaces can walk every
+// one of them the same way. Antigravity's application-support folder was
+// renamed from "Antigravity" to "Antigravity IDE" during its 2.0 release;
+// both names are checked since either may exist depending on install age.
+// JetBrains (XML) and Zed (SQLite) use different formats entirely and are
+// discovered separately, see discoverJetBrainsWorkspaces/discoverZedWorkspaces.
 func editorStateFiles() []string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	var roots []string
+	var vscodeFamilyRoots []string
+	var sublimeRoots []string
 	switch runtime.GOOS {
 	case "darwin":
 		base := filepath.Join(homeDir, "Library", "Application Support")
-		roots = []string{filepath.Join(base, "Code"), filepath.Join(base, "Code - Insiders"), filepath.Join(base, "Cursor")}
+		vscodeFamilyRoots = []string{
+			filepath.Join(base, "Code"),
+			filepath.Join(base, "Code - Insiders"),
+			filepath.Join(base, "Cursor"),
+			filepath.Join(base, "Antigravity IDE"),
+			filepath.Join(base, "Antigravity"),
+		}
+		sublimeRoots = []string{filepath.Join(base, "Sublime Text"), filepath.Join(base, "Sublime Text 3")}
 	case "windows":
 		base := os.Getenv("APPDATA")
-		roots = []string{filepath.Join(base, "Code"), filepath.Join(base, "Code - Insiders"), filepath.Join(base, "Cursor")}
+		vscodeFamilyRoots = []string{
+			filepath.Join(base, "Code"),
+			filepath.Join(base, "Code - Insiders"),
+			filepath.Join(base, "Cursor"),
+			filepath.Join(base, "Antigravity IDE"),
+			filepath.Join(base, "Antigravity"),
+		}
+		sublimeRoots = []string{filepath.Join(base, "Sublime Text"), filepath.Join(base, "Sublime Text 3")}
 	default:
 		base := filepath.Join(homeDir, ".config")
-		roots = []string{filepath.Join(base, "Code"), filepath.Join(base, "Code - Insiders"), filepath.Join(base, "Cursor")}
+		vscodeFamilyRoots = []string{
+			filepath.Join(base, "Code"),
+			filepath.Join(base, "Code - Insiders"),
+			filepath.Join(base, "Cursor"),
+			filepath.Join(base, "Antigravity IDE"),
+			filepath.Join(base, "Antigravity"),
+		}
+		sublimeRoots = []string{filepath.Join(base, "sublime-text"), filepath.Join(base, "sublime-text-3")}
 	}
-	paths := make([]string, 0, len(roots))
-	for _, root := range roots {
+	paths := make([]string, 0, len(vscodeFamilyRoots)+len(sublimeRoots))
+	for _, root := range vscodeFamilyRoots {
 		paths = append(paths, filepath.Join(root, "User", "globalStorage", "storage.json"))
+	}
+	for _, root := range sublimeRoots {
+		paths = append(paths, filepath.Join(root, "Local", "Session.sublime_session"))
 	}
 	return paths
 }

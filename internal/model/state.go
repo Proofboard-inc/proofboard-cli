@@ -57,13 +57,19 @@ type LinkedRepoState struct {
 	Provider           string    `json:"provider"`
 	LastHeadSHA        string    `json:"lastHeadSha"`
 	LastSyncAt         time.Time `json:"lastSyncAt,omitempty"`
-	LastHandshake      time.Time `json:"lastHandshake,omitempty"`
 	ProjectID          string    `json:"projectId"`
 	PublicKey          string    `json:"publicKey"`
 	EmailHashKey       string    `json:"emailHashKey,omitempty"`
 	DictionaryVersion  string    `json:"dictionaryVersion"`
 	ProductionBranches []string  `json:"productionBranches"`
 	MetadataHash       string    `json:"metadataHash,omitempty"`
+	// TotalCommitsSynced is the repo's lifetime commit count across every
+	// sync ever sent for it, incremented by len(commits) each successful
+	// sync. Used (not len(commits) from a single batch) to compute
+	// AntiFraudSignals.LowCommitCount in phase6.Assemble, otherwise every
+	// small incremental sync after the first one on a repo with 30+ real
+	// commits would trip "low commit count" against just that batch's size.
+	TotalCommitsSynced int `json:"totalCommitsSynced,omitempty"`
 	// LastSyncPayload caches the exact payload most recently transmitted for
 	// this repo (post-Shredder, contains no commit text, same content that
 	// already left the machine). Replayed verbatim by `sync --resync` so the

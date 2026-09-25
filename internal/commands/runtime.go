@@ -176,7 +176,7 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 			// raise one of these per cluster, and a separate block for each
 			// would bury the rest of the output. They are printed together
 			// below, with their identifiers, because those identifiers are
-			// the only thing that makes `proofboard milestone` usable — the
+			// the only thing that makes `proofboard milestone` usable: the
 			// subcommands take one and nothing else in the CLI prints one.
 			milestones = append(milestones, struct{ title, bundleID string }{
 				title:    notificationMetaString(n.Meta, "title", "milestoneTitle", "name"),
@@ -185,7 +185,7 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 			markRead(n.ID)
 		case "proposal_viewed", "proposal_accepted", "proposal_declined":
 			// Deliberately left unread. Proposals are not part of the CLI
-			// experience, so nothing is printed for them — and marking them
+			// experience, so nothing is printed for them, and marking them
 			// read anyway would consume them here and clear them from the
 			// dashboard, where they ARE surfaced, without anyone having seen
 			// them. Not displaying something is not the same as handling it.
@@ -203,7 +203,7 @@ func surfaceUnreadNotifications(ctx context.Context, out io.Writer, runtime runt
 // printMilestonesReady prints the milestones waiting for a decision, followed
 // by the commands that act on them. The bundle identifier is included because
 // `proofboard milestone review|publish|skip` each require one, and this is the
-// only place the CLI can learn it — without this the three subcommands exist
+// only place the CLI can learn it: without this the three subcommands exist
 // but cannot be invoked.
 func printMilestonesReady(out io.Writer, milestones []struct{ title, bundleID string }) {
 	if len(milestones) == 0 {

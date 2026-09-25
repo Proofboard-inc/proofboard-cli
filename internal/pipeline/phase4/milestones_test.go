@@ -154,7 +154,7 @@ func TestDetectClustering(t *testing.T) {
 }
 
 // Linear history (no merge commits) with 5 same-category commits an hour
-// apart is one cohesive work session — it must produce ONE milestone, not an
+// apart is one cohesive work session, it must produce ONE milestone, not an
 // arbitrary N-way even split. (Replaces the old force-split-into-4 behavior:
 // segmenting content-agnostically into 4 chunks was itself a symptom of the
 // over-fragmentation this redesign fixes.)
@@ -184,7 +184,7 @@ func TestDetectLinearSameCategoryHistoryIsOneCluster(t *testing.T) {
 }
 
 // Linear history whose primary category shifts must segment at the category
-// boundaries — "auth work, then payments work, then database work" is three
+// boundaries: "auth work, then payments work, then database work" is three
 // milestones, detected without any merge-commit signal.
 func TestDetectLinearHistorySegmentsByCategoryShift(t *testing.T) {
 	t.Parallel()
@@ -222,7 +222,7 @@ func TestDetectLinearHistorySegmentsByCategoryShift(t *testing.T) {
 	}
 }
 
-// Σ cluster.CommitCount must always equal len(commits) — the backend
+// Σ cluster.CommitCount must always equal len(commits): the backend
 // relies on this to trust len(shas). groupCommits/segmentLinear/consolidate
 // only ever regroup commits (never drop them), so every commit lands in
 // exactly one retained cluster. This catches a future change that breaks that
@@ -270,7 +270,7 @@ func TestDetectCommitCountInvariant(t *testing.T) {
 			// These fixtures are all spaced an hour apart, so even the
 			// largest (n=137, spanning ~5.7 days) is well under the
 			// clusterCapWeeksPerCluster=5-week threshold that would earn
-			// clusters above the floor — the dynamic cap always resolves to
+			// clusters above the floor, the dynamic cap always resolves to
 			// minMilestoneClusters here.
 			if len(clusters) > minMilestoneClusters {
 				t.Errorf("n=%d: got %d clusters, want <= cap %d", n, len(clusters), minMilestoneClusters)
@@ -320,11 +320,11 @@ func buildMergeSeparatedCommits(groupCount int) ([]model.CommitSignal, []int64) 
 }
 
 // A repo with a healthy PR cadence whose real merge boundaries are at or below
-// the cap must keep every one of them — the old code wrongly force-collapsed
+// the cap must keep every one of them: the old code wrongly force-collapsed
 // anything past 4.
 func TestDetectPreservesRealMergeBoundariesUpToCap(t *testing.T) {
 	// buildMergeSeparatedCommits spaces groups 48h apart, so
-	// minMilestoneClusters (6) groups span ~10 days (~1.4 weeks) — well
+	// minMilestoneClusters (6) groups span ~10 days (~1.4 weeks), well
 	// under the clusterCapWeeksPerCluster=5-week threshold, so the dynamic
 	// cap for this fixture resolves to the floor, minMilestoneClusters.
 	commits, mergeTimestamps := buildMergeSeparatedCommits(minMilestoneClusters)
@@ -344,8 +344,8 @@ func TestDetectPreservesRealMergeBoundariesUpToCap(t *testing.T) {
 }
 
 // The headline fix: many more merge boundaries than the cap (a repo with
-// dozens of PRs) must consolidate down to exactly the cap — never one
-// milestone per PR — while still accounting for every commit.
+// dozens of PRs) must consolidate down to exactly the cap (never one
+// milestone per PR) while still accounting for every commit.
 func TestDetectCapsManyMergeBoundariesAtMax(t *testing.T) {
 	const groupCount = 20
 	// 20 groups 48h apart span ~38 days (~5.4 weeks): just over one
@@ -417,7 +417,7 @@ func TestConsolidatePrefersSameCategoryNeighbours(t *testing.T) {
 
 // TestClusterCap directly exercises the dynamic cap formula (floor, linear
 // scaling, and ceiling) independent of the milestone-detection fixtures
-// above — those fixtures are all short-span and only ever land on the
+// above: those fixtures are all short-span and only ever land on the
 // floor, so this is what actually proves a long-lived sync earns more than
 // the old flat 6.
 func TestClusterCap(t *testing.T) {
