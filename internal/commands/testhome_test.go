@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -20,6 +21,12 @@ func setTestHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	// On Windows, editor state (Zed, JetBrains, VS Code) and install targets
+	// live under APPDATA and LOCALAPPDATA, not under the home directory. With
+	// only HOME redirected, the Zed tests shared the runner's real
+	// %APPDATA%\Zed database: the second one found the first one's table.
+	t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "AppData", "Local"))
 	// Credentials go to the OS secret store by default, which is per-user and
 	// lives nowhere near the home directory: Windows Credential Manager, the
 	// macOS login keychain. A test that redirected only HOME still wrote real
