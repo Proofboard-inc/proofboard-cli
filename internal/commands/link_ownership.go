@@ -2,11 +2,13 @@ package commands
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 )
 
@@ -35,32 +37,36 @@ const (
 )
 
 // resolveOwnership runs the ownership-branch prompts for a not-yet-linked
-// repository and returns the company name and role title to send with the
-// link request. It returns errPublicProjectNotLinked or
-// errPersonalProjectDeclined when the answers mean the repository must not
-// be linked. Every prompt reads through the same buffered reader: a second
-// bufio.Reader over the same input would miss whatever the first one had
-// already buffered.
-func resolveOwnership(in io.Reader, out io.Writer, org string, stack *model.StackReport) (companyName string, roleTitle string, err error) {
+// repository and returns the company name, role title, and project name to
+// send with the link request (project name is only ever set by the
+// personal-project branch — employer/public projects have no use for it).
+// It returns errPublicProjectNotLinked or errPersonalProjectDeclined when the
+// answers mean the repository must not be linked. Every prompt reads through
+// the same buffered reader: a second bufio.Reader over the same input would
+// miss whatever the first one had already buffered.
+func resolveOwnership(ctx context.Context, in io.Reader, out io.Writer, identity model.RemoteIdentity, repo pbgit.Repo, stack *model.StackReport) (companyName string, roleTitle string, projectName string, err error) {
 	reader := bufio.NewReader(in)
 	switch promptForOwnership(reader, out) {
 	case ownershipPublic:
 		printPublicProjectNotice(out)
-		return "", "", errPublicProjectNotLinked
+		return "", "", "", errPublicProjectNotLinked
 	case ownershipPersonal:
 		if !promptPersonalProjectConfirm(reader, out) {
 			fmt.Fprintln(out, "Okay, not connecting this project for now. Run `proofboard link` any time to reconsider.")
-			return "", "", errPersonalProjectDeclined
+			return "", "", "", errPersonalProjectDeclined
 		}
-		return "", "", nil
+		projectName = promptProjectNameWithDetectedDefault(reader, out, detectProjectName(identity, repo))
+		isSoleAuthor, _ := pbgit.IsSoleAuthor(ctx, repo)
+		roleTitle = promptPersonalProjectRole(reader, out, isSoleAuthor, inferRoleTitle(stack))
+		return "", roleTitle, projectName, nil
 	default: // ownershipEmployer
 		if promptEmployerAuthorization(reader, out) {
-			companyName = promptCompanyNameWithDetectedDefault(reader, out, org)
+			companyName = promptCompanyNameWithDetectedDefault(reader, out, identity.Org)
 		} else {
 			companyName = privateCompanyPlaceholder
 		}
 		roleTitle = promptRoleTitle(reader, out, inferRoleTitle(stack))
-		return companyName, roleTitle, nil
+		return companyName, roleTitle, "", nil
 	}
 }
 
@@ -93,8 +99,8 @@ func promptForOwnership(in io.Reader, out io.Writer) repoOwnership {
 	}
 }
 
-// promptPersonalProjectConfirm is Branch 1's only question. No company name
-// applies to a personal project, so there is nothing else to ask here.
+// promptPersonalProjectConfirm is Branch 1's opening question. A "no" answer
+// stops the flow before the project-name/role prompts below are ever shown.
 func promptPersonalProjectConfirm(in io.Reader, out io.Writer) bool {
 	reader := bufio.NewReader(in)
 	fmt.Fprint(out, "Would you like to add this project to your career record? [Y/n]: ")
@@ -104,6 +110,64 @@ func promptPersonalProjectConfirm(in io.Reader, out io.Writer) bool {
 	}
 	answer := strings.ToLower(sanitizeTypedInput(line))
 	return answer != "n" && answer != "no"
+}
+
+// promptProjectNameWithDetectedDefault offers a locally-detected project
+// name (the repository's origin remote name, or its directory name when no
+// remote name is available) as an editable default, same "detect, then let
+// the human confirm or override" pattern as
+// promptCompanyNameWithDetectedDefault. Personal projects are never asked
+// for a company name — this is the one identifying detail they're asked
+// for instead.
+func promptProjectNameWithDetectedDefault(in io.Reader, out io.Writer, detected string) string {
+	reader := bufio.NewReader(in)
+	detected = strings.TrimSpace(detected)
+	if detected == "" {
+		fmt.Fprint(out, "Project name: ")
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return ""
+			}
+			if name := sanitizeTypedInput(line); name != "" {
+				return name
+			}
+			fmt.Fprint(out, "Project name (required): ")
+		}
+	}
+	fmt.Fprintf(out, "Project name [%s] (press enter to accept, or type your own): ", detected)
+	line, _ := reader.ReadString('\n')
+	typed := sanitizeTypedInput(line)
+	if typed == "" {
+		return detected
+	}
+	return typed
+}
+
+// promptPersonalProjectRole asks the role/contributor question for a
+// personal project. When the local git history shows this user as the
+// repository's sole commit author (isSoleAuthor), "Owner" is offered as the
+// primary default; a stack-based suggestion from inferRoleTitle, if any, is
+// still surfaced rather than silently dropped by folding it into the prompt
+// text as an example. Falls back to the plain promptRoleTitle behaviour
+// (stack suggestion as the default, or a bare optional prompt) when
+// isSoleAuthor is false.
+func promptPersonalProjectRole(in io.Reader, out io.Writer, isSoleAuthor bool, stackSuggestion string) string {
+	if !isSoleAuthor {
+		return promptRoleTitle(in, out, stackSuggestion)
+	}
+	reader := bufio.NewReader(in)
+	if stackSuggestion != "" {
+		fmt.Fprintf(out, "Role [Owner] (press enter to accept, or type your own, e.g. %s): ", stackSuggestion)
+	} else {
+		fmt.Fprint(out, "Role [Owner] (press enter to accept, or type your own): ")
+	}
+	line, _ := reader.ReadString('\n')
+	typed := sanitizeTypedInput(line)
+	if typed == "" {
+		return "Owner"
+	}
+	return typed
 }
 
 // printPublicProjectNotice is Branch 2: public projects are never processed

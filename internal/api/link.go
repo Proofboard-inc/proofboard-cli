@@ -21,6 +21,14 @@ type LinkRequest struct {
 	// project; ignored otherwise.
 	CompanyName string `json:"companyName,omitempty"`
 	RoleTitle   string `json:"roleTitle,omitempty"`
+	// ProjectName is human-confirmed via the personal-project branch of the
+	// ownership wizard only (see link_ownership.go's
+	// promptProjectNameWithDetectedDefault) — personal projects have no
+	// company name to derive a project name from, so this carries it
+	// instead. Same "applied only when creating a brand new project" rule
+	// as CompanyName/RoleTitle above; empty for the employer/public
+	// branches.
+	ProjectName string `json:"projectName,omitempty"`
 }
 
 type ExistingProjectOption struct {
