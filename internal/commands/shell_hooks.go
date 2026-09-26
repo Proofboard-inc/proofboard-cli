@@ -322,7 +322,7 @@ func ensureLineInFile(path string, line string) (updated bool, migratedLegacy bo
 		return false, false, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintf(f, "\n# Proofboard Workspace Detection\n%s\n", line); err != nil {
+	if _, err := fmt.Fprintf(f, "\n%s\n%s\n", workspaceDetectionHeader, line); err != nil {
 		return false, false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, false, nil

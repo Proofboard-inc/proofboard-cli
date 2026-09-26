@@ -174,6 +174,13 @@ func performUninstall(out io.Writer) error {
 		}
 	}
 
+	// Strip every shell-hook block this CLI may have written (PATH export,
+	// workspace-detection hooks, autocompletion), not just the PATH line for
+	// the location(s) actually found above — run unconditionally so a manual
+	// removal of the binary, or an install on a since-changed $SHELL, still
+	// gets fully cleaned up.
+	removeShellHookBlocks(env)
+
 	if !removed {
 		fmt.Fprintln(out, "No installed executable was found.")
 		return nil
