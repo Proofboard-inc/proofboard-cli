@@ -131,7 +131,7 @@ func TestRemoveShellHookBlocksStripsAllThreeHeadersFromEveryRcFile(t *testing.T)
 
 func TestPerformUninstallStripsShellHookBlocksEvenWhenNoExecutableFound(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 	t.Setenv("PROOFBOARD_INSTALL_DIR", "")
 
 	zshrc := filepath.Join(homeDir, ".zshrc")
