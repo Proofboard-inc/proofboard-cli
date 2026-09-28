@@ -2,12 +2,31 @@ package commands
 
 import (
 	"bytes"
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/proofboard/proofboard/internal/api"
+	pbgit "github.com/proofboard/proofboard/internal/git"
 	"github.com/proofboard/proofboard/internal/model"
 )
+
+func TestDetectProjectNamePrefersParsedRemoteRepoName(t *testing.T) {
+	identity := model.RemoteIdentity{Repo: "proofboard-cli"}
+	got := detectProjectName(identity, pbgit.Repo{Path: "/home/dev/some-other-dir-name"})
+	if got != "proofboard-cli" {
+		t.Errorf("detectProjectName() = %q, want detected remote repo name %q", got, "proofboard-cli")
+	}
+}
+
+func TestDetectProjectNameFallsBackToDirectoryNameWithoutRemote(t *testing.T) {
+	dir := filepath.Join("home", "dev", "my-local-project")
+	got := detectProjectName(model.RemoteIdentity{}, pbgit.Repo{Path: dir})
+	if got != "my-local-project" {
+		t.Errorf("detectProjectName() = %q, want directory name %q", got, "my-local-project")
+	}
+}
 
 func TestInferRoleTitle(t *testing.T) {
 	cases := []struct {
@@ -101,6 +120,81 @@ func TestPromptRoleTitleFallsBackToSuggestion(t *testing.T) {
 	}
 }
 
+func TestPromptProjectNameWithDetectedDefaultAcceptsDetected(t *testing.T) {
+	name := promptProjectNameWithDetectedDefault(strings.NewReader("\n"), &bytes.Buffer{}, "proofboard-cli")
+	if name != "proofboard-cli" {
+		t.Errorf("name = %q, want detected default %q", name, "proofboard-cli")
+	}
+}
+
+func TestPromptProjectNameWithDetectedDefaultOverridesDetected(t *testing.T) {
+	name := promptProjectNameWithDetectedDefault(strings.NewReader("My Side Project\n"), &bytes.Buffer{}, "proofboard-cli")
+	if name != "My Side Project" {
+		t.Errorf("name = %q, want typed override %q", name, "My Side Project")
+	}
+}
+
+func TestPromptProjectNameWithDetectedDefaultRepromptsUntilNonEmptyWhenNothingDetected(t *testing.T) {
+	var out bytes.Buffer
+	name := promptProjectNameWithDetectedDefault(strings.NewReader("\n\nMy Project\n"), &out, "")
+	if name != "My Project" {
+		t.Errorf("name = %q, want %q after reprompting past blank input", name, "My Project")
+	}
+	if strings.Contains(out.String(), "press enter to accept") {
+		t.Errorf("should not offer an editable default when nothing was detected: %q", out.String())
+	}
+}
+
+func TestPromptProjectNameWithDetectedDefaultReturnsEmptyOnReadError(t *testing.T) {
+	name := promptProjectNameWithDetectedDefault(strings.NewReader(""), &bytes.Buffer{}, "")
+	if name != "" {
+		t.Errorf("name = %q, want empty on read error with nothing detected", name)
+	}
+}
+
+func TestPromptPersonalProjectRoleDefaultsToOwnerWhenSoleAuthor(t *testing.T) {
+	role := promptPersonalProjectRole(strings.NewReader("\n"), &bytes.Buffer{}, true, "Frontend Engineer")
+	if role != "Owner" {
+		t.Errorf("role = %q, want %q", role, "Owner")
+	}
+}
+
+func TestPromptPersonalProjectRoleShowsStackSuggestionAsExampleWhenSoleAuthor(t *testing.T) {
+	var out bytes.Buffer
+	promptPersonalProjectRole(strings.NewReader("\n"), &out, true, "Frontend Engineer")
+	if !strings.Contains(out.String(), "Frontend Engineer") {
+		t.Errorf("expected stack suggestion to still be surfaced, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Owner") {
+		t.Errorf("expected Owner to be offered as the primary default, got %q", out.String())
+	}
+}
+
+func TestPromptPersonalProjectRoleAllowsCustomOverrideWhenSoleAuthor(t *testing.T) {
+	role := promptPersonalProjectRole(strings.NewReader("Maintainer\n"), &bytes.Buffer{}, true, "Frontend Engineer")
+	if role != "Maintainer" {
+		t.Errorf("role = %q, want typed override %q", role, "Maintainer")
+	}
+}
+
+func TestPromptPersonalProjectRoleFallsBackToStackSuggestionWhenNotSoleAuthor(t *testing.T) {
+	role := promptPersonalProjectRole(strings.NewReader("\n"), &bytes.Buffer{}, false, "Backend Engineer")
+	if role != "Backend Engineer" {
+		t.Errorf("role = %q, want stack-inferred %q when not the sole author", role, "Backend Engineer")
+	}
+}
+
+func TestPromptPersonalProjectRoleFallsBackToOptionalPromptWhenNotSoleAuthorNoStack(t *testing.T) {
+	var out bytes.Buffer
+	role := promptPersonalProjectRole(strings.NewReader("\n"), &out, false, "")
+	if role != "" {
+		t.Errorf("role = %q, want empty", role)
+	}
+	if strings.Contains(out.String(), "Owner") {
+		t.Errorf("should not suggest Owner when not the sole author: %q", out.String())
+	}
+}
+
 func TestPromptEmployerAuthorizationDefaultsToNoOnReadError(t *testing.T) {
 	if promptEmployerAuthorization(strings.NewReader(""), &bytes.Buffer{}) {
 		t.Error("promptEmployerAuthorization() = true on read error, want false (safe/anonymizing default)")
@@ -162,15 +256,26 @@ func TestPromptForProjectPrintsThreeColumnsWithRepoFullName(t *testing.T) {
 // personal project the developer had just declined.
 func TestResolveOwnershipHonoursPipedAnswers(t *testing.T) {
 	stack := &model.StackReport{TechStack: []string{"React", "Next.js"}}
+	// identity.Repo gives promptProjectNameWithDetectedDefault a fixed,
+	// non-empty detected default ("acme-repo") so an accepted personal
+	// branch can be driven with a blank line instead of depending on the
+	// test's tmp directory name. repo.Path is not a real git checkout, so
+	// pbgit.IsSoleAuthor deterministically fails closed (not the sole
+	// author) and the personal branch's role prompt falls back to the
+	// plain stack-inferred suggestion, same as the employer branch's.
+	identity := model.RemoteIdentity{Org: "Proboardly", Repo: "acme-repo"}
+	repo := pbgit.Repo{Path: t.TempDir()}
 	cases := []struct {
-		name        string
-		input       string
-		wantErr     error
-		wantCompany string
-		wantRole    string
+		name            string
+		input           string
+		wantErr         error
+		wantCompany     string
+		wantRole        string
+		wantProjectName string
 	}{
 		{name: "personal declined", input: "1\nn\n", wantErr: errPersonalProjectDeclined},
-		{name: "personal accepted", input: "1\ny\n"},
+		{name: "personal accepted, defaults accepted", input: "1\ny\n\n\n", wantRole: "Frontend Engineer", wantProjectName: "acme-repo"},
+		{name: "personal accepted, custom project name and role", input: "1\ny\nMy Cool App\nMaintainer\n", wantRole: "Maintainer", wantProjectName: "My Cool App"},
 		{name: "employer authorized", input: "2\ny\nAcme Corp\nStaff Engineer\n", wantCompany: "Acme Corp", wantRole: "Staff Engineer"},
 		{name: "employer authorized, defaults accepted", input: "2\ny\n\n\n", wantCompany: "Proboardly", wantRole: "Frontend Engineer"},
 		{name: "employer not authorized", input: "2\nn\nStaff Engineer\n", wantCompany: privateCompanyPlaceholder, wantRole: "Staff Engineer"},
@@ -181,12 +286,13 @@ func TestResolveOwnershipHonoursPipedAnswers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A plain io.Reader, not a bufio.Reader: the same shape os.Stdin has.
 			in := strings.NewReader(tc.input)
-			company, role, err := resolveOwnership(in, &bytes.Buffer{}, "Proboardly", stack)
+			company, role, projectName, err := resolveOwnership(context.Background(), in, &bytes.Buffer{}, identity, repo, stack)
 			if err != tc.wantErr {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
-			if company != tc.wantCompany || role != tc.wantRole {
-				t.Fatalf("company, role = %q, %q; want %q, %q", company, role, tc.wantCompany, tc.wantRole)
+			if company != tc.wantCompany || role != tc.wantRole || projectName != tc.wantProjectName {
+				t.Fatalf("company, role, projectName = %q, %q, %q; want %q, %q, %q",
+					company, role, projectName, tc.wantCompany, tc.wantRole, tc.wantProjectName)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 )
 
 const agentTaskName = "Proofboard Career Agent"
@@ -31,7 +32,7 @@ func installAgentService(executable string, out io.Writer) error {
 
 func uninstallAgentService(out io.Writer) error {
 	_ = exec.Command("schtasks", "/End", "/TN", agentTaskName).Run()
-	if output, err := exec.Command("schtasks", "/Delete", "/TN", agentTaskName, "/F").CombinedOutput(); err != nil {
+	if output, err := exec.Command("schtasks", "/Delete", "/TN", agentTaskName, "/F").CombinedOutput(); err != nil && !taskNotFound(output) {
 		return fmt.Errorf("remove Career Agent scheduled task: %w: %s", err, output)
 	}
 	_ = stopAgent(io.Discard)
@@ -45,4 +46,11 @@ func uninstallAgentService(out io.Writer) error {
 // resume.
 func agentRegistered(homeDir string) bool {
 	return false
+}
+
+// taskNotFound reports whether schtasks failed because the task was already
+// absent, so uninstall can treat "nothing to remove" the same way the
+// darwin/linux implementations do (os.IsNotExist), rather than as an error.
+func taskNotFound(output []byte) bool {
+	return strings.Contains(strings.ToLower(string(output)), "cannot find the file specified")
 }

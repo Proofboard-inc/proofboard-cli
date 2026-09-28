@@ -74,7 +74,7 @@ If no shell is specified, it will attempt to auto-detect your shell and offer to
 						return err
 					}
 					defer f.Close()
-					f.WriteString(fmt.Sprintf("\n# Proofboard Autocompletion\n%s\n", installCmd))
+					f.WriteString(fmt.Sprintf("\n%s\n%s\n", autocompletionHeader, installCmd))
 					fmt.Fprintf(cmd.OutOrStdout(), "✓ Completions installed to %s. Please restart your terminal or run: source %s\n", rcFile, rcFile)
 				}
 				return nil

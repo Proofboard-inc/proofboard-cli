@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -187,6 +188,19 @@ func inferRoleTitle(stack *model.StackReport) string {
 	}
 }
 
+// detectProjectName suggests a default project name for the personal-project
+// branch of the ownership wizard: the repository's origin remote name
+// (already parsed into identity.Repo by pbgit.ParseRemote earlier in the
+// link flow) when a remote is configured, otherwise the repository's own
+// directory name. Only ever offered as an editable default via
+// promptProjectNameWithDetectedDefault, never asserted outright.
+func detectProjectName(identity model.RemoteIdentity, repo pbgit.Repo) string {
+	if name := strings.TrimSpace(identity.Repo); name != "" {
+		return name
+	}
+	return filepath.Base(repo.Path)
+}
+
 // sanitizeTypedInput cleans a line read via a raw bufio.Reader from an
 // interactive prompt. Unlike a shell's readline, a bufio.Reader does no line
 // editing: pressing an arrow key (or any other special key) while typing
@@ -352,9 +366,9 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 			// ("Private Company") rather than guessing. This never blocks the
 			// project from connecting and syncing, it only affects which name
 			// gets stored.
-			var companyName, roleTitle string
+			var companyName, roleTitle, projectName string
 			if !nonInteractive {
-				companyName, roleTitle, err = resolveOwnership(stdin, out, identity.Org, stack)
+				companyName, roleTitle, projectName, err = resolveOwnership(ctx, stdin, out, identity, repo, stack)
 				if err != nil {
 					return err
 				}
@@ -370,6 +384,7 @@ func newLinkCommand(ctx context.Context, out io.Writer) *cobra.Command {
 				Stack:       stack,
 				CompanyName: companyName,
 				RoleTitle:   roleTitle,
+				ProjectName: projectName,
 			}
 			var response api.LinkResponse
 			err = withSpinner(out, "Registering project…", !nonInteractive, func() error {

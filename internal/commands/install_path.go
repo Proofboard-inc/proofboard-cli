@@ -11,6 +11,52 @@ import (
 
 const proofboardPathHeader = "# Proofboard Career Agent"
 
+// workspaceDetectionHeader and autocompletionHeader mirror the literal header
+// comments written by shell_hooks.go's ensureLineInFile and completion.go's
+// auto-install path, respectively. Kept here (next to proofboardPathHeader)
+// so uninstall's header-block sweep has a single place enumerating every
+// header this CLI ever writes into a shell rc file.
+const workspaceDetectionHeader = "# Proofboard Workspace Detection"
+const autocompletionHeader = "# Proofboard Autocompletion"
+
+// allShellHookHeaders lists every header comment this CLI writes into a shell
+// rc file, across install (PATH), shell hook maintenance (workspace
+// detection), and completion auto-install. Uninstall sweeps all of them so a
+// full uninstall leaves no dangling references to a removed binary.
+var allShellHookHeaders = []string{proofboardPathHeader, workspaceDetectionHeader, autocompletionHeader}
+
+// rcFileCandidates enumerates every shell rc/profile file any code path in
+// this CLI might have written a header block into, regardless of the user's
+// *current* $SHELL — a user may have switched shells since installing, and a
+// stale hook in an old shell's rc file is exactly the kind of dangling
+// reference uninstall is supposed to remove. Scanning a superset is safe:
+// removeAllHeaderBlocks is a no-op on a file with no matching header.
+func rcFileCandidates(env installEnvironment) []string {
+	return []string{
+		filepath.Join(env.HomeDir, ".bashrc"),
+		filepath.Join(env.HomeDir, ".bash_profile"),
+		filepath.Join(env.HomeDir, ".zshrc"),
+		filepath.Join(env.HomeDir, ".zprofile"),
+		filepath.Join(env.HomeDir, ".profile"),
+		filepath.Join(env.HomeDir, ".config", "fish", "config.fish"),
+		filepath.Join(env.HomeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		filepath.Join(env.HomeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+	}
+}
+
+// removeShellHookBlocks strips every block written under any header in
+// allShellHookHeaders from every candidate rc file. Errors reading/writing an
+// individual file are ignored the same way removeDirectoryFromPath already
+// ignores them elsewhere in uninstall: a missing or unwritable rc file must
+// never fail the overall uninstall.
+func removeShellHookBlocks(env installEnvironment) {
+	for _, path := range rcFileCandidates(env) {
+		for _, header := range allShellHookHeaders {
+			_ = removeAllHeaderBlocks(path, header)
+		}
+	}
+}
+
 type shellHookTarget struct {
 	Path string
 	Line string
@@ -145,6 +191,49 @@ func removeMarkedLine(path, header, line string) error {
 			continue
 		}
 		if strings.TrimSpace(lines[index]) == strings.TrimSpace(line) {
+			continue
+		}
+		kept = append(kept, lines[index])
+	}
+
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), mode); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// removeAllHeaderBlocks drops every occurrence of `header` found in the file
+// at `path`, each together with the single line immediately following it.
+// Every header this CLI writes (proofboardPathHeader,
+// workspaceDetectionHeader, autocompletionHeader) is always followed by
+// exactly one hook/command line — see appendMarkedLine and
+// ensureLineInFile's "\n%s\n%s\n" writes and completion.go's matching
+// "\n# Proofboard Autocompletion\n%s\n" write — so unlike removeMarkedLine
+// (which matches one specific header+line pair) this removes every block
+// under that header regardless of what the line itself says, which is what
+// lets it clean up shell hooks written for a different shell/line than the
+// one currently installed.
+func removeAllHeaderBlocks(path, header string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if !strings.Contains(string(content), header) {
+		return nil
+	}
+
+	lines := strings.Split(string(content), "\n")
+	kept := make([]string, 0, len(lines))
+	for index := 0; index < len(lines); index++ {
+		if strings.TrimSpace(lines[index]) == strings.TrimSpace(header) {
+			index++ // also drop the line immediately following the header
 			continue
 		}
 		kept = append(kept, lines[index])
