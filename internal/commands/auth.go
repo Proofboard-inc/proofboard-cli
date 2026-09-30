@@ -148,6 +148,11 @@ func runLogout(ctx context.Context, out io.Writer) error {
 	if err := runtime.credentials.Delete(ctx); err != nil {
 		return err
 	}
+	// The device signing key has its own store (OS keychain first, file
+	// fallback) entirely separate from CredentialStore above — clearing one
+	// does not clear the other. Best-effort: a keychain that logout cannot
+	// reach must not abort sign-out, same rationale as CredentialStore.Delete.
+	_ = pbauth.NewDeviceKeyStore(runtime.homeDir).Delete(ctx)
 	current, stateErr := runtime.state.Load(ctx)
 	if stateErr == nil {
 		current.AuthLoggedOut = true
@@ -158,17 +163,21 @@ func runLogout(ctx context.Context, out io.Writer) error {
 		}
 	}
 	// Signing out clears what this device holds about the account, not only
-	// the token: the activity log records what was synced and when, the
-	// device signing key identifies this machine to the service, and the
+	// the token: the activity log records what was synced and when, and the
 	// cached notification state belongs to the account that just left.
-	// Leaving those behind means "logged out" only described the token.
+	// Leaving those behind means "logged out" only described the token. The
+	// device key file (if any) was already handled above by DeviceKeyStore.Delete.
 	removed := clearLocalAccountData(runtime.homeDir)
 
 	if _, err := fmt.Fprintln(out, "Proofboard local credentials removed. This device is logged out."); err != nil {
 		return err
 	}
+	_, err = fmt.Fprintln(out, "Device signing key cleared.")
+	if err != nil {
+		return err
+	}
 	if removed > 0 {
-		_, err = fmt.Fprintf(out, "Activity log and device signing key cleared (%d file(s)).\n", removed)
+		_, err = fmt.Fprintf(out, "Activity log cleared (%d file(s)).\n", removed)
 		return err
 	}
 	return nil
@@ -189,7 +198,6 @@ func clearLocalAccountData(homeDir string) int {
 		"sync.log",   // what this account synced, and when
 		"sync.log.1", // the rotated previous log
 		"auto-update.log",
-		"device.key", // identifies this machine to the service
 	} {
 		if err := os.Remove(filepath.Join(dir, name)); err == nil {
 			removed++

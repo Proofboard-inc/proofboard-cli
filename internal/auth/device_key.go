@@ -30,6 +30,7 @@ const (
 type deviceKeySecretStore interface {
 	Get(service, account string) (string, error)
 	Set(service, account, value string) error
+	Delete(service, account string) error
 }
 
 type systemDeviceKeySecretStore struct{}
@@ -40,6 +41,10 @@ func (systemDeviceKeySecretStore) Get(service, account string) (string, error) {
 
 func (systemDeviceKeySecretStore) Set(service, account, value string) error {
 	return keyring.Set(service, account, value)
+}
+
+func (systemDeviceKeySecretStore) Delete(service, account string) error {
+	return keyring.Delete(service, account)
 }
 
 type DeviceKeyStore struct {
@@ -158,6 +163,31 @@ func (s DeviceKeyStore) Save(ctx context.Context, record DeviceKeyRecord) error 
 	}
 	if err := os.Chmod(path, deviceKeyFileMode); err != nil {
 		return fmt.Errorf("secure device key file: %w", err)
+	}
+	return nil
+}
+
+// Delete removes this device's signing key from wherever it lives — the OS
+// keychain first, then the on-disk fallback. Both are attempted regardless
+// of which one currently holds the key: Save migrates a file-based key into
+// the keychain and removes the file copy, but an older on-disk key can still
+// exist alongside a keychain entry in edge cases (e.g. keychain access
+// failing mid-migration), so a real sign-out must not assume only one
+// location needs clearing. Best-effort on the keychain side, matching
+// CredentialStore.Delete: a keychain that is not reachable (headless Linux,
+// containers, SSH, a locked login keychain) must not block logout, since
+// that would leave the very credentials the user asked to remove in place.
+func (s DeviceKeyStore) Delete(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("delete device key: %w", err)
+	}
+	if !s.keychainDisabled(ctx) && s.secretStore != nil {
+		_ = callSecretStore(func() error {
+			return s.secretStore.Delete(deviceKeyKeychainService, deviceKeyKeychainAccount)
+		})
+	}
+	if err := os.Remove(s.Path()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete device key: %w", err)
 	}
 	return nil
 }

@@ -18,7 +18,7 @@ func TestFishLegacyMigrationLeavesNoOrphanedDisown(t *testing.T) {
 		t.Fatalf("seed config.fish: %v", err)
 	}
 
-	if _, _, err := ensureLineInFile(path, fishShellDetectionLine); err != nil {
+	if _, _, err := ensureLineInFile(path, fishShellDetectionLine(defaultHookCommand)); err != nil {
 		t.Fatalf("ensureLineInFile: %v", err)
 	}
 
@@ -29,7 +29,7 @@ func TestFishLegacyMigrationLeavesNoOrphanedDisown(t *testing.T) {
 	if strings.Contains(string(got), "disown") {
 		t.Fatalf("orphaned disown survived migration:\n%s", got)
 	}
-	if !strings.Contains(string(got), fishShellDetectionLine) {
+	if !strings.Contains(string(got), fishShellDetectionLine(defaultHookCommand)) {
 		t.Fatalf("current fish hook missing after migration:\n%s", got)
 	}
 }

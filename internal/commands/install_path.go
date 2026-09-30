@@ -66,10 +66,19 @@ type shellHookTarget struct {
 // plain `proofboard` command. Nothing here needs administrator access: on
 // Windows only the per-user PATH is edited, and elsewhere the user's own shell
 // profile is.
+//
+// This deliberately does NOT early-return just because dir is already on the
+// *current process's* inherited PATH: that reflects whatever shell happened
+// to invoke the installer, not what is durably persisted in any rc file. A
+// user who previously exported the directory by hand in one open terminal
+// (or ran install/uninstall repeatedly in the same session) would otherwise
+// cause every OTHER terminal, IDE-integrated shell, and non-login shell to
+// silently never get `proofboard` on PATH — and since every shell hook line
+// this CLI writes redirects stderr to /dev/null, that failure is completely
+// invisible. appendMarkedLine/ensureShellProfilePath already dedupe against
+// the rc files' actual on-disk content, so calling this unconditionally is
+// safe and idempotent.
 func ensureDirectoryOnPath(env installEnvironment, dir string, out io.Writer) error {
-	if pathContainsDir(env.Getenv("PATH"), dir) {
-		return nil
-	}
 	if env.GOOS == "windows" {
 		return ensureWindowsUserPath(dir, out)
 	}
@@ -207,16 +216,22 @@ func removeMarkedLine(path, header, line string) error {
 }
 
 // removeAllHeaderBlocks drops every occurrence of `header` found in the file
-// at `path`, each together with the single line immediately following it.
-// Every header this CLI writes (proofboardPathHeader,
-// workspaceDetectionHeader, autocompletionHeader) is always followed by
-// exactly one hook/command line — see appendMarkedLine and
-// ensureLineInFile's "\n%s\n%s\n" writes and completion.go's matching
-// "\n# Proofboard Autocompletion\n%s\n" write — so unlike removeMarkedLine
-// (which matches one specific header+line pair) this removes every block
-// under that header regardless of what the line itself says, which is what
-// lets it clean up shell hooks written for a different shell/line than the
-// one currently installed.
+// at `path`, each together with everything written alongside it. Every
+// header this CLI writes (proofboardPathHeader, workspaceDetectionHeader,
+// autocompletionHeader) is written by appendMarkedLine / ensureLineInFile's
+// "\n%s\n%s\n" format, or completion.go's matching "\n# Proofboard
+// Autocompletion\n%s\n" — the %s "line" is not always a single line (see
+// zshChpwdHook/bashChpwdHook/fishChpwdHook/psChpwdHook in shell_hooks.go,
+// which are each several lines of an if/fi- or function-wrapped hook). Each
+// write is bounded by a leading and trailing "\n", so consecutive blocks
+// always end up separated by exactly one blank line in the file — that
+// blank line, not a fixed line count, is what actually marks a block's end.
+// A header-and-fixed-line-count removal here previously stripped only the
+// first line of a multi-line block (e.g. just the chpwd hook's opening
+// "if ... then"), leaving its body and closing "fi" orphaned with no
+// matching "if" — a real incident that broke zsh startup with a parse
+// error. Reading to the next blank line (or EOF) instead removes the whole
+// block regardless of how many lines it spans.
 func removeAllHeaderBlocks(path, header string) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -232,11 +247,17 @@ func removeAllHeaderBlocks(path, header string) error {
 	lines := strings.Split(string(content), "\n")
 	kept := make([]string, 0, len(lines))
 	for index := 0; index < len(lines); index++ {
-		if strings.TrimSpace(lines[index]) == strings.TrimSpace(header) {
-			index++ // also drop the line immediately following the header
+		if strings.TrimSpace(lines[index]) != strings.TrimSpace(header) {
+			kept = append(kept, lines[index])
 			continue
 		}
-		kept = append(kept, lines[index])
+		// Skip the header itself, then everything through the block's
+		// content up to (and including) the next blank line, which marks
+		// where this block ends.
+		index++
+		for index < len(lines) && strings.TrimSpace(lines[index]) != "" {
+			index++
+		}
 	}
 
 	mode := os.FileMode(0o644)

@@ -529,16 +529,17 @@ func TestInstallAndUninstallCommandsUseInjectedActions(t *testing.T) {
 
 	var uninstallOut bytes.Buffer
 	uninstallCalls := 0
-	uninstallCommand := newUninstallCommandWithAction(func(out io.Writer) error {
+	uninstallCommand := newUninstallCommandWithAction(context.Background(), func(ctx context.Context, out io.Writer) error {
 		uninstallCalls++
 		_, err := io.WriteString(out, "uninstalled safely\n")
 		return err
 	})
 	uninstallCommand.SetOut(&uninstallOut)
+	uninstallCommand.SetArgs([]string{"--yes"})
 	if err := uninstallCommand.Execute(); err != nil {
 		t.Fatalf("uninstall command: %v", err)
 	}
-	if uninstallCalls != 1 || uninstallOut.String() != "uninstalled safely\n" {
+	if uninstallCalls != 1 || !strings.Contains(uninstallOut.String(), "uninstalled safely\n") {
 		t.Fatalf("uninstall calls/output = %d, %q", uninstallCalls, uninstallOut.String())
 	}
 }
