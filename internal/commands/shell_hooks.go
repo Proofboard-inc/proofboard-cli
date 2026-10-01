@@ -48,35 +48,105 @@ const (
 	legacyPlainPSDetectionLine    = "proofboard detect 2>$null"
 	legacyPlainPSNoticeLine       = "proofboard notices 2>$null"
 
-	shellDetectionLine     = `if [ -z "$PROOFBOARD_DETECTED" ]; then export PROOFBOARD_DETECTED=1; proofboard detect 2>/dev/null; fi`
-	fishShellDetectionLine = "if not set -q PROOFBOARD_DETECTED; set -gx PROOFBOARD_DETECTED 1; proofboard detect 2>/dev/null; end"
-
-	// noticeLine runs synchronously, same as shellDetectionLine above, so its
-	// output is actually visible the moment a terminal starts up: the same
-	// subtle "one line on shell startup" pattern as a venv auto-activation
-	// hook. Only stderr is suppressed; a slow network is already bounded by a
-	// short timeout inside the command itself.
-	noticeLine     = `if [ -z "$PROOFBOARD_NOTICES_SHOWN" ]; then export PROOFBOARD_NOTICES_SHOWN=1; proofboard notices 2>/dev/null; fi`
-	fishNoticeLine = "if not set -q PROOFBOARD_NOTICES_SHOWN; set -gx PROOFBOARD_NOTICES_SHOWN 1; proofboard notices 2>/dev/null; end"
-	psNoticeLine   = `if (-not $env:PROOFBOARD_NOTICES_SHOWN) { $env:PROOFBOARD_NOTICES_SHOWN = "1"; proofboard notices 2>$null }`
-
 	legacyPSDetectionLine = "Start-Process -WindowStyle Hidden -FilePath proofboard -ArgumentList 'detect' | Out-Null"
-	psDetectionLine       = `if (-not $env:PROOFBOARD_DETECTED) { $env:PROOFBOARD_DETECTED = "1"; proofboard detect 2>$null }`
 
-	// zshChpwdHook, bashChpwdHook, fishChpwdHook, psChpwdHook close a gap the
-	// startup-only lines above cannot: shellDetectionLine/fishShellDetectionLine/
-	// psDetectionLine only run once per shell session, at startup, so `cd`-ing
-	// into a different repository inside an already-open terminal never
-	// re-triggers `detect`. Each hook caches the last-seen git top-level in a
-	// shell variable so a `cd` WITHIN the same repo (the common case) costs one
-	// cheap `git rev-parse --show-toplevel` and never actually invokes the CLI.
-	// Each is wrapped in its own installed-once guard (mirroring
-	// PROOFBOARD_DETECTED above) so `ensureLineInFile`'s whole-line substring
-	// dedup makes re-running install idempotent, and appending these as NEW
-	// entries in shellHookTargets' Lines slices leaves the legacy-migration
-	// path (legacyDetectionLines, ensureLineInFile, containsWholeLine)
-	// completely untouched.
-	zshChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
+	// defaultHookCommand is the fallback invocation used when the running
+	// binary's own absolute path cannot be resolved (see
+	// resolveHookBinaryPath). It reproduces this CLI's long-standing
+	// behavior of calling `proofboard` by bare name, relying on $PATH.
+	defaultHookCommand = "proofboard"
+)
+
+// resolveHookBinaryPath returns the absolute path to the currently-running
+// proofboard binary, for use in shell hook lines.
+//
+// Hook lines call the CLI by this absolute path rather than by bare name
+// specifically so they do not depend on $PATH having been (re)resolved by
+// the shell. GUI apps — VS Code, Zed, and similar — resolve and cache their
+// own process environment once, at the app process's own launch, and never
+// revisit it for a new window or a new integrated terminal opened inside
+// that same still-running process. A hook line that depended on bare
+// `proofboard` + $PATH would silently do nothing in any such
+// already-running app (every hook line redirects stderr to /dev/null) until
+// the whole app was quit and relaunched — which is exactly what "the
+// detection prompt never shows up in VS Code" turned out to be. An absolute
+// path sidesteps $PATH lookup entirely, so it works immediately regardless
+// of when the app itself last resolved its environment.
+//
+// Falls back to defaultHookCommand (today's long-standing bare-name
+// behavior) if the executable's path cannot be resolved for any reason —
+// this must never fail hook maintenance itself.
+func resolveHookBinaryPath() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		return defaultHookCommand
+	}
+	if resolved, err := filepath.EvalSymlinks(execPath); err == nil {
+		execPath = resolved
+	}
+	abs, err := filepath.Abs(execPath)
+	if err != nil {
+		return defaultHookCommand
+	}
+	return abs
+}
+
+// posixInvoke quotes bin for use as a command in POSIX shells (bash, zsh,
+// sh) and fish, so a path containing spaces still works. Quoting a bare
+// command name (the defaultHookCommand fallback) is harmless — the shell
+// still resolves it via $PATH exactly as if it were unquoted.
+func posixInvoke(bin string) string {
+	return `"` + bin + `"`
+}
+
+func shellDetectionLine(bin string) string {
+	return fmt.Sprintf(`if [ -z "$PROOFBOARD_DETECTED" ]; then export PROOFBOARD_DETECTED=1; %s detect 2>/dev/null; fi`, posixInvoke(bin))
+}
+
+func fishShellDetectionLine(bin string) string {
+	return fmt.Sprintf("if not set -q PROOFBOARD_DETECTED; set -gx PROOFBOARD_DETECTED 1; %s detect 2>/dev/null; end", posixInvoke(bin))
+}
+
+// noticeLine runs synchronously, same as shellDetectionLine above, so its
+// output is actually visible the moment a terminal starts up: the same
+// subtle "one line on shell startup" pattern as a venv auto-activation
+// hook. Only stderr is suppressed; a slow network is already bounded by a
+// short timeout inside the command itself.
+func noticeLine(bin string) string {
+	return fmt.Sprintf(`if [ -z "$PROOFBOARD_NOTICES_SHOWN" ]; then export PROOFBOARD_NOTICES_SHOWN=1; %s notices 2>/dev/null; fi`, posixInvoke(bin))
+}
+
+func fishNoticeLine(bin string) string {
+	return fmt.Sprintf("if not set -q PROOFBOARD_NOTICES_SHOWN; set -gx PROOFBOARD_NOTICES_SHOWN 1; %s notices 2>/dev/null; end", posixInvoke(bin))
+}
+
+func psNoticeLine(bin string) string {
+	return fmt.Sprintf(`if (-not $env:PROOFBOARD_NOTICES_SHOWN) { $env:PROOFBOARD_NOTICES_SHOWN = "1"; & "%s" notices 2>$null }`, bin)
+}
+
+// psDetectionLine, like every PowerShell hook line here, uses the `&` call
+// operator with a quoted path — this invokes correctly whether bin is a
+// bare command name (resolved via PATH, same as an unquoted call) or an
+// absolute path, including one containing spaces.
+func psDetectionLine(bin string) string {
+	return fmt.Sprintf(`if (-not $env:PROOFBOARD_DETECTED) { $env:PROOFBOARD_DETECTED = "1"; & "%s" detect 2>$null }`, bin)
+}
+
+// zshChpwdHook, bashChpwdHook, fishChpwdHook, psChpwdHook close a gap the
+// startup-only lines above cannot: shellDetectionLine/fishShellDetectionLine/
+// psDetectionLine only run once per shell session, at startup, so `cd`-ing
+// into a different repository inside an already-open terminal never
+// re-triggers `detect`. Each hook caches the last-seen git top-level in a
+// shell variable so a `cd` WITHIN the same repo (the common case) costs one
+// cheap `git rev-parse --show-toplevel` and never actually invokes the CLI.
+// Each is wrapped in its own installed-once guard (mirroring
+// PROOFBOARD_DETECTED above) so `ensureLineInFile`'s whole-line substring
+// dedup makes re-running install idempotent, and appending these as NEW
+// entries in shellHookTargets' Lines slices leaves the legacy-migration
+// path (legacyDetectionLines, ensureLineInFile, containsWholeLine)
+// completely untouched.
+func zshChpwdHook(bin string) string {
+	return fmt.Sprintf(`if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
 PROOFBOARD_CHPWD_INSTALLED=1
 typeset -g _proofboard_last_root=""
 _proofboard_chpwd() {
@@ -84,13 +154,15 @@ _proofboard_chpwd() {
   root=$(git rev-parse --show-toplevel 2>/dev/null)
   if [ -n "$root" ] && [ "$root" != "$_proofboard_last_root" ]; then
     _proofboard_last_root="$root"
-    proofboard detect 2>/dev/null
+    %s detect 2>/dev/null
   fi
 }
 autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd _proofboard_chpwd
-fi`
+fi`, posixInvoke(bin))
+}
 
-	bashChpwdHook = `if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
+func bashChpwdHook(bin string) string {
+	return fmt.Sprintf(`if [ -z "$PROOFBOARD_CHPWD_INSTALLED" ]; then
 PROOFBOARD_CHPWD_INSTALLED=1
 _proofboard_last_root=""
 _proofboard_chpwd() {
@@ -98,29 +170,33 @@ _proofboard_chpwd() {
   root=$(git rev-parse --show-toplevel 2>/dev/null)
   if [ -n "$root" ] && [ "$root" != "$_proofboard_last_root" ]; then
     _proofboard_last_root="$root"
-    proofboard detect 2>/dev/null
+    %s detect 2>/dev/null
   fi
 }
 PROMPT_COMMAND="_proofboard_chpwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-fi`
+fi`, posixInvoke(bin))
+}
 
-	fishChpwdHook = `if not set -q PROOFBOARD_CHPWD_INSTALLED
+func fishChpwdHook(bin string) string {
+	return fmt.Sprintf(`if not set -q PROOFBOARD_CHPWD_INSTALLED
 set -g PROOFBOARD_CHPWD_INSTALLED 1
 set -g _proofboard_last_root ""
 function _proofboard_chpwd --on-variable PWD
     set -l root (git rev-parse --show-toplevel 2>/dev/null)
     if test -n "$root"; and test "$root" != "$_proofboard_last_root"
         set -g _proofboard_last_root $root
-        proofboard detect 2>/dev/null
+        %s detect 2>/dev/null
     end
 end
-end`
+end`, posixInvoke(bin))
+}
 
-	// PowerShell has no native chpwd/PWD-change event; wrapping the prompt
-	// function is the standard idiom. This chains to whatever prompt function
-	// was already defined at install time (custom prompt, oh-my-posh, etc.)
-	// so it never clobbers an existing prompt.
-	psChpwdHook = `if (-not $env:PROOFBOARD_CHPWD_INSTALLED) {
+// psChpwdHook: PowerShell has no native chpwd/PWD-change event; wrapping
+// the prompt function is the standard idiom. This chains to whatever prompt
+// function was already defined at install time (custom prompt, oh-my-posh,
+// etc.) so it never clobbers an existing prompt.
+func psChpwdHook(bin string) string {
+	return fmt.Sprintf(`if (-not $env:PROOFBOARD_CHPWD_INSTALLED) {
     $env:PROOFBOARD_CHPWD_INSTALLED = "1"
     $global:_proofboardLastRoot = ""
     $global:_proofboardPrevPrompt = $function:prompt
@@ -129,13 +205,13 @@ end`
             $root = git rev-parse --show-toplevel 2>$null
             if ($root -and $root -ne $global:_proofboardLastRoot) {
                 $global:_proofboardLastRoot = $root
-                proofboard detect 2>$null
+                & "%s" detect 2>$null
             }
         } catch {}
         & $global:_proofboardPrevPrompt
     }
-}`
-)
+}`, bin)
+}
 
 func newShellHookMaintenanceCommand(ctx context.Context, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
@@ -176,8 +252,31 @@ func maintainShellHooks(ctx context.Context) error {
 	return nil
 }
 
+// ensureShellDetectionHooks resolves the hook binary path from the
+// currently-running process. This is correct for the self-healing,
+// steady-state case — hook-maintain runs as part of an ordinary
+// `proofboard <command>` invocation, so "whatever binary is running right
+// now" and "the binary that should be in the hooks" are the same thing by
+// definition, including after the CLI has been reinstalled to a new
+// location. It is NOT correct during `install` itself: see
+// ensureShellDetectionHooksForBinary.
 func ensureShellDetectionHooks(ctx context.Context) (updated bool, inspected int, err error) {
-	targets, err := shellHookTargets()
+	return ensureShellDetectionHooksForBinary(ctx, resolveHookBinaryPath())
+}
+
+// ensureShellDetectionHooksForBinary is ensureShellDetectionHooks with the
+// hook binary path supplied explicitly, for the one caller where
+// os.Executable() (inside resolveHookBinaryPath) would be wrong: `install`
+// itself. At the moment installTo calls this, the *running* process is
+// still whatever copied the executable into place — a temp download
+// location, or a dev build run manually from a repo checkout — not the
+// just-written destination at location.Executable. Writing hooks against
+// os.Executable() there would point them at a path that may not even exist
+// once the install script's temp files are cleaned up. installTo must pass
+// its own resolved location.Executable explicitly instead of relying on
+// the self-healing default.
+func ensureShellDetectionHooksForBinary(ctx context.Context, bin string) (updated bool, inspected int, err error) {
+	targets, err := shellHookTargets(bin)
 	if err != nil {
 		return false, 0, err
 	}
@@ -186,14 +285,12 @@ func ensureShellDetectionHooks(ctx context.Context) (updated bool, inspected int
 		if target.Path == "" {
 			continue
 		}
-		for _, line := range target.Lines {
-			done, _, err := ensureLineInFile(target.Path, line)
-			if err != nil {
-				return false, inspected, err
-			}
-			if done {
-				updated = true
-			}
+		changed, err := ensureWorkspaceDetectionBlock(target.Path, target.Lines)
+		if err != nil {
+			return false, inspected, err
+		}
+		if changed {
+			updated = true
 		}
 	}
 	// Attempt recovery on every call, not just when this exact call catches
@@ -205,6 +302,58 @@ func ensureShellDetectionHooks(ctx context.Context) (updated bool, inspected int
 	// effort: a failure must never block hook maintenance itself.
 	_ = recoverBurnedWorkspacePrompts(ctx)
 	return updated, inspected, nil
+}
+
+// ensureWorkspaceDetectionBlock makes sure every line in `lines` is present
+// in the rc file at `path`, self-healing a stale block rather than trying
+// to migrate each line individually. "Stale" covers more than the
+// pre-header legacy formats ensureLineInFile already migrates in place: a
+// block written by an earlier CLI version's template, or one pointing at a
+// binary that has since moved (a reinstall to a new location, or simply a
+// different resolveHookBinaryPath result), would otherwise sit there
+// unmatched forever while a second, current block gets appended below it —
+// duplicated text that still technically works (each is guarded against
+// running twice) but never cleans itself up. Detecting staleness at the
+// block level and replacing the whole thing avoids needing to hand-enumerate
+// every historical line format, the way legacyDetectionLines otherwise
+// requires.
+//
+// The common case — everything already present and current — costs exactly
+// one file read and a handful of substring checks, same as calling
+// ensureLineInFile directly for each line would have. Only a genuine
+// mismatch pays for the strip-and-rewrite.
+func ensureWorkspaceDetectionBlock(path string, lines []string) (bool, error) {
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	allPresent := true
+	for _, line := range lines {
+		if !strings.Contains(string(content), line) {
+			allPresent = false
+			break
+		}
+	}
+	if allPresent {
+		return false, nil
+	}
+	// Something is missing or stale. If a block already exists under this
+	// header, strip it first so the file never accumulates duplicates from
+	// an old template or an old binary path sitting alongside the fresh one.
+	// A header-less ultra-legacy line (predating this header entirely) has
+	// no block to strip here; ensureLineInFile below still migrates it via
+	// legacyDetectionLines, same as always.
+	if strings.Contains(string(content), workspaceDetectionHeader) {
+		if err := removeAllHeaderBlocks(path, workspaceDetectionHeader); err != nil {
+			return false, err
+		}
+	}
+	for _, line := range lines {
+		if _, _, err := ensureLineInFile(path, line); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // recoverBurnedWorkspacePrompts undoes the "detect silently burns the
@@ -333,7 +482,7 @@ type detectHookTarget struct {
 	Lines []string
 }
 
-func shellHookTargets() ([]detectHookTarget, error) {
+func shellHookTargets(bin string) ([]detectHookTarget, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("home directory: %w", err)
@@ -347,34 +496,34 @@ func shellHookTargets() ([]detectHookTarget, error) {
 	switch shell {
 	case "bash":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".bashrc"), Lines: []string{shellDetectionLine, noticeLine, bashChpwdHook}},
-			{Path: filepath.Join(homeDir, ".bash_profile"), Lines: []string{shellDetectionLine, noticeLine, bashChpwdHook}},
+			{Path: filepath.Join(homeDir, ".bashrc"), Lines: []string{shellDetectionLine(bin), noticeLine(bin), bashChpwdHook(bin)}},
+			{Path: filepath.Join(homeDir, ".bash_profile"), Lines: []string{shellDetectionLine(bin), noticeLine(bin), bashChpwdHook(bin)}},
 		}, nil
 	case "zsh":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".zshrc"), Lines: []string{shellDetectionLine, noticeLine, zshChpwdHook}},
-			{Path: filepath.Join(homeDir, ".zprofile"), Lines: []string{shellDetectionLine, noticeLine, zshChpwdHook}},
+			{Path: filepath.Join(homeDir, ".zshrc"), Lines: []string{shellDetectionLine(bin), noticeLine(bin), zshChpwdHook(bin)}},
+			{Path: filepath.Join(homeDir, ".zprofile"), Lines: []string{shellDetectionLine(bin), noticeLine(bin), zshChpwdHook(bin)}},
 		}, nil
 	case "fish":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Lines: []string{fishShellDetectionLine, fishNoticeLine, fishChpwdHook}},
+			{Path: filepath.Join(homeDir, ".config", "fish", "config.fish"), Lines: []string{fishShellDetectionLine(bin), fishNoticeLine(bin), fishChpwdHook(bin)}},
 		}, nil
 	case "powershell", "pwsh":
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
-			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
+			{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine(bin), psNoticeLine(bin), psChpwdHook(bin)}},
+			{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine(bin), psNoticeLine(bin), psChpwdHook(bin)}},
 		}, nil
 	default:
 		if os.Getenv("OS") == "Windows_NT" {
 			return []detectHookTarget{
-				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
-				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine, psNoticeLine, psChpwdHook}},
+				{Path: filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine(bin), psNoticeLine(bin), psChpwdHook(bin)}},
+				{Path: filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), Lines: []string{psDetectionLine(bin), psNoticeLine(bin), psChpwdHook(bin)}},
 			}, nil
 		}
 		// Plain POSIX sh (.profile fallback) has no chpwd/PROMPT_COMMAND
 		// equivalent; startup-only detection remains correct here.
 		return []detectHookTarget{
-			{Path: filepath.Join(homeDir, ".profile"), Lines: []string{shellDetectionLine, noticeLine}},
+			{Path: filepath.Join(homeDir, ".profile"), Lines: []string{shellDetectionLine(bin), noticeLine(bin)}},
 		}, nil
 	}
 }

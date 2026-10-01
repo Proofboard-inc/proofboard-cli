@@ -62,7 +62,7 @@ func NewRootCommand(ctx context.Context, out io.Writer, errOut io.Writer) *cobra
 		newConfigCommand(ctx, out),
 		newCompletionCommand(),
 		newInstallCommand(),
-		newUninstallCommand(),
+		newUninstallCommand(ctx),
 		newVersionCommand(ctx, out),
 	)
 	return cmd

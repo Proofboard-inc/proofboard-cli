@@ -134,10 +134,11 @@ test ! -s "$TEST_ARTIFACT_DIR/detect.txt"
 
 touch "$HOME/.bashrc" "$HOME/.bash_profile"
 SHELL=/bin/bash "$COMPILED_BINARY" hook-maintain
-grep -qF 'proofboard detect 2>/dev/null' "$HOME/.bashrc"
-grep -qF 'proofboard notices 2>/dev/null' "$HOME/.bashrc"
-grep -qF 'proofboard detect 2>/dev/null' "$HOME/.bash_profile"
-grep -qF 'proofboard notices 2>/dev/null' "$HOME/.bash_profile"
+# Hooks call the CLI by its absolute, quoted path ("/path/to/proofboard" detect), so match both forms.
+grep -qE 'proofboard"? detect 2>/dev/null' "$HOME/.bashrc"
+grep -qE 'proofboard"? notices 2>/dev/null' "$HOME/.bashrc"
+grep -qE 'proofboard"? detect 2>/dev/null' "$HOME/.bash_profile"
+grep -qE 'proofboard"? notices 2>/dev/null' "$HOME/.bash_profile"
 rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
 
 for profile in \

@@ -13,9 +13,9 @@ import (
 // (PROOFBOARD_DETECTED) is deliberately exported; this one must not be.
 func TestChpwdInstallGuardIsNotExported(t *testing.T) {
 	for name, hook := range map[string]string{
-		"zsh":  zshChpwdHook,
-		"bash": bashChpwdHook,
-		"fish": fishChpwdHook,
+		"zsh":  zshChpwdHook(defaultHookCommand),
+		"bash": bashChpwdHook(defaultHookCommand),
+		"fish": fishChpwdHook(defaultHookCommand),
 	} {
 		if strings.Contains(hook, "export PROOFBOARD_CHPWD_INSTALLED") ||
 			strings.Contains(hook, "set -gx PROOFBOARD_CHPWD_INSTALLED") {

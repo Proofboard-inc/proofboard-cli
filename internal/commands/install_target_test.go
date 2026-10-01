@@ -230,7 +230,20 @@ func TestEnsureDirectoryOnPathUpdatesShellProfile(t *testing.T) {
 	}
 }
 
-func TestEnsureDirectoryOnPathSkipsDirectoriesAlreadyOnPath(t *testing.T) {
+// TestEnsureDirectoryOnPathPersistsEvenWhenAlreadyOnTheCallingProcessPATH
+// guards against a real incident: ensureDirectoryOnPath used to skip writing
+// to any rc file whenever the *installer process's own* inherited PATH
+// already contained the install directory. That reflects only the terminal
+// that happened to run the installer — e.g. a session where the user had
+// manually exported the directory earlier, or run install/uninstall
+// repeatedly in the same tab — not what is durably persisted anywhere. Every
+// other shell (a new terminal tab, an IDE's integrated terminal, a
+// non-login shell) never got `proofboard` on PATH, and since this CLI's
+// shell hooks all redirect stderr to /dev/null, the resulting "command not
+// found" was completely silent. The fix must write to the rc file
+// regardless of the live process PATH; appendMarkedLine's own dedup against
+// file content (not env) keeps repeated calls idempotent.
+func TestEnsureDirectoryOnPathPersistsEvenWhenAlreadyOnTheCallingProcessPATH(t *testing.T) {
 	homeDir := t.TempDir()
 	installDir := filepath.Join(homeDir, ".local", "bin")
 	env := installEnvironment{
@@ -252,7 +265,23 @@ func TestEnsureDirectoryOnPathSkipsDirectoriesAlreadyOnPath(t *testing.T) {
 	if err := ensureDirectoryOnPath(env, installDir, &strings.Builder{}); err != nil {
 		t.Fatalf("ensure directory on PATH: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(homeDir, ".bashrc")); !os.IsNotExist(err) {
-		t.Fatalf("shell profile was modified needlessly: %v", err)
+	content, err := os.ReadFile(filepath.Join(homeDir, ".bashrc"))
+	if err != nil {
+		t.Fatalf("expected .bashrc to be written even though installDir was already on the calling process's PATH: %v", err)
+	}
+	if !strings.Contains(string(content), installDir) {
+		t.Fatalf(".bashrc does not contain the install directory export: %s", content)
+	}
+
+	// Calling it again must not duplicate the export line.
+	if err := ensureDirectoryOnPath(env, installDir, &strings.Builder{}); err != nil {
+		t.Fatalf("ensure directory on PATH (second call): %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(homeDir, ".bashrc"))
+	if err != nil {
+		t.Fatalf("read .bashrc after second call: %v", err)
+	}
+	if strings.Count(string(second), installDir) != strings.Count(string(content), installDir) {
+		t.Fatalf("second call duplicated the PATH export: %s", second)
 	}
 }

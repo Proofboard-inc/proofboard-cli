@@ -194,6 +194,71 @@ func (s *memoryDeviceKeySecretStore) Set(_, _, value string) error {
 	return nil
 }
 
+func (s *memoryDeviceKeySecretStore) Delete(_, _ string) error {
+	// Mirrors go-keyring's own idempotent-delete semantics closely enough for
+	// this test double: deleting an already-absent secret is a no-op
+	// success, matching memoryCredentialSecretStore.Delete's convention.
+	s.value = ""
+	return nil
+}
+
+// FIX: logout previously only removed the on-disk device.key fallback
+// (os.Remove(~/.proofboard/device.key)), which is a no-op when the key
+// lives in the OS keychain — the default. A signed-out device kept its
+// ECDSA signing identity registered with the backend. Delete must clear
+// both locations regardless of which one currently holds the key.
+func TestDeviceKeyStoreDeleteRemovesKeychainEntry(t *testing.T) {
+	homeDir := t.TempDir()
+	secrets := &memoryDeviceKeySecretStore{}
+	store := DeviceKeyStore{homeDir: homeDir, secretStore: secrets}
+
+	if err := store.Save(context.Background(), DeviceKeyRecord{
+		Algorithm:  deviceKeyAlgorithm,
+		PublicKey:  "public",
+		PrivateKey: "private",
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if secrets.value == "" {
+		t.Fatal("device key was not written to the OS keychain")
+	}
+	if err := store.Delete(context.Background()); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if secrets.value != "" {
+		t.Fatal("device key still present in the OS keychain after Delete")
+	}
+	if err := store.Delete(context.Background()); err != nil {
+		t.Fatalf("second Delete should be idempotent: %v", err)
+	}
+}
+
+// TestDeviceKeyStoreDeleteRemovesFileFallback covers the keychain-disabled
+// path (headless Linux, containers, PROOFBOARD_DISABLE_KEYCHAIN=1): Delete
+// must remove ~/.proofboard/device.key too, not only attempt the keychain.
+func TestDeviceKeyStoreDeleteRemovesFileFallback(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
+	store := DeviceKeyStore{homeDir: homeDir, secretStore: &memoryDeviceKeySecretStore{}}
+
+	if err := store.Save(context.Background(), DeviceKeyRecord{
+		Algorithm:  deviceKeyAlgorithm,
+		PublicKey:  "public",
+		PrivateKey: "private",
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := os.Stat(store.Path()); err != nil {
+		t.Fatalf("expected device key file fallback to exist: %v", err)
+	}
+	if err := store.Delete(context.Background()); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(store.Path()); !os.IsNotExist(err) {
+		t.Fatalf("device key file still present after Delete: %v", err)
+	}
+}
+
 // FIX: Ensure() must not re-write the OS keychain on every call once a
 // device key is already registered and already loaded from the keychain.
 // On macOS, every keyring.Set call can surface an OS access-control prompt,
