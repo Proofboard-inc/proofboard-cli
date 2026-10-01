@@ -668,9 +668,9 @@ jobs:
             Proofboard builds your career while you focus on building software.
 
             Highlights:
-            - Installing from the published one-line command actually completes now. v1.16.0 fixed the download itself (a 404 from a renamed asset), but checksums.txt — a hand-maintained list — was never updated to include the restored names, so every install still failed one step later at signature/checksum verification. Both naming conventions are covered now for every target, including the new ARM builds.
-
-            No other code changes ride with this — it exists so there is a release that installs cleanly end to end.
+            - Uninstalling no longer damages your shell startup files. It now removes only the blocks Proofboard wrote, recognised by their exact contents, so any lines you added yourself, even right after a Proofboard block, stay where they are.
+            - Uninstalling now fully signs this device out: the saved session and the device signing key are removed from the OS keychain and from the file fallback, so a reinstall starts signed out instead of quietly reusing the old account.
+            - Shell hooks call the CLI by its full path, so workspace detection keeps working even when the install directory is not on your PATH.
 
             Built for six targets with every native installer, install script, metadata file, and npm tarball attached. Operating-system code signing runs automatically once the certificates in docs/code-signing.md are configured; until then the signing steps skip and say so, and this release is unsigned.
 
