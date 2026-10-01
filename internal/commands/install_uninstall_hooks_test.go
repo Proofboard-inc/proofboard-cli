@@ -407,6 +407,7 @@ func TestPerformUninstallStripsShellHookBlocksEvenWhenNoExecutableFound(t *testi
 func TestPerformUninstallClearsCredentialsAndDeviceKey(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir) // os.UserHomeDir reads USERPROFILE on Windows
 	t.Setenv("PROOFBOARD_INSTALL_DIR", "")
 	t.Setenv("PROOFBOARD_DISABLE_KEYCHAIN", "1")
 
