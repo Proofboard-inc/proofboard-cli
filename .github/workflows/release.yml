@@ -878,3 +878,55 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-homebrew-tap:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Update the Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `brew install proofboard` reads Formula/proofboard.rb from
+          # Proofboard-inc/homebrew-tap. Hand-updated it went stale: the tap
+          # still offered 1.16.9 after 1.16.10 shipped. Each tagged release now
+          # rewrites the formula with that release's version and checksums.
+          # The formula installs the release-signed binaries themselves, which
+          # is why this step and not goreleaser's brews block does it: the
+          # release is built by the jobs above, not by goreleaser.
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "::error title=Homebrew tap not updated::HOMEBREW_TAP_TOKEN is not set, so brew install proofboard still installs the previous release. Add a token with contents:write on Proofboard-inc/homebrew-tap as the HOMEBREW_TAP_TOKEN secret."
+            exit 0
+          fi
+
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p bins
+          # The release page is the source of truth: checksum exactly the bytes
+          # Homebrew will download, verified against the release's checksums.txt.
+          gh release download "$TAG" --repo "${GITHUB_REPOSITORY}" --dir bins \
+            --pattern 'Proofboard-Career-Agent-darwin-arm64' \
+            --pattern 'Proofboard-Career-Agent-darwin-amd64' \
+            --pattern 'Proofboard-Career-Agent-linux-amd64' \
+            --pattern 'Proofboard-Career-Agent-linux-arm64' \
+            --pattern 'checksums.txt'
+          (cd bins && grep -E ' Proofboard-Career-Agent-(darwin|linux)-(amd64|arm64)$' checksums.txt | sha256sum -c -)
+
+          git config --global user.name "proofboard-release"
+          git config --global user.email "release@proofboard.io"
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Proofboard-inc/homebrew-tap.git" tap
+          go run ./scripts/homebrew_formula "$TAG" bins > tap/Formula/proofboard.rb
+          cd tap
+          if git diff --quiet; then
+            echo "formula already at ${TAG}"
+            exit 0
+          fi
+          git add Formula/proofboard.rb
+          git commit -m "proofboard ${TAG#v}"
+          git push origin HEAD
+          echo "homebrew-tap now offers ${TAG}"
