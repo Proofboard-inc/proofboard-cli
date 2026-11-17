@@ -1,3 +1,7 @@
+# Not used by the release workflow (.github/workflows/release.yml builds, signs
+# and publishes every artifact itself). Homebrew is updated by its
+# publish-homebrew-tap job, which installs the release-signed binaries.
+
 version: 2
 
 before:
